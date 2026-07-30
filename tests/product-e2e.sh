@@ -195,6 +195,8 @@ fi
 grep -Eq 'sudo apt install .*nodejs' \
     "$EVIDENCE_DIR/install-no-runtime.txt"
 
+# js_runtime invokes these test doubles indirectly by candidate name.
+# shellcheck disable=SC2329
 (
     source "$ROOT/lib.sh"
     deno() { printf 'deno 2.2.9\n'; }
@@ -276,11 +278,11 @@ fi
 # are asserted rather than just the exit status.
 FETCH_OUT="$TEST_ROOT/youtube"
 FETCH_RECORD="$EVIDENCE_DIR/yt-dlp-invocation.json"
+# These environment changes are confined to the subshell.
+# shellcheck disable=SC2030,SC2031
 (
     # tests/bin supplies the yt-dlp and ffmpeg doubles, and the findmnt double
     # that lets --sync autodetect the fake iPod the way a real one is found.
-    # Confined to this subshell.
-    # shellcheck disable=SC2031
     PATH="$ROOT/tests/bin:$PATH"
     export FAKE_IPOD_MOUNT="$IPOD"
     export FAKE_YTDLP_RECORD="$FETCH_RECORD"
@@ -359,6 +361,8 @@ grep -Fq 'Downloaded 1 track(s)' "$EVIDENCE_DIR/fetch-and-sync.txt"
 
 OLD_FETCH_OUT="$TEST_ROOT/old-yt-dlp"
 OLD_FETCH_RECORD="$EVIDENCE_DIR/old-yt-dlp-invocation.json"
+# These environment changes are confined to the subshell.
+# shellcheck disable=SC2030,SC2031
 (
     PATH="$ROOT/tests/bin:$PATH"
     export FAKE_YTDLP_RECORD="$OLD_FETCH_RECORD"

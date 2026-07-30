@@ -43,7 +43,6 @@ cd ipod-shuffle-linux
 
 That is the whole installation.
 It fetches the database builder into `~/ipod-tools/`, creates a virtualenv for the Python dependencies, works out which system packages are missing, and offers to install them.
-It also reports when a supported JavaScript runtime must be installed manually.
 
 The only hard requirements are Python 3 and git.
 Everything else is installed or reported for you:
@@ -55,7 +54,7 @@ Everything else is installed or reported for you:
 | `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | system | The graphical interface |
 | `libttspico-utils` | system | Spoken track and playlist names via VoiceOver (the Flatpak bundles espeak-ng instead, see below) |
 | `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats, including YouTube's Opus |
-| Deno >= 2.3, Node >= 22, or Bun 1.2.11-1.3.14 | system (manual) | Solving YouTube's signature challenge |
+| [Supported JavaScript runtime](#downloading-from-youtube) | system | Solving YouTube's signature challenge |
 
 Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
 System packages are never installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
@@ -331,7 +330,7 @@ YouTube titles stop at 100 characters and vfat allows 255, so it protects agains
 `--windows-filenames` does stay, because YouTube titles routinely contain `?`, `|`, and `:`, which vfat rejects outright.
 Sanitising at download time means a sync cannot fail halfway through copying.
 
-**A JavaScript runtime is not optional, despite looking like it.**
+**Most YouTube downloads require a JavaScript runtime.**
 
 YouTube hides most media URLs behind a signature challenge that has to be solved in JavaScript, and `yt-dlp` enables only `deno` by default.
 On a machine with `node` or `bun` but no `deno`, every part of a run looks healthy right up until the download: titles, artists, and formats all resolve, then each track fails with `HTTP Error 403: Forbidden`.
@@ -339,7 +338,7 @@ On a machine with `node` or `bun` but no `deno`, every part of a run looks healt
 What makes this genuinely confusing is that old unrestricted uploads still work.
 The failure therefore looks specific to the videos you happen to want rather than to the machine, which sends you investigating the wrong thing entirely.
 
-`ipod-fetch.sh` probes for supported versions of `deno`, `node`, and `bun` and passes the first usable runtime it finds.
+`ipod-fetch.sh` probes, in order, for Deno >= 2.3, Node >= 22, and Bun 1.2.11-1.3.14, then passes the first usable runtime it finds.
 If none is usable, `install.sh` offers to install the distribution's `nodejs` package and points to [yt-dlp's EJS setup guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS) in case its version is too old.
 If any supported runtime is already present, the installer leaves it alone.
 If none is usable the script warns before downloading instead of failing opaquely partway through.
