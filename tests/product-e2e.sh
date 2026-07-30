@@ -176,9 +176,14 @@ grep -Fq \
 ) > "$EVIDENCE_DIR/js-runtime-absent.txt"
 grep -Fxq "absent" "$EVIDENCE_DIR/js-runtime-absent.txt"
 
-# The native installer uses the ordinary nodejs distribution package as its
-# fallback only when no supported runtime exists. Stop it immediately after
-# the dependency report so this check cannot install or download anything.
+# The installer must report a missing JavaScript runtime rather than offering
+# the distribution's nodejs package to fix it. Ubuntu ships nodejs 18, below
+# yt-dlp's floor of 22, so installing it spends a privileged apt transaction
+# on a runtime js_runtime() then rejects, leaving downloads failing with the
+# same HTTP 403 while appearing to have been dealt with.
+#
+# Stop the installer immediately after the dependency report so this check
+# cannot install or download anything.
 INSTALLER_PATH="$TEST_ROOT/installer-path"
 mkdir -p "$INSTALLER_PATH"
 for command in bash dirname git mkdir python3 readlink; do
@@ -192,7 +197,13 @@ if PATH="$INSTALLER_PATH" IPOD_TOOLS_DIR="$INSTALL_BLOCKER" \
     echo "installer unexpectedly continued past the dependency report" >&2
     exit 1
 fi
-grep -Eq 'sudo apt install .*nodejs' \
+if grep -Eq 'apt install .*nodejs' "$EVIDENCE_DIR/install-no-runtime.txt"; then
+    echo "installer offered a distribution nodejs too old to satisfy yt-dlp" >&2
+    exit 1
+fi
+grep -Fq 'https://github.com/yt-dlp/yt-dlp/wiki/EJS' \
+    "$EVIDENCE_DIR/install-no-runtime.txt"
+grep -Fq 'YouTube downloads need Deno' \
     "$EVIDENCE_DIR/install-no-runtime.txt"
 
 # js_runtime invokes these test doubles indirectly by candidate name.
@@ -399,7 +410,7 @@ printf '%s\n' \
     "PASS: fetch handed artist folders to the sync, not their parent" \
     "PASS: fetch passed a JavaScript runtime, without which downloads 403" \
     "PASS: runtime probe reported absence instead of naming an uninstalled one" \
-    "PASS: installer offered nodejs when no supported runtime was present" \
+    "PASS: installer reported a missing runtime instead of offering a stale nodejs" \
     "PASS: runtime probe rejected unsupported versions and accepted supported boundaries" \
     "PASS: old PATH yt-dlp fallback omitted its unsupported runtime option" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"

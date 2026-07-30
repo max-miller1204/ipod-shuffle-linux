@@ -339,7 +339,9 @@ What makes this genuinely confusing is that old unrestricted uploads still work.
 The failure therefore looks specific to the videos you happen to want rather than to the machine, which sends you investigating the wrong thing entirely.
 
 `ipod-fetch.sh` probes, in order, for Deno >= 2.3, Node >= 22, and Bun 1.2.11-1.3.14, then passes the first usable runtime it finds.
-If none is usable, `install.sh` offers to install the distribution's `nodejs` package and points to [yt-dlp's EJS setup guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS) in case its version is too old.
+If none is usable, `install.sh` says so and points at [yt-dlp's EJS setup guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS), but deliberately does not install one for you.
+This is the one dependency it reports rather than offers, because Ubuntu's `nodejs` package is version 18, below the floor of 22.
+Installing it would spend a privileged apt transaction on a runtime the probe then rejects, leaving downloads failing with the same `HTTP 403` while looking like the problem had been dealt with.
 If any supported runtime is already present, the installer leaves it alone.
 If none is usable the script warns before downloading instead of failing opaquely partway through.
 
