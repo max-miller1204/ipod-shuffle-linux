@@ -51,7 +51,7 @@ Everything else is handled for you:
 | --- | --- | --- |
 | `mutagen` | virtualenv | Artist and album metadata, including tag-based playlists |
 | `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | system | The graphical interface |
-| `libttspico-utils` | system | Spoken track and playlist names via VoiceOver |
+| `libttspico-utils` | system | Spoken track and playlist names via VoiceOver (the Flatpak bundles espeak-ng instead, see below) |
 | `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats |
 
 Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
@@ -137,6 +137,22 @@ Both routes reach the same daemon and the same polkit check.
 
 The three `IPOD_TOOLS_DIR`, `IPOD_DB_TOOL`, and `IPOD_VENV_PYTHON` variables exist for the same reason.
 Inside the Flatpak the database builder is baked into `/app` and mutagen belongs to the runtime interpreter, so there is no virtualenv and no `~/ipod-tools`.
+
+### Why the Flatpak speaks with a different voice
+
+The native install uses `pico2wave`, which sounds more natural.
+The Flatpak bundles espeak-ng instead, which is more robotic.
+
+This is not a preference.
+SVOX Pico is unmaintained code from 2013, and built against the GNOME runtime it produces non-deterministic output: the same text yields different audio on every run, which is the signature of reading uninitialised memory.
+Eight synthesis runs of one unchanging string produced seven different files.
+That reaches the device as playlists whose spoken names are garbage or silence, and because the database builder ignores the exit status while Pico reports success either way, nothing detects it.
+
+Building with `-O0 -fno-strict-aliasing -fwrapv` did not help, and Debian's working package is built from a different patch set than the fork available to package here.
+espeak-ng is maintained, builds cleanly, and the database builder already supports it.
+
+The build asserts the property that failed rather than assuming it, synthesising the same text twice and comparing the results, so a regression fails the build instead of reaching a device.
+The builder hardcodes `-v english_rp`, a voice name espeak-ng renamed to `en-gb-x-rp` and now rejects, so the old name is installed as an alias of the same voice definition rather than forking the builder to change one string.
 
 ## Usage
 
