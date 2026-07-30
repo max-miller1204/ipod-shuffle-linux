@@ -7,9 +7,13 @@ set -euo pipefail
 # USB product ID for the iPod shuffle 4th generation.
 readonly SHUFFLE_USB_ID="05ac:1303"
 
-# Upstream database builder, installed by setup.sh.
-readonly TOOLS_DIR="${HOME}/ipod-tools"
-readonly DB_TOOL="${TOOLS_DIR}/IPod-Shuffle-4g/ipod-shuffle-4g.py"
+# Upstream database builder, installed by install.sh.
+#
+# All three paths are overridable so the same scripts work unmodified inside
+# a Flatpak, where the builder is baked into /app and mutagen belongs to the
+# runtime interpreter rather than a virtualenv.
+readonly TOOLS_DIR="${IPOD_TOOLS_DIR:-${HOME}/ipod-tools}"
+readonly DB_TOOL="${IPOD_DB_TOOL:-${TOOLS_DIR}/IPod-Shuffle-4g/ipod-shuffle-4g.py}"
 
 # Dedicated virtualenv holding mutagen.
 #
@@ -19,7 +23,7 @@ readonly DB_TOOL="${TOOLS_DIR}/IPod-Shuffle-4g/ipod-shuffle-4g.py"
 # dist-packages at all, so "apt install python3-mutagen" would appear to
 # succeed while the builder still reported no metadata support. Owning a venv
 # sidesteps the question entirely.
-readonly VENV_PYTHON="${TOOLS_DIR}/venv/bin/python"
+readonly VENV_PYTHON="${IPOD_VENV_PYTHON:-${TOOLS_DIR}/venv/bin/python}"
 
 err()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; }
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
@@ -101,6 +105,46 @@ assert_shuffle() {
 # Resolve the backing block device for a mount point, for unmount messages.
 ipod_device() {
     findmnt -rno SOURCE --target "$1" 2>/dev/null || true
+}
+
+# UDisks2 D-Bus object path for a block device, e.g. /dev/sda -> .../sda.
+udisks_path() {
+    printf '/org/freedesktop/UDisks2/block_devices/%s' "${1##*/}"
+}
+
+# Mount and unmount through UDisks2.
+#
+# udisksctl is the friendlier front end and is used when present, but the
+# Flatpak runtime ships gdbus without it, so both paths have to work. Either
+# way the request reaches the same daemon and the same polkit check, which
+# grants removable media to the logged-in user without a password.
+udisks_method() {
+    local dev="$1" method="$2"
+    gdbus call --system --dest org.freedesktop.UDisks2 \
+        --object-path "$(udisks_path "$dev")" \
+        --method "org.freedesktop.UDisks2.Filesystem.$method" "{}"
+}
+
+ipod_unmount() {
+    local dev="$1"
+    if command -v udisksctl >/dev/null 2>&1; then
+        udisksctl unmount -b "$dev"
+    elif command -v gdbus >/dev/null 2>&1; then
+        udisks_method "$dev" Unmount >/dev/null && echo "Unmounted $dev."
+    else
+        die "Neither udisksctl nor gdbus found; cannot unmount."
+    fi
+}
+
+ipod_mount() {
+    local dev="$1"
+    if command -v udisksctl >/dev/null 2>&1; then
+        udisksctl mount -b "$dev"
+    elif command -v gdbus >/dev/null 2>&1; then
+        udisks_method "$dev" Mount
+    else
+        die "Neither udisksctl nor gdbus found; cannot mount."
+    fi
 }
 
 confirm() {

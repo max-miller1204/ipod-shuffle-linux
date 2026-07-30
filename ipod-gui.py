@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -19,15 +20,33 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
-APP_ID = "org.maxmiller.IpodShuffle"
+APP_ID = "io.github.max_miller1204.IpodShuffle"
 SCRIPT_DIR = Path(__file__).resolve().parent
 SYNC_SCRIPT = SCRIPT_DIR / "ipod-sync.sh"
 WIPE_SCRIPT = SCRIPT_DIR / "ipod-wipe.sh"
 
-# mutagen lives in setup.sh's virtualenv, while PyGObject belongs to the system
-# interpreter running this GUI. Rather than force both into one environment,
-# tag reading is delegated to the venv as a subprocess.
-VENV_PYTHON = Path.home() / "ipod-tools" / "venv" / "bin" / "python"
+
+def _tag_interpreter():
+    """Pick an interpreter that can import mutagen, or None.
+
+    Inside a Flatpak everything shares one environment, so this interpreter
+    will do. On a normal install PyGObject belongs to the system Python while
+    mutagen lives in install.sh's virtualenv, and tag reading has to cross
+    over to it.
+    """
+    try:
+        import mutagen  # noqa: F401
+        return sys.executable
+    except ImportError:
+        pass
+    venv = Path(
+        os.environ.get("IPOD_VENV_PYTHON")
+        or Path.home() / "ipod-tools" / "venv" / "bin" / "python"
+    )
+    return str(venv) if venv.exists() else None
+
+
+TAG_PYTHON = None  # resolved lazily on first use
 
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".m4b", ".m4p", ".aa", ".wav"}
 
@@ -65,12 +84,16 @@ def read_tags(mount_point):
     Returns an empty dict when the venv or mutagen is unavailable, in which
     case the interface falls back to showing filenames.
     """
+    global TAG_PYTHON
+    if TAG_PYTHON is None:
+        TAG_PYTHON = _tag_interpreter()
+
     music = Path(mount_point, "iPod_Control", "Music")
-    if not VENV_PYTHON.exists() or not music.is_dir():
+    if TAG_PYTHON is None or not music.is_dir():
         return {}
     try:
         result = subprocess.run(
-            [str(VENV_PYTHON), "-c", _TAG_READER, str(music)],
+            [TAG_PYTHON, "-c", _TAG_READER, str(music)],
             capture_output=True, text=True, timeout=60,
         )
         return json.loads(result.stdout or "{}")
@@ -109,6 +132,61 @@ def device_for(mount_point):
         ).stdout.strip() or None
     except (OSError, subprocess.SubprocessError):
         return None
+
+
+def udisks_filesystem_call(device, method):
+    """Invoke a UDisks2 Filesystem method on a block device.
+
+    Speaks D-Bus directly rather than shelling out to udisksctl, which the
+    Flatpak runtime does not ship. Both reach the same daemon and the same
+    polkit check, which grants removable media to the logged-in user.
+
+    Returns (ok, detail), where detail is the mount path for Mount and the
+    error message on failure.
+    """
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        result = bus.call_sync(
+            "org.freedesktop.UDisks2",
+            f"/org/freedesktop/UDisks2/block_devices/{Path(device).name}",
+            "org.freedesktop.UDisks2.Filesystem", method,
+            GLib.Variant("(a{sv})", ({},)),
+            None, Gio.DBusCallFlags.NONE, -1, None,
+        )
+    except GLib.Error as exc:
+        return False, exc.message
+    unpacked = result.unpack()
+    return True, (unpacked[0] if unpacked else "")
+
+
+def unmounted_vfat_devices():
+    """Removable vfat volumes that are not currently mounted.
+
+    HintSystem filters out internal disks, so a click on Mount cannot reach
+    for the EFI system partition, which is also vfat.
+    """
+    try:
+        bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        result = bus.call_sync(
+            "org.freedesktop.UDisks2", "/org/freedesktop/UDisks2",
+            "org.freedesktop.DBus.ObjectManager", "GetManagedObjects",
+            None, None, Gio.DBusCallFlags.NONE, -1, None,
+        )
+    except GLib.Error:
+        return []
+
+    devices = []
+    for path, interfaces in result.unpack()[0].items():
+        filesystem = interfaces.get("org.freedesktop.UDisks2.Filesystem")
+        block = interfaces.get("org.freedesktop.UDisks2.Block")
+        if filesystem is None or block is None:
+            continue
+        if filesystem.get("MountPoints"):
+            continue
+        if block.get("IdType") != "vfat" or block.get("HintSystem"):
+            continue
+        devices.append(f"/dev/{path.rsplit('/', 1)[-1]}")
+    return devices
 
 
 def count_tracks(mount_point):
@@ -514,36 +592,44 @@ class IpodWindow(Adw.ApplicationWindow):
         if not device:
             self._toast("Could not determine the device to unmount")
             return
-        self._run(
-            ["udisksctl", "unmount", "-b", device],
-            "Ejecting…", "Safe to unplug",
-        )
+
+        self._set_busy(True, "Ejecting…")
+
+        def worker():
+            ok, message = udisks_filesystem_call(device, "Unmount")
+            GLib.idle_add(self._finish_dbus, ok, "Safe to unplug", message)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_dbus(self, ok, success_message, error_message):
+        self._set_busy(False)
+        self._toast(success_message if ok else f"Failed: {error_message}")
+        self.refresh()
+        return False
 
     def on_mount_clicked(self, _button):
         """Mount an iPod that is plugged in but not mounted."""
-        try:
-            listing = subprocess.run(
-                ["lsblk", "-rno", "NAME,FSTYPE,LABEL"],
-                capture_output=True, text=True, timeout=5,
-            ).stdout
-        except (OSError, subprocess.SubprocessError):
-            self._toast("Could not list block devices")
+        candidates = unmounted_vfat_devices()
+        if not candidates:
+            self._toast("No unmounted iPod found")
             return
 
-        for line in listing.splitlines():
-            parts = line.split(None, 2)
-            if len(parts) >= 2 and parts[1] == "vfat":
-                device = f"/dev/{parts[0]}"
-                result = subprocess.run(
-                    ["udisksctl", "mount", "-b", device],
-                    capture_output=True, text=True,
-                )
-                if result.returncode == 0:
-                    self.refresh()
-                    if self.mount_point:
-                        self._toast("iPod mounted")
-                        return
-        self._toast("No unmounted iPod found")
+        self._set_busy(True, "Mounting…")
+
+        def worker():
+            for device in candidates:
+                ok, message = udisks_filesystem_call(device, "Mount")
+                if not ok:
+                    continue
+                if Path(message, "iPod_Control").is_dir():
+                    GLib.idle_add(self._finish_dbus, True, "iPod mounted", "")
+                    return
+                # Something else on the bus. Put it back as it was rather
+                # than leaving an unrelated volume mounted.
+                udisks_filesystem_call(device, "Unmount")
+            GLib.idle_add(self._finish_dbus, False, "", "no iPod among the connected volumes")
+
+        threading.Thread(target=worker, daemon=True).start()
 
 
 class IpodApp(Adw.Application):
@@ -556,5 +642,4 @@ class IpodApp(Adw.Application):
 
 
 if __name__ == "__main__":
-    import sys
     sys.exit(IpodApp().run(sys.argv))

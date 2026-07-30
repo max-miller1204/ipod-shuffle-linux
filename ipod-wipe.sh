@@ -98,5 +98,4 @@ rebuild_database "$IPOD"
 info "Preserved: $(find "$IPOD/iPod_Control/Speakable" -type f 2>/dev/null | wc -l) Speakable prompt file(s)"
 info "Wipe complete. The iPod is empty and ready for ./ipod-sync.sh"
 
-dev="$(ipod_device "$IPOD")"
-warn "Unmount before unplugging:  udisksctl unmount -b $dev"
+warn "Unmount before unplugging:  ./ipod-sync.sh --rebuild-only --eject"

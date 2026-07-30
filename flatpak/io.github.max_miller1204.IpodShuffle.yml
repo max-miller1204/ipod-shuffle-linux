@@ -1,0 +1,70 @@
+app-id: io.github.max_miller1204.IpodShuffle
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: ipod-shuffle
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+
+  # Mounting, unmounting and relabelling all go through UDisks2 rather than
+  # privileged helpers. Polkit still arbitrates, and grants these operations on
+  # removable media to the logged-in user without a password, so the sandbox
+  # needs no elevated rights of its own.
+  - --system-talk-name=org.freedesktop.UDisks2
+
+  # Where UDisks2 mounts removable volumes. Both are in use across distributions.
+  - --filesystem=/media
+  - --filesystem=/run/media
+
+  # Reading the music being copied across, and writing backups before a wipe.
+  - --filesystem=home
+
+modules:
+  - name: python3-mutagen
+    buildsystem: simple
+    build-commands:
+      - pip3 install --verbose --exists-action=i --no-index
+        --find-links="file://${PWD}" --prefix=${FLATPAK_DEST}
+        --no-build-isolation mutagen
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/df/70/1675da133ea92227da41bf5b24e1c66be597ff736a1533ade41da986852f/mutagen-1.48.1.tar.gz
+        sha256: 8f95637ab9f6f305cec6bd1294e197debe207998e3e068596563c74f86b0a173
+
+  # The reverse-engineered iTunesSD writer. Pinned to a commit rather than a
+  # branch so a rebuild is reproducible, and kept as a separate module so its
+  # GPL-2.0 history stays distinct from this wrapper.
+  - name: ipod-shuffle-4g
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 ipod-shuffle-4g.py
+        /app/share/ipod-shuffle/IPod-Shuffle-4g/ipod-shuffle-4g.py
+      - install -Dm644 COPYING
+        /app/share/licenses/ipod-shuffle/COPYING.IPod-Shuffle-4g
+    sources:
+      - type: git
+        url: https://github.com/nims11/IPod-Shuffle-4g.git
+        commit: a97a99ab8623f0eccc5adcb8ebbdb2e626c6c703
+
+  - name: ipod-shuffle
+    buildsystem: simple
+    build-commands:
+      - install -Dm644 lib.sh          /app/share/ipod-shuffle/lib.sh
+      - install -Dm755 ipod-sync.sh    /app/share/ipod-shuffle/ipod-sync.sh
+      - install -Dm755 ipod-wipe.sh    /app/share/ipod-shuffle/ipod-wipe.sh
+      - install -Dm755 ipod-gui.py     /app/share/ipod-shuffle/ipod-gui.py
+      - install -Dm755 flatpak/ipod-shuffle-launcher /app/bin/ipod-shuffle
+      - install -Dm644 flatpak/io.github.max_miller1204.IpodShuffle.desktop
+        /app/share/applications/io.github.max_miller1204.IpodShuffle.desktop
+      - install -Dm644 flatpak/io.github.max_miller1204.IpodShuffle.metainfo.xml
+        /app/share/metainfo/io.github.max_miller1204.IpodShuffle.metainfo.xml
+      - install -Dm644 flatpak/io.github.max_miller1204.IpodShuffle.svg
+        /app/share/icons/hicolor/scalable/apps/io.github.max_miller1204.IpodShuffle.svg
+      - install -Dm644 LICENSE /app/share/licenses/ipod-shuffle/LICENSE
+    sources:
+      - type: dir
+        path: ..

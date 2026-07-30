@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#
+# Flatpak entry point.
+#
+# Points the shared library at the locations baked into /app instead of the
+# ~/ipod-tools layout install.sh creates, and runs the GUI on the runtime
+# interpreter, which carries both PyGObject and mutagen.
+
+set -euo pipefail
+
+export IPOD_TOOLS_DIR="/app/share/ipod-shuffle"
+export IPOD_DB_TOOL="/app/share/ipod-shuffle/IPod-Shuffle-4g/ipod-shuffle-4g.py"
+export IPOD_VENV_PYTHON="/usr/bin/python3"
+
+exec /usr/bin/python3 /app/share/ipod-shuffle/ipod-gui.py "$@"

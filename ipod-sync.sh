@@ -134,9 +134,9 @@ if (( EJECT )); then
     dev="$(ipod_device "$IPOD")"
     info "Unmounting $dev"
     sync
-    udisksctl unmount -b "$dev"
+    ipod_unmount "$dev"
     info "Safe to unplug."
 else
     warn "Unmount before unplugging, or the database may be corrupted:"
-    warn "  udisksctl unmount -b $(ipod_device "$IPOD")"
+    warn "  ./ipod-sync.sh --rebuild-only --eject"
 fi

@@ -94,6 +94,44 @@ It shows real song titles and artists rather than the scrambled filenames stored
 
 The buttons map onto the same scripts documented below, so the two interfaces cannot drift apart.
 
+## Flatpak
+
+There is a Flatpak manifest under `flatpak/`, for distributing the application rather than the scripts.
+
+```bash
+./flatpak/build.sh
+flatpak run io.github.max_miller1204.IpodShuffle
+```
+
+It needs `org.flatpak.Builder` and the GNOME SDK, both from Flathub.
+The build takes the repository root as a source directory, so the build tree is kept in the cache directory rather than inside the checkout.
+
+Flatpak is a better fit here than an AppImage.
+GTK4 and libadwaita come from the GNOME runtime, so the application itself stays small instead of carrying a hundred megabytes of bundled libraries that most systems already have.
+
+### How it works inside the sandbox
+
+Managing a removable device from a sandbox sounds like it should be the hard part, and it turns out not to be.
+
+Every privileged operation goes through UDisks2 over the system bus, so the sandbox needs no elevated rights of its own:
+
+```yaml
+- --system-talk-name=org.freedesktop.UDisks2
+- --filesystem=/media
+- --filesystem=/run/media
+- --filesystem=home
+```
+
+Polkit still arbitrates each request and grants mount, unmount, and relabel on removable media to the logged-in user without a password, exactly as it does outside the sandbox.
+Mounting, unmounting, renaming, and reading tags were all verified working from inside the sandbox against a real device.
+
+One thing does change.
+The GNOME runtime ships `gdbus` but not `udisksctl`, so `lib.sh` prefers `udisksctl` when it exists and falls back to raw D-Bus calls when it does not, and the GUI talks to UDisks2 through `Gio` directly.
+Both routes reach the same daemon and the same polkit check.
+
+The three `IPOD_TOOLS_DIR`, `IPOD_DB_TOOL`, and `IPOD_VENV_PYTHON` variables exist for the same reason.
+Inside the Flatpak the database builder is baked into `/app` and mutagen belongs to the runtime interpreter, so there is no virtualenv and no `~/ipod-tools`.
+
 ## Usage
 
 ### Load music

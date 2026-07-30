@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=iPod Shuffle
+GenericName=iPod Manager
+Comment=Load music onto an iPod shuffle without iTunes
+Exec=ipod-shuffle
+Icon=io.github.max_miller1204.IpodShuffle
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;GTK;
+Keywords=iPod;shuffle;music;player;sync;
+StartupNotify=true
