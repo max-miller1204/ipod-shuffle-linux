@@ -225,6 +225,22 @@ Choosing any grouping switches spoken playlist names on automatically, for the r
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
 
+**Your choices are remembered on the device.**
+The database is regenerated from scratch on every run, so a later rebuild that omitted these flags would silently discard every playlist.
+To prevent that, the options are saved to `iPod_Control/.sync-options` and reused automatically when you run a rebuild without specifying any:
+
+```bash
+./ipod-sync.sh --rebuild-only
+==> Reusing saved options: --auto-id3-playlists {artist} --playlist-voiceover
+```
+
+Passing any playlist or voiceover flag replaces what was saved.
+To go back to a plain database with neither:
+
+```bash
+./ipod-sync.sh --rebuild-only --forget-options
+```
+
 ### Supported formats
 
 `.mp3`, `.m4a`, `.m4b`, `.m4p`, `.aa`, `.wav`

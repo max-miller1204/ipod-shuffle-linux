@@ -30,6 +30,8 @@ Options:
   -c, --clear            Remove existing tracks before copying
   -e, --eject            Unmount the iPod when finished
   -r, --rebuild-only     Rebuild the database without copying anything
+  -n, --forget-options   Ignore the saved playlist and voiceover options,
+                         building a plain database with neither
   -h, --help             Show this message
 
 Voiceover (the shuffle has no screen, so this is how you hear what is playing):
@@ -57,6 +59,7 @@ EOF
 
 PLAYLISTS=0
 PLAYLIST_VOICEOVER=0
+FORGET_OPTIONS=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -64,6 +67,7 @@ while [[ $# -gt 0 ]]; do
         -c|--clear)        CLEAR=1; shift ;;
         -e|--eject)        EJECT=1; shift ;;
         -r|--rebuild-only) REBUILD_ONLY=1; shift ;;
+        -n|--forget-options) FORGET_OPTIONS=1; shift ;;
         -t|--voiceover)    DB_ARGS+=("--track-voiceover"); shift ;;
         -p|--playlist-voiceover)
                            DB_ARGS+=("--playlist-voiceover")
@@ -167,7 +171,26 @@ if (( ! REBUILD_ONLY )); then
     fi
 fi
 
+# The database is regenerated from scratch on every run, so a rebuild that
+# omits the playlist and voiceover flags silently discards whatever the last
+# run created. Remembering them on the device makes a bare rebuild safe, which
+# matters most for the GUI's Rebuild button after the app has been restarted.
+OPTIONS_FILE="$IPOD/iPod_Control/.sync-options"
+
+if (( ${#DB_ARGS[@]} == 0 && ! FORGET_OPTIONS )) && [[ -f "$OPTIONS_FILE" ]]; then
+    mapfile -t DB_ARGS < "$OPTIONS_FILE"
+    if (( ${#DB_ARGS[@]} > 0 )); then
+        info "Reusing saved options: ${DB_ARGS[*]}"
+    fi
+fi
+
 rebuild_database "$IPOD" "${DB_ARGS[@]+"${DB_ARGS[@]}"}"
+
+if (( ${#DB_ARGS[@]} > 0 )); then
+    printf '%s\n' "${DB_ARGS[@]}" > "$OPTIONS_FILE" 2>/dev/null || true
+else
+    rm -f "$OPTIONS_FILE" 2>/dev/null || true
+fi
 
 total="$(find "$MUSIC_DIR" -type f | wc -l)"
 info "iPod now holds $total track(s)"
