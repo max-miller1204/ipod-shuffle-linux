@@ -26,20 +26,37 @@ Usage: ./ipod-sync.sh [options] <music-dir> [more-dirs...]
 Copies audio into iPod_Control/Music/ and rebuilds the iTunesSD database.
 
 Options:
-  -i, --ipod PATH     iPod mount point (default: autodetect)
-  -c, --clear         Remove existing tracks before copying
-  -e, --eject         Unmount the iPod when finished
-  -r, --rebuild-only  Rebuild the database without copying anything
-  -t, --voiceover     Generate spoken track names (needs a TTS engine)
-  -d, --playlists     Generate one playlist per source folder
-  -h, --help          Show this message
+  -i, --ipod PATH        iPod mount point (default: autodetect)
+  -c, --clear            Remove existing tracks before copying
+  -e, --eject            Unmount the iPod when finished
+  -r, --rebuild-only     Rebuild the database without copying anything
+  -h, --help             Show this message
+
+Voiceover (the shuffle has no screen, so this is how you hear what is playing):
+  -t, --voiceover        Speak track names
+  -p, --playlist-voiceover
+                         Speak playlist names
+
+Playlists:
+  -d, --dir-playlists[=DEPTH]
+                         One playlist per folder. DEPTH limits how deep to
+                         go: 1=artist, 2=album, omitted=unlimited.
+      --id3-playlists[=TEMPLATE]
+                         Group tracks by tag. TEMPLATE defaults to
+                         '{artist}'; '{genre}' and '{artist} - {album}'
+                         also work. Requires mutagen.
 
 Examples:
   ./ipod-sync.sh ~/Music/roadtrip
   ./ipod-sync.sh --clear --eject ~/Music/albums/*/
   ./ipod-sync.sh --rebuild-only
+  ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover ~/Music
+  ./ipod-sync.sh --id3-playlists='{genre}' --playlist-voiceover ~/Music
 EOF
 }
+
+PLAYLISTS=0
+PLAYLIST_VOICEOVER=0
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -48,12 +65,37 @@ while [[ $# -gt 0 ]]; do
         -e|--eject)        EJECT=1; shift ;;
         -r|--rebuild-only) REBUILD_ONLY=1; shift ;;
         -t|--voiceover)    DB_ARGS+=("--track-voiceover"); shift ;;
-        -d|--playlists)    DB_ARGS+=("--auto-dir-playlists"); shift ;;
+        -p|--playlist-voiceover)
+                           DB_ARGS+=("--playlist-voiceover")
+                           PLAYLIST_VOICEOVER=1; shift ;;
+        # These two take an optional value upstream, and argparse will happily
+        # swallow the following argument when none is given. Left last on the
+        # command line that means eating the iPod path itself, so a value is
+        # always supplied explicitly. -1 and {artist} are upstream's defaults.
+        -d|--dir-playlists)
+                           DB_ARGS+=("--auto-dir-playlists" "-1")
+                           PLAYLISTS=1; shift ;;
+        --dir-playlists=*)
+                           DB_ARGS+=("--auto-dir-playlists" "${1#*=}")
+                           PLAYLISTS=1; shift ;;
+        --id3-playlists)
+                           DB_ARGS+=("--auto-id3-playlists" "{artist}")
+                           PLAYLISTS=1; shift ;;
+        --id3-playlists=*)
+                           DB_ARGS+=("--auto-id3-playlists" "${1#*=}")
+                           PLAYLISTS=1; shift ;;
         -h|--help)         usage; exit 0 ;;
         -*)                die "Unknown option: $1 (try --help)" ;;
         *)                 break ;;
     esac
 done
+
+# A playlist you cannot hear the name of is a playlist you cannot choose,
+# because the device has no display to show you which one you landed on.
+if (( PLAYLISTS && ! PLAYLIST_VOICEOVER )); then
+    warn "Playlists without --playlist-voiceover will be unnamed on the device."
+    warn "With no screen, there is no way to tell them apart. Consider adding -p."
+fi
 
 if (( REBUILD_ONLY )); then
     (( $# == 0 )) || die "--rebuild-only takes no source directories."

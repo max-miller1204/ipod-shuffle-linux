@@ -189,6 +189,11 @@ def unmounted_vfat_devices():
     return devices
 
 
+def has_speech_engine():
+    """Whether any text-to-speech engine the builder recognises is installed."""
+    return any(shutil.which(engine) for engine in ("pico2wave", "espeak", "say"))
+
+
 def count_tracks(mount_point):
     music = Path(mount_point, "iPod_Control", "Music")
     if not music.is_dir():
@@ -333,6 +338,43 @@ class IpodWindow(Adw.ApplicationWindow):
 
         box.append(actions)
 
+        options = Adw.PreferencesGroup(
+            title="Options",
+            description="Applied when adding music or rebuilding the database",
+        )
+
+        # Playlist names are stored only as spoken audio, never as text, since
+        # the device has no screen. Choosing a grouping therefore implies
+        # wanting the names read aloud, so that switch follows along.
+        self.playlist_mode = Adw.ComboRow(
+            title="Playlists",
+            subtitle="How to group tracks into playlists",
+            model=Gtk.StringList.new(
+                ["None", "One per folder", "By artist", "By genre"]
+            ),
+        )
+        self.playlist_mode.connect("notify::selected", self._on_playlist_mode_changed)
+        options.add(self.playlist_mode)
+
+        self.track_voiceover = Adw.SwitchRow(
+            title="Speak track names",
+            subtitle="Announce the current track when you press the VoiceOver button",
+        )
+        options.add(self.track_voiceover)
+
+        self.playlist_voiceover = Adw.SwitchRow(
+            title="Speak playlist names",
+            subtitle="Without this, playlists cannot be told apart on a screenless device",
+        )
+        options.add(self.playlist_voiceover)
+
+        if not has_speech_engine():
+            for row in (self.track_voiceover, self.playlist_voiceover):
+                row.set_sensitive(False)
+                row.set_subtitle("No speech engine installed")
+
+        box.append(options)
+
         self.progress = Gtk.ProgressBar(visible=False, show_text=True)
         box.append(self.progress)
 
@@ -453,6 +495,26 @@ class IpodWindow(Adw.ApplicationWindow):
                 row.set_subtitle(GLib.markup_escape_text(artist))
         return False
 
+    def _on_playlist_mode_changed(self, *_args):
+        if self.playlist_mode.get_selected() != 0 and has_speech_engine():
+            self.playlist_voiceover.set_active(True)
+
+    def _sync_options(self):
+        """Flags for the selected playlist and voiceover options."""
+        args = []
+        mode = self.playlist_mode.get_selected()
+        if mode == 1:
+            args.append("--dir-playlists")
+        elif mode == 2:
+            args.append("--id3-playlists={artist}")
+        elif mode == 3:
+            args.append("--id3-playlists={genre}")
+        if self.track_voiceover.get_active():
+            args.append("--voiceover")
+        if self.playlist_voiceover.get_active():
+            args.append("--playlist-voiceover")
+        return args
+
     def _set_busy(self, busy, message=""):
         self.busy = busy
         for row in (self.add_row, self.rebuild_row, self.wipe_row, self.eject_row):
@@ -537,7 +599,8 @@ class IpodWindow(Adw.ApplicationWindow):
                 self._toast("No supported audio found in that folder")
                 return
             self._run(
-                [str(SYNC_SCRIPT), "--ipod", self.mount_point, path],
+                [str(SYNC_SCRIPT), "--ipod", self.mount_point,
+                 *self._sync_options(), path],
                 "Copying music…", "Music added",
             )
 
@@ -555,7 +618,8 @@ class IpodWindow(Adw.ApplicationWindow):
         # --rebuild-only rather than passing the Music directory as a source,
         # which would copy the iPod's own library into a subfolder of itself.
         self._run(
-            [str(SYNC_SCRIPT), "--ipod", self.mount_point, "--rebuild-only"],
+            [str(SYNC_SCRIPT), "--ipod", self.mount_point, "--rebuild-only",
+             *self._sync_options()],
             "Rebuilding database…", "Database rebuilt",
         )
 
