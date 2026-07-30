@@ -340,7 +340,8 @@ What makes this genuinely confusing is that old unrestricted uploads still work.
 The failure therefore looks specific to the videos you happen to want rather than to the machine, which sends you investigating the wrong thing entirely.
 
 `ipod-fetch.sh` probes for supported versions of `deno`, `node`, and `bun` and passes the first usable runtime it finds.
-`install.sh` does not install a distribution runtime package because it may be too old for `yt-dlp`; instead it reports the supported versions and points to [yt-dlp's EJS setup guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+If none is usable, `install.sh` offers to install the distribution's `nodejs` package and points to [yt-dlp's EJS setup guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS) in case its version is too old.
+If any supported runtime is already present, the installer leaves it alone.
 If none is usable the script warns before downloading instead of failing opaquely partway through.
 
 When downloads start failing for no apparent reason, YouTube has changed something and `yt-dlp` needs updating:

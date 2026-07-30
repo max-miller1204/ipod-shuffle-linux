@@ -82,6 +82,7 @@ fi
 if runtime="$(js_runtime)"; then
     info "YouTube downloads: $runtime present"
 else
+    needed+=("nodejs")
     warn "YouTube downloads need Deno >= 2.3, Node >= 22, or Bun 1.2.11-1.3.14."
     warn "Your distribution's JavaScript runtime package may be too old."
     warn "Install a supported runtime: https://github.com/yt-dlp/yt-dlp/wiki/EJS"

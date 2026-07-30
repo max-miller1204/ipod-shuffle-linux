@@ -176,6 +176,25 @@ grep -Fq \
 ) > "$EVIDENCE_DIR/js-runtime-absent.txt"
 grep -Fxq "absent" "$EVIDENCE_DIR/js-runtime-absent.txt"
 
+# The native installer uses the ordinary nodejs distribution package as its
+# fallback only when no supported runtime exists. Stop it immediately after
+# the dependency report so this check cannot install or download anything.
+INSTALLER_PATH="$TEST_ROOT/installer-path"
+mkdir -p "$INSTALLER_PATH"
+for command in bash dirname git mkdir python3 readlink; do
+    ln -s "$(command -v "$command")" "$INSTALLER_PATH/$command"
+done
+INSTALL_BLOCKER="$TEST_ROOT/install-blocker"
+: > "$INSTALL_BLOCKER"
+if PATH="$INSTALLER_PATH" IPOD_TOOLS_DIR="$INSTALL_BLOCKER" \
+    "$ROOT/install.sh" --no-system \
+    > "$EVIDENCE_DIR/install-no-runtime.txt" 2>&1; then
+    echo "installer unexpectedly continued past the dependency report" >&2
+    exit 1
+fi
+grep -Eq 'sudo apt install .*nodejs' \
+    "$EVIDENCE_DIR/install-no-runtime.txt"
+
 (
     source "$ROOT/lib.sh"
     deno() { printf 'deno 2.2.9\n'; }
@@ -376,6 +395,7 @@ printf '%s\n' \
     "PASS: fetch handed artist folders to the sync, not their parent" \
     "PASS: fetch passed a JavaScript runtime, without which downloads 403" \
     "PASS: runtime probe reported absence instead of naming an uninstalled one" \
+    "PASS: installer offered nodejs when no supported runtime was present" \
     "PASS: runtime probe rejected unsupported versions and accepted supported boundaries" \
     "PASS: old PATH yt-dlp fallback omitted its unsupported runtime option" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
