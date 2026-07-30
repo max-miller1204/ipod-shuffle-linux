@@ -309,13 +309,15 @@ You are responsible for having the right to download whatever you point this at.
 
 **Two of its flags exist because the obvious version produces files the device cannot play.**
 
-YouTube serves its best audio as Opus, which the shuffle cannot decode at all, so a conversion to AAC is unavoidable and 256k is deliberate headroom over the roughly 160k source.
+YouTube normally serves its best stereo audio as Opus, which the shuffle cannot decode at all, so it is usually converted to AAC; 256k is deliberate headroom over the roughly 160k source.
 Encoding lossy to lossy loses a little every time, and giving the second encoder room is the cheapest way to keep that inaudible.
+If the selected stereo stream is already AAC, `yt-dlp` remuxes it without re-encoding, so `--audio-quality` does not change its bitrate.
+That is intentional: forcing another lossy generation would only reduce quality.
 
 The trap is that plain `bestaudio` does not select Opus.
 YouTube also offers 5.1 AAC at 388k, which ranks highest on bitrate and arrives already in an `.m4a` container, so `yt-dlp` reports `already in target format`, skips the conversion, and discards the requested bitrate along with it.
 The result is a 30MB six-channel file, 1.5% of the device, that its stereo decoder cannot play.
-Restricting selection to stereo leaves the Opus stream, which is both smaller and the one that actually gets converted.
+Restricting selection to stereo normally leaves the Opus stream, which is both smaller and the one that actually gets converted.
 
 There is deliberately no `--trim-filenames`.
 It limits the length of the whole path rather than the filename, so a long `--output` directory eats the budget and truncates the song title itself, silently collapsing different tracks onto the same name.

@@ -10,7 +10,7 @@ set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
 # The shuffle decodes AAC but not Opus, and YouTube's best audio stream is
-# almost always Opus, so one re-encode is unavoidable.
+# almost always Opus, so one re-encode is usually needed.
 #
 # 256k is deliberate headroom over that ~160k source rather than a claim about
 # it: encoding lossy to lossy loses a little every time, and the cheapest way
