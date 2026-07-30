@@ -1,0 +1,164 @@
+---
+# Source URLs and checksums are kept intact for reproducible Flatpak builds.
+# yamllint disable rule:line-length
+app-id: io.github.max_miller1204.IpodShuffle
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: ipod-shuffle
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+
+  # Mounting, unmounting and relabelling all go through UDisks2 rather than
+  # privileged helpers. Polkit still arbitrates, and grants these operations on
+  # removable media to the logged-in user without a password, so the sandbox
+  # needs no elevated rights of its own.
+  - --system-talk-name=org.freedesktop.UDisks2
+
+  # Where UDisks2 mounts removable volumes. Both are in use across distributions.
+  - --filesystem=/media
+  - --filesystem=/run/media
+
+  # Reading the music being copied across, and writing backups before a wipe.
+  - --filesystem=home
+
+modules:
+  - name: popt
+    buildsystem: simple
+    build-commands:
+      - ./autogen.sh
+      - ./configure --prefix=${FLATPAK_DEST} --disable-static
+      - make -j${FLATPAK_BUILDER_N_JOBS}
+      - make install
+      - install -Dm644 COPYING /app/share/licenses/popt/COPYING
+    sources:
+      - type: archive
+        url: https://github.com/rpm-software-management/popt/archive/refs/tags/popt-1.19-release.tar.gz
+        sha256: 6eb40d650526cb9fe63eb4415bcecdf9cf306f7556e77eff689abc5a44670060
+
+  - name: svox-pico
+    buildsystem: simple
+    build-commands:
+      - patch -p1 < git-0-Use-long-to-store-pointer
+      - patch -p1 < git-1-fix-memset-overflow-of-wcep_pI
+      - patch -p1 < git-fix
+      - patch -p1 < 0001-autoconf-building-of-library-using-libtool.patch
+      - patch -p1 < 0002-gitignore-for-autotools-files.patch
+      - patch -p1 <
+        0003-pico2wave-Convert-text-to-.wav-using-svox-text-to-sp.patch
+      - patch -p1 < 0004-add-header-files.patch
+      - patch -p1 < 0005-Install-lang-files.patch
+      - patch -p1 < 0006-Set-picolangdir.patch
+      - patch -p1 < 0009-Fix-link-order.patch
+      - patch -p1 < 0010-platform.patch
+      - patch -p1 < volume
+      - patch -p1 < fix-undefined
+      - patch -p1 < 2f86050dc5da9ab68fc61510b594d8e6975c4d2d.patch
+      - chmod +x pico/autogen.sh
+      - cd pico && ./autogen.sh
+      - cd pico && CPPFLAGS="-I/app/include" LDFLAGS="-L/app/lib"
+        ./configure --prefix=${FLATPAK_DEST} --disable-static
+      - make -C pico -j${FLATPAK_BUILDER_N_JOBS}
+      - make -C pico install
+      - install -Dm644 pico/lib/NOTICE
+        /app/share/licenses/svox-pico/NOTICE
+      - /app/bin/pico2wave --wave=pico-check.wav "Flatpak voiceover check"
+      - test -s pico-check.wav
+      - rm pico-check.wav
+    sources:
+      - type: archive
+        url: https://deb.debian.org/debian/pool/non-free/s/svox/svox_1.0+git20130326.orig.tar.gz
+        sha256: 337b25e6ccb3764f0df1e176470b883c90e40e98840d4133340fcc89eb3cea0c
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/git-0-Use-long-to-store-pointer
+        sha256: c7e8181aee3faab044c15dbc584c31a44df1de4289d1423cf9093e60395050dd
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/git-1-fix-memset-overflow-of-wcep_pI
+        sha256: 3ff3c7c95a279a6dab8bb5be9ac874e41de974934bc9bcc1c7c1e219a04305e3
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/git-fix
+        sha256: 758697bad5c42b97a073de3498977bd12862c14677a3956858dee37debec85c9
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0001-autoconf-building-of-library-using-libtool.patch
+        sha256: 2aa2e2bd685b92fba44a435cafe6ad0a76f98cd794cb04f9b12e59015d885968
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0002-gitignore-for-autotools-files.patch
+        sha256: 71e53c70d7962f28e0e07dd8a3caf0267f952e8056504edcef556e5cbe629d93
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0003-pico2wave-Convert-text-to-.wav-using-svox-text-to-sp.patch
+        sha256: 5546202d43461e1935b3be609c47528c405bfd95f2502386df9390813a25e80f
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0004-add-header-files.patch
+        sha256: a41f23c398edd475557dabb2543e9bfc4fc67a839cd938b24c98502fa53f99d5
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0005-Install-lang-files.patch
+        sha256: b042f56732878b3c07e12a83e7059fea264a0e916dee4333074e7684853e773a
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0006-Set-picolangdir.patch
+        sha256: 54b900881b464f70ff68e0bf83f69d741324474dac8b209e6845005cedaf68c6
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0009-Fix-link-order.patch
+        sha256: 4f2295b684a734bccc88edee56f1c21557d2660cec684bc35300df467354d0a1
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0010-platform.patch
+        sha256: 0ecc42371318cf160d8db2c59633b452055575b0ae6c2ff551df1abc60a1b097
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/volume
+        sha256: 1fa6dc703a8f81bb823a002eba27420dcb4afdc9dd3c7e38ae95953d4f846da9
+      - type: file
+        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/fix-undefined
+        sha256: 04640ba173d7ecfdc9879b2133cda69fa7576eee2aa4ebe4eb26ffaa24c8171c
+      - type: file
+        url: https://github.com/ihuguet/picotts/commit/2f86050dc5da9ab68fc61510b594d8e6975c4d2d.patch
+        sha256: c3e66e6f91f26b80d793a8c617d91c1c4b3c5cb056c42801b525eaf249fa3fdf
+
+  - name: python3-mutagen
+    buildsystem: simple
+    build-commands:
+      - pip3 install --verbose --exists-action=i --no-index
+        --find-links="file://${PWD}" --prefix=${FLATPAK_DEST}
+        --no-build-isolation mutagen
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/df/70/1675da133ea92227da41bf5b24e1c66be597ff736a1533ade41da986852f/mutagen-1.48.1.tar.gz
+        sha256: 8f95637ab9f6f305cec6bd1294e197debe207998e3e068596563c74f86b0a173
+
+  # The reverse-engineered iTunesSD writer. Pinned to a commit rather than a
+  # branch so a rebuild is reproducible, and kept as a separate module so its
+  # GPL-2.0-only history stays distinct from this wrapper.
+  - name: ipod-shuffle-4g
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 ipod-shuffle-4g.py
+        /app/share/ipod-shuffle/IPod-Shuffle-4g/ipod-shuffle-4g.py
+      - install -Dm644 COPYING
+        /app/share/licenses/ipod-shuffle/COPYING.IPod-Shuffle-4g
+    sources:
+      - type: git
+        url: https://github.com/nims11/IPod-Shuffle-4g.git
+        commit: a97a99ab8623f0eccc5adcb8ebbdb2e626c6c703
+
+  - name: ipod-shuffle
+    buildsystem: simple
+    build-commands:
+      - install -Dm644 lib.sh          /app/share/ipod-shuffle/lib.sh
+      - install -Dm755 ipod-sync.sh    /app/share/ipod-shuffle/ipod-sync.sh
+      - install -Dm755 ipod-wipe.sh    /app/share/ipod-shuffle/ipod-wipe.sh
+      - install -Dm755 ipod-gui.py     /app/share/ipod-shuffle/ipod-gui.py
+      - install -Dm755 flatpak/ipod-shuffle-launcher /app/bin/ipod-shuffle
+      - install -Dm644 flatpak/io.github.max_miller1204.IpodShuffle.desktop
+        /app/share/applications/io.github.max_miller1204.IpodShuffle.desktop
+      - install -Dm644 flatpak/io.github.max_miller1204.IpodShuffle.metainfo.xml
+        /app/share/metainfo/io.github.max_miller1204.IpodShuffle.metainfo.xml
+      - install -Dm644 flatpak/io.github.max_miller1204.IpodShuffle.svg
+        /app/share/icons/hicolor/scalable/apps/io.github.max_miller1204.IpodShuffle.svg
+      - install -Dm644 LICENSE /app/share/licenses/ipod-shuffle/LICENSE
+      - python3 -c 'import shutil;
+        assert shutil.which("pico2wave") == "/app/bin/pico2wave"'
+    sources:
+      - type: dir
+        path: ..

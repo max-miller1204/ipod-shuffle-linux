@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.max_miller1204.IpodShuffle</id>
+
+  <name>iPod Shuffle</name>
+  <summary>Load music onto an iPod shuffle without iTunes</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-only</project_license>
+
+  <description>
+    <p>
+      Manage an iPod shuffle 4th generation from Linux, with no iTunes and no
+      Apple software of any kind.
+    </p>
+    <p>
+      The shuffle only plays tracks listed in iTunesSD, a binary database its
+      firmware reads at startup, which is why copying files onto the device by
+      hand does nothing. This application writes that database for you.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Detects the iPod automatically as it is plugged in or unmounted</li>
+      <li>Copies music across and rebuilds the database in one step</li>
+      <li>Shows real song titles rather than the scrambled filenames on the device</li>
+      <li>Wipes the device while preserving Apple's built-in spoken prompts</li>
+      <li>Backs up existing tracks, and the database that maps them to their titles</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">io.github.max_miller1204.IpodShuffle.desktop</launchable>
+
+  <url type="homepage">https://github.com/max-miller1204/ipod-shuffle-linux</url>
+  <url type="bugtracker">https://github.com/max-miller1204/ipod-shuffle-linux/issues</url>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="1.0.0" date="2026-07-30">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

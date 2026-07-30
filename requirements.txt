@@ -1,0 +1,8 @@
+# Python dependencies, installed into ~/ipod-tools/venv by install.sh.
+#
+# Only one, deliberately. GTK4 is a C library and its Python bindings need the
+# gobject-introspection and cairo development headers to build from source, so
+# pip-installing PyGObject would mean adding three -dev system packages in
+# order to avoid adding one runtime package. The distro's python3-gi is both
+# smaller and better tested; install.sh fetches it separately.
+mutagen>=1.45

@@ -2,7 +2,7 @@
 
 Use an iPod shuffle 4th generation on Linux without iTunes.
 
-Scripts to wipe, load, and manage a shuffle 4G from the command line, with the device details that make the process work.
+A GTK4 app and a set of scripts to wipe, load, and manage a shuffle 4G, with the device details that make the process work.
 
 ## Why this is not just drag and drop
 
@@ -38,19 +38,105 @@ The 3rd generation shuffle uses the same database format and will probably work,
 ```bash
 git clone https://github.com/max-miller1204/ipod-shuffle-linux.git
 cd ipod-shuffle-linux
-./setup.sh
+./install.sh
 ```
 
-`setup.sh` fetches the database builder into `~/ipod-tools/`, verifies it compiles against your Python, and reports any optional extras worth installing.
+That is the whole installation.
+It fetches the database builder into `~/ipod-tools/`, creates a virtualenv for the Python dependencies, works out which system packages are missing, and offers to install them.
 
-The only hard requirement is Python 3.
-Everything else is optional:
+The only hard requirements are Python 3 and git.
+Everything else is handled for you:
 
-| Package | Gives you |
-| --- | --- |
-| `python3-mutagen` | Artist and album metadata in the database |
-| `libttspico-utils` | Spoken track names via VoiceOver |
-| `ffmpeg` | Converting FLAC, OGG, and other unsupported formats |
+| Component | Where it goes | Gives you |
+| --- | --- | --- |
+| `mutagen` | virtualenv | Artist and album metadata, including tag-based playlists |
+| `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | system | The graphical interface |
+| `libttspico-utils` | system | Spoken track and playlist names via VoiceOver |
+| `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats |
+
+Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
+System packages are never installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
+
+### Why not put everything in the virtualenv
+
+It is a fair question, and the answer differs per dependency.
+
+`mutagen` is pure Python, so it goes in the virtualenv and needs no privileges at all.
+
+PyGObject cannot.
+Building it from pip requires the gobject-introspection and cairo development headers, so pip-installing it would mean adding three `-dev` system packages in order to avoid adding one runtime package.
+GTK4 itself is a C library that no virtualenv can contain.
+The distro's `python3-gi` is smaller, already built, and better tested.
+
+`pico2wave` and `ffmpeg` are plain binaries rather than Python packages, so they have no virtualenv to go in either.
+
+This split is why `ipod-gui.sh` looks for an interpreter that can import GTK instead of assuming the one on PATH, and why the GUI reads tags by calling into the virtualenv as a subprocess.
+
+### Why mutagen goes in a virtualenv rather than apt
+
+`mutagen` supplies the artist and album metadata written into the database, and `install.sh` installs it into `~/ipod-tools/venv` rather than through apt.
+
+That is deliberate.
+The `python3` first on your PATH is not necessarily the one apt installs into.
+If you use uv, pyenv, conda, or Homebrew, your `python3` cannot see `/usr/lib/python3/dist-packages` at all, so `sudo apt install python3-mutagen` completes successfully while the database builder still reports `No mutagen found`.
+Owning a virtualenv sidesteps both that and PEP 668's externally-managed-environment error.
+
+## Graphical interface
+
+```bash
+./ipod-gui.sh
+```
+
+![The iPod Shuffle app showing device information, actions, and the track list](docs/screenshot.png)
+
+The window detects the iPod automatically, and appears and updates as the device is plugged in or unmounted.
+It shows real song titles and artists rather than the scrambled filenames stored on the device, and every operation streams its output into the Output pane so nothing happens invisibly.
+
+The buttons map onto the same scripts documented below, so the two interfaces cannot drift apart.
+
+## Flatpak
+
+There is a Flatpak manifest under `flatpak/`, for distributing the application rather than the scripts.
+
+```bash
+./flatpak/build.sh
+flatpak run io.github.max_miller1204.IpodShuffle
+```
+
+It needs `org.flatpak.Builder` and the GNOME SDK, both from Flathub.
+Install the GNOME 50 build dependencies together:
+
+```bash
+flatpak install --user flathub org.flatpak.Builder org.gnome.Sdk//50
+```
+
+The build takes the repository root as a source directory, so the build tree is kept in the cache directory rather than inside the checkout.
+
+Flatpak is a better fit here than an AppImage.
+GTK4 and libadwaita come from the GNOME runtime, so the application itself stays small instead of carrying a hundred megabytes of bundled libraries that most systems already have.
+
+### How it works inside the sandbox
+
+Managing a removable device from a sandbox sounds like it should be the hard part, and it turns out not to be.
+
+Every privileged operation goes through UDisks2 over the system bus, so the sandbox needs no elevated rights of its own:
+
+```yaml
+- --system-talk-name=org.freedesktop.UDisks2
+- --filesystem=/media
+- --filesystem=/run/media
+- --filesystem=home
+```
+
+Polkit still arbitrates each request and grants mount, unmount, and relabel on removable media to the logged-in user without a password, exactly as it does outside the sandbox.
+Mounting, unmounting, renaming, and reading tags were all verified working from inside the sandbox against a real device.
+
+One thing does change.
+The GNOME runtime ships `gdbus` but not `udisksctl`, so `lib.sh` prefers `udisksctl` when it exists and falls back to raw D-Bus calls when it does not, and the GUI talks to UDisks2 through `Gio` directly.
+Both routes reach the same daemon and the same polkit check.
+
+The three `IPOD_TOOLS_DIR`, `IPOD_DB_TOOL`, and `IPOD_VENV_PYTHON` variables exist for the same reason.
+Inside the Flatpak the database builder is baked into `/app` and mutagen belongs to the runtime interpreter, so there is no virtualenv and no `~/ipod-tools`.
 
 ## Usage
 
@@ -66,6 +152,14 @@ Replace everything currently on the device and unmount when done:
 ./ipod-sync.sh --clear --eject ~/Music/albums/*/
 ```
 
+Rebuild the database without copying anything, which is the fix when tracks are on the device but will not play:
+
+```bash
+./ipod-sync.sh --rebuild-only
+```
+
+Source folders are mirrored rather than flattened, so two albums that both contain a track called `01.mp3` will not overwrite one another.
+
 The iPod is found automatically.
 Pass `--ipod /path/to/mount` if autodetection picks the wrong volume, and note that the script refuses to guess when several iPods are connected.
 
@@ -80,6 +174,78 @@ This removes every track and clears stale iTunes state, then writes a fresh empt
 Always pass `--backup` on a secondhand device.
 Filenames on an iPod are scrambled four-character codes such as `AXKU.m4a`, and the only thing mapping them back to real artist and title metadata is `iTunesDB`.
 The backup copies that database alongside the audio, so the music stays recoverable.
+
+### Playlists
+
+The shuffle 4G does support playlists, with one catch that shapes everything about how they work.
+
+**Playlist names are stored only as spoken audio, never as text.**
+There is no name field in the database, because there is no screen to print a name on.
+The name exists solely as a short WAV clip under `iPod_Control/Speakable/Playlists/`, generated by the text-to-speech engine.
+
+That makes `--playlist-voiceover` effectively mandatory.
+Without it you get playlists the device can switch between but cannot name, and no way to tell which one you have landed on.
+The sync script warns if you ask for playlists without it.
+
+On the device, hold the VoiceOver button to enter the playlist menu, use next and previous to move between playlists, and click to choose one.
+
+There are four ways to create them.
+
+**One playlist per folder:**
+
+```bash
+./ipod-sync.sh --dir-playlists --playlist-voiceover ~/Music
+```
+
+Add a depth limit if your library nests deeply, where `1` is the artist level and `2` the album level:
+
+```bash
+./ipod-sync.sh --dir-playlists=1 --playlist-voiceover ~/Music
+```
+
+**Grouped by tag,** which needs mutagen and defaults to grouping by artist:
+
+```bash
+./ipod-sync.sh --id3-playlists --playlist-voiceover ~/Music
+./ipod-sync.sh --id3-playlists='{genre}' --playlist-voiceover ~/Music
+./ipod-sync.sh --id3-playlists='{artist} - {album}' --playlist-voiceover ~/Music
+```
+
+**By hand,** by putting a `.m3u` or `.pls` file anywhere on the device.
+Paths inside it are relative to the playlist file, and the filename becomes the playlist name:
+
+```
+# iPod_Control/Music/Roadtrip.m3u
+Beach Boys/QKXQ.m4a
+Aaron Neville/AXKU.m4a
+```
+
+Then rebuild:
+
+```bash
+./ipod-sync.sh --rebuild-only --playlist-voiceover
+```
+
+**From the GUI,** using the Playlists dropdown under Options.
+Choosing any grouping switches spoken playlist names on automatically, for the reason above.
+
+Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
+
+**Your choices are remembered on the device.**
+The database is regenerated from scratch on every run, so a later rebuild that omitted these flags would silently discard every playlist.
+To prevent that, the options are saved to `iPod_Control/.sync-options` and reused automatically when you run a rebuild without specifying any:
+
+```bash
+./ipod-sync.sh --rebuild-only
+==> Reusing saved options: --auto-id3-playlists {artist} --playlist-voiceover
+```
+
+Passing any playlist or voiceover flag replaces what was saved.
+To go back to a plain database with neither:
+
+```bash
+./ipod-sync.sh --rebuild-only --forget-options
+```
 
 ### Supported formats
 
@@ -97,13 +263,24 @@ ffmpeg -i input.flac -c:a aac -b:a 256k output.m4a
 The shuffle's name is not stored in any of its databases.
 It lives only in the FAT32 volume label, so renaming is a filesystem operation and no iPod-specific tool is involved.
 
+The tidiest way is to ask udisks, which needs no root at all.
+Polkit grants label changes on removable media to the logged-in user, so this succeeds without a password:
+
 ```bash
 udisksctl unmount -b /dev/sda
-sudo fatlabel /dev/sda "MAX SHUFFLE"
+gdbus call --system --dest org.freedesktop.UDisks2 \
+  --object-path /org/freedesktop/UDisks2/block_devices/sda \
+  --method org.freedesktop.UDisks2.Filesystem.SetLabel "MAX_SHUFFLE" "{}"
 udisksctl mount -b /dev/sda
 ```
 
-The label is limited to 11 characters, and `fatlabel` rejects anything longer.
+`fatlabel` does the same thing if you would rather, but it writes to the block device directly and therefore needs root:
+
+```bash
+sudo fatlabel /dev/sda "MAX_SHUFFLE"
+```
+
+The label is limited to 11 characters, and both methods reject anything longer.
 
 FAT32 stores the label in two places, the boot sector and a root directory entry, and they can disagree.
 `fatlabel` 4.2 and later write both.
@@ -142,7 +319,7 @@ Re-run the sync and let the script unmount with `--eject`.
 
 **Tracks play but have no names under VoiceOver.**
 `mutagen` is missing, so the database was written without metadata.
-Install `python3-mutagen` and re-run.
+Re-run `./install.sh`, or install `mutagen` into the virtualenv it creates.
 
 **`udisksctl unmount` says the device is busy.**
 Something still has a file open on the volume, often a file manager.
@@ -165,9 +342,9 @@ That erases the device, including `Speakable/`, which is restored from the firmw
 The hard part, reverse engineering the `iTunesSD` format and writing it correctly, is [nims11/IPod-Shuffle-4g](https://github.com/nims11/IPod-Shuffle-4g).
 This repository is a set of wrappers around that tool, plus the device notes.
 
-`setup.sh` fetches it from upstream rather than vendoring a copy, so it keeps its own history and updates independently.
+`install.sh` fetches it from upstream rather than vendoring a copy, so it keeps its own history and updates independently.
 
 ## Licence
 
-GPL-2.0, matching the upstream tool these scripts drive.
+GPL-2.0-only, matching the upstream tool these scripts drive.
 See [LICENSE](LICENSE).

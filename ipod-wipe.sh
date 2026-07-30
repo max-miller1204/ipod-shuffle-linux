@@ -91,6 +91,7 @@ mkdir -p "$MUSIC_DIR"
 for f in "${STALE_STATE[@]}"; do
     rm -f "$ITUNES_DIR/$f"
 done
+rm -f "$IPOD/iPod_Control/.sync-options"
 info "Cleared stale iTunes state and previous-owner library binding"
 
 rebuild_database "$IPOD"
@@ -98,5 +99,4 @@ rebuild_database "$IPOD"
 info "Preserved: $(find "$IPOD/iPod_Control/Speakable" -type f 2>/dev/null | wc -l) Speakable prompt file(s)"
 info "Wipe complete. The iPod is empty and ready for ./ipod-sync.sh"
 
-dev="$(ipod_device "$IPOD")"
-warn "Unmount before unplugging:  udisksctl unmount -b $dev"
+warn "Unmount before unplugging:  ./ipod-sync.sh --rebuild-only --eject"
