@@ -176,6 +176,29 @@ grep -Fq \
 ) > "$EVIDENCE_DIR/js-runtime-absent.txt"
 grep -Fxq "absent" "$EVIDENCE_DIR/js-runtime-absent.txt"
 
+(
+    source "$ROOT/lib.sh"
+    deno() { printf 'deno 2.2.9\n'; }
+    node() { printf 'v18.19.1\n'; }
+    bun() { printf '1.3.15\n'; }
+    if js_runtime; then
+        echo "js_runtime accepted an unsupported runtime version" >&2
+        exit 1
+    fi
+
+    node() { printf 'v22.0.0\n'; }
+    test "$(js_runtime)" = node
+
+    node() { printf 'v21.99.99\n'; }
+    bun() { printf '1.2.11\n'; }
+    test "$(js_runtime)" = bun
+
+    bun() { printf '1.3.14\n'; }
+    test "$(js_runtime)" = bun
+    echo "versions validated"
+) > "$EVIDENCE_DIR/js-runtime-versions.txt"
+grep -Fxq "versions validated" "$EVIDENCE_DIR/js-runtime-versions.txt"
+
 /usr/bin/python3 - "$DB_RECORD" "$IPOD" <<'PY'
 import json
 import sys
@@ -315,6 +338,29 @@ PY
 
 grep -Fq 'Downloaded 1 track(s)' "$EVIDENCE_DIR/fetch-and-sync.txt"
 
+OLD_FETCH_OUT="$TEST_ROOT/old-yt-dlp"
+OLD_FETCH_RECORD="$EVIDENCE_DIR/old-yt-dlp-invocation.json"
+(
+    PATH="$ROOT/tests/bin:$PATH"
+    export FAKE_YTDLP_RECORD="$OLD_FETCH_RECORD"
+    export FAKE_YTDLP_SUPPORTS_JS_RUNTIMES=0
+    export IPOD_VENV_YT_DLP="$TEST_ROOT/missing-yt-dlp"
+    "$ROOT/ipod-fetch.sh" \
+        --output "$OLD_FETCH_OUT" \
+        --single \
+        'https://example.invalid/watch?v=test'
+) > "$EVIDENCE_DIR/old-yt-dlp-fallback.txt" 2>&1
+
+/usr/bin/python3 - "$OLD_FETCH_RECORD" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+args = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert "--js-runtimes" not in args, args
+PY
+grep -Fq 'yt-dlp is too old' "$EVIDENCE_DIR/old-yt-dlp-fallback.txt"
+
 printf '%s\n' \
     "PASS: sync copied supported music while preserving source folders" \
     "PASS: playlist flags used explicit upstream values and persisted across rebuild" \
@@ -330,6 +376,8 @@ printf '%s\n' \
     "PASS: fetch handed artist folders to the sync, not their parent" \
     "PASS: fetch passed a JavaScript runtime, without which downloads 403" \
     "PASS: runtime probe reported absence instead of naming an uninstalled one" \
+    "PASS: runtime probe rejected unsupported versions and accepted supported boundaries" \
+    "PASS: old PATH yt-dlp fallback omitted its unsupported runtime option" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
 cat "$EVIDENCE_DIR/product-e2e-summary.txt"

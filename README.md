@@ -43,9 +43,10 @@ cd ipod-shuffle-linux
 
 That is the whole installation.
 It fetches the database builder into `~/ipod-tools/`, creates a virtualenv for the Python dependencies, works out which system packages are missing, and offers to install them.
+It also reports when a supported JavaScript runtime must be installed manually.
 
 The only hard requirements are Python 3 and git.
-Everything else is handled for you:
+Everything else is installed or reported for you:
 
 | Component | Where it goes | Gives you |
 | --- | --- | --- |
@@ -54,7 +55,7 @@ Everything else is handled for you:
 | `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | system | The graphical interface |
 | `libttspico-utils` | system | Spoken track and playlist names via VoiceOver (the Flatpak bundles espeak-ng instead, see below) |
 | `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats, including YouTube's Opus |
-| `nodejs` | system | Solving YouTube's signature challenge; `deno` or `bun` work equally well |
+| Deno >= 2.3, Node >= 22, or Bun 1.2.11-1.3.14 | system (manual) | Solving YouTube's signature challenge |
 
 Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
 System packages are never installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
@@ -338,9 +339,9 @@ On a machine with `node` or `bun` but no `deno`, every part of a run looks healt
 What makes this genuinely confusing is that old unrestricted uploads still work.
 The failure therefore looks specific to the videos you happen to want rather than to the machine, which sends you investigating the wrong thing entirely.
 
-`ipod-fetch.sh` probes for `deno`, `node`, and `bun` and passes whichever exists, so any one of them is enough.
-`install.sh` adds `nodejs` when none is present, and says so plainly rather than reporting downloads as working.
-If none is available the script warns before downloading instead of failing opaquely partway through.
+`ipod-fetch.sh` probes for supported versions of `deno`, `node`, and `bun` and passes the first usable runtime it finds.
+`install.sh` does not install a distribution runtime package because it may be too old for `yt-dlp`; instead it reports the supported versions and points to [yt-dlp's EJS setup guide](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+If none is usable the script warns before downloading instead of failing opaquely partway through.
 
 When downloads start failing for no apparent reason, YouTube has changed something and `yt-dlp` needs updating:
 

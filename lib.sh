@@ -189,6 +189,28 @@ yt_dlp_bin() {
     fi
 }
 
+yt_dlp_supports_js_runtimes() {
+    local help
+    help="$("$1" --help 2>/dev/null)" || return 1
+    [[ "$help" == *"--js-runtimes"* ]]
+}
+
+_version_at_least() {
+    local major=$((10#$1)) minor=$((10#$2)) patch=$((10#$3))
+    local floor_major=$4 floor_minor=$5 floor_patch=$6
+    (( major > floor_major
+        || (major == floor_major && minor > floor_minor)
+        || (major == floor_major && minor == floor_minor && patch >= floor_patch) ))
+}
+
+_version_at_most() {
+    local major=$((10#$1)) minor=$((10#$2)) patch=$((10#$3))
+    local ceiling_major=$4 ceiling_minor=$5 ceiling_patch=$6
+    (( major < ceiling_major
+        || (major == ceiling_major && minor < ceiling_minor)
+        || (major == ceiling_major && minor == ceiling_minor && patch <= ceiling_patch) ))
+}
+
 # Name a JavaScript runtime yt-dlp can use, or return 1 if none is installed.
 #
 # YouTube protects most media URLs behind a signature challenge that has to be
@@ -198,16 +220,44 @@ yt_dlp_bin() {
 # uploads still work, which makes the failure look video-specific rather than
 # environmental and sends you looking in the wrong place.
 #
-# Probing for whichever runtime exists follows find_gui_python: ask what the
-# machine actually has rather than hardcode one distribution's answer. deno is
-# first because it is what yt-dlp itself defaults to and tests against.
+# Probing for whichever supported runtime exists follows find_gui_python: ask
+# what the machine actually has rather than hardcode one distribution's answer.
+# deno is first because it is what yt-dlp itself defaults to and tests against.
 js_runtime() {
-    local candidate
+    local candidate version major minor patch
     for candidate in deno node bun; do
-        if command -v "$candidate" >/dev/null 2>&1; then
-            printf '%s' "$candidate"
-            return 0
-        fi
+        command -v "$candidate" >/dev/null 2>&1 || continue
+        version="$("$candidate" --version 2>/dev/null)" || continue
+        version="${version%%$'\n'*}"
+
+        case "$candidate" in
+            deno)
+                [[ "$version" =~ ^deno[[:space:]]+v?([0-9]+)\.([0-9]+)\.([0-9]+)([[:space:]]|$) ]] \
+                    || continue
+                major="${BASH_REMATCH[1]}"
+                minor="${BASH_REMATCH[2]}"
+                patch="${BASH_REMATCH[3]}"
+                _version_at_least "$major" "$minor" "$patch" 2 3 0 || continue
+                ;;
+            node)
+                [[ "$version" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || continue
+                major="${BASH_REMATCH[1]}"
+                minor="${BASH_REMATCH[2]}"
+                patch="${BASH_REMATCH[3]}"
+                _version_at_least "$major" "$minor" "$patch" 22 0 0 || continue
+                ;;
+            bun)
+                [[ "$version" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || continue
+                major="${BASH_REMATCH[1]}"
+                minor="${BASH_REMATCH[2]}"
+                patch="${BASH_REMATCH[3]}"
+                _version_at_least "$major" "$minor" "$patch" 1 2 11 || continue
+                _version_at_most "$major" "$minor" "$patch" 1 3 14 || continue
+                ;;
+        esac
+
+        printf '%s' "$candidate"
+        return 0
     done
     return 1
 }
