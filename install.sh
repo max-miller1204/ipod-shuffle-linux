@@ -75,6 +75,19 @@ else
     needed+=("ffmpeg")
 fi
 
+# YouTube hides most media URLs behind a signature challenge that has to be
+# solved in JavaScript. Without a runtime yt-dlp still extracts titles and
+# formats perfectly and then fails every download with HTTP 403, which reads
+# as a broken tool rather than a missing dependency.
+if runtime="$(js_runtime)"; then
+    info "YouTube downloads: $runtime present"
+else
+    needed+=("nodejs")
+    warn "YouTube downloads need Deno >= 2.3, Node >= 22, or Bun 1.2.11-1.3.14."
+    warn "Your distribution's JavaScript runtime package may be too old."
+    warn "Install a supported runtime: https://github.com/yt-dlp/yt-dlp/wiki/EJS"
+fi
+
 if (( ${#needed[@]} == 0 )); then
     info "All system dependencies satisfied"
 else
@@ -152,10 +165,23 @@ else
     warn "  metadata support   missing"
 fi
 
-if [[ -x "$VENV_YT_DLP" ]] || command -v yt-dlp >/dev/null 2>&1; then
-    info "  youtube downloads ok"
+if [[ -x "$VENV_YT_DLP" ]]; then
+    verification_ytdlp="$VENV_YT_DLP"
+elif command -v yt-dlp >/dev/null 2>&1; then
+    verification_ytdlp="$(command -v yt-dlp)"
 else
-    warn "  youtube downloads unavailable"
+    warn "  youtube downloads unavailable (no yt-dlp)"
+    verification_ytdlp=
+fi
+
+if [[ -n "$verification_ytdlp" ]] && ! yt_dlp_supports_js_runtimes "$verification_ytdlp"; then
+    warn "  youtube downloads limited (yt-dlp lacks --js-runtimes)"
+elif [[ -n "$verification_ytdlp" ]] && ! js_runtime >/dev/null; then
+    # Reporting "ok" on yt-dlp alone would promise a feature that then fails
+    # with HTTP 403 on everything except the oldest unrestricted videos.
+    warn "  youtube downloads unavailable (no supported JavaScript runtime)"
+elif [[ -n "$verification_ytdlp" ]]; then
+    info "  youtube downloads ok"
 fi
 
 if gui_python="$(find_gui_python 2>/dev/null)"; then

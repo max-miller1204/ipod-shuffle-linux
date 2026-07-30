@@ -158,6 +158,68 @@ grep -Fq \
     'org.freedesktop.UDisks2.Filesystem.Unmount {}' \
     "$EVIDENCE_DIR/gdbus-call.txt"
 
+# The probe has to report absence rather than guessing a runtime that is not
+# installed, because ipod-fetch.sh turns a negative into an explicit warning.
+# Silently naming one would restore the original failure: downloads that die
+# with HTTP 403 while every other part of the run looks healthy.
+(
+    source "$ROOT/lib.sh"
+    mkdir -p "$TEST_ROOT/no-js"
+    # Confined to this subshell.
+    # shellcheck disable=SC2030,SC2031,SC2123
+    PATH="$TEST_ROOT/no-js"
+    if js_runtime; then
+        echo "js_runtime named a runtime that is not installed" >&2
+        exit 1
+    fi
+    echo "absent"
+) > "$EVIDENCE_DIR/js-runtime-absent.txt"
+grep -Fxq "absent" "$EVIDENCE_DIR/js-runtime-absent.txt"
+
+# The native installer uses the ordinary nodejs distribution package as its
+# fallback only when no supported runtime exists. Stop it immediately after
+# the dependency report so this check cannot install or download anything.
+INSTALLER_PATH="$TEST_ROOT/installer-path"
+mkdir -p "$INSTALLER_PATH"
+for command in bash dirname git mkdir python3 readlink; do
+    ln -s "$(command -v "$command")" "$INSTALLER_PATH/$command"
+done
+INSTALL_BLOCKER="$TEST_ROOT/install-blocker"
+: > "$INSTALL_BLOCKER"
+if PATH="$INSTALLER_PATH" IPOD_TOOLS_DIR="$INSTALL_BLOCKER" \
+    "$ROOT/install.sh" --no-system \
+    > "$EVIDENCE_DIR/install-no-runtime.txt" 2>&1; then
+    echo "installer unexpectedly continued past the dependency report" >&2
+    exit 1
+fi
+grep -Eq 'sudo apt install .*nodejs' \
+    "$EVIDENCE_DIR/install-no-runtime.txt"
+
+# js_runtime invokes these test doubles indirectly by candidate name.
+# shellcheck disable=SC2317,SC2329
+(
+    source "$ROOT/lib.sh"
+    deno() { printf 'deno 2.2.9\n'; }
+    node() { printf 'v18.19.1\n'; }
+    bun() { printf '1.3.15\n'; }
+    if js_runtime; then
+        echo "js_runtime accepted an unsupported runtime version" >&2
+        exit 1
+    fi
+
+    node() { printf 'v22.0.0\n'; }
+    test "$(js_runtime)" = node
+
+    node() { printf 'v21.99.99\n'; }
+    bun() { printf '1.2.11\n'; }
+    test "$(js_runtime)" = bun
+
+    bun() { printf '1.3.14\n'; }
+    test "$(js_runtime)" = bun
+    echo "versions validated"
+) > "$EVIDENCE_DIR/js-runtime-versions.txt"
+grep -Fxq "versions validated" "$EVIDENCE_DIR/js-runtime-versions.txt"
+
 /usr/bin/python3 - "$DB_RECORD" "$IPOD" <<'PY'
 import json
 import sys
@@ -216,11 +278,11 @@ fi
 # are asserted rather than just the exit status.
 FETCH_OUT="$TEST_ROOT/youtube"
 FETCH_RECORD="$EVIDENCE_DIR/yt-dlp-invocation.json"
+# These environment changes are confined to the subshell.
+# shellcheck disable=SC2030,SC2031
 (
     # tests/bin supplies the yt-dlp and ffmpeg doubles, and the findmnt double
     # that lets --sync autodetect the fake iPod the way a real one is found.
-    # Confined to this subshell.
-    # shellcheck disable=SC2031
     PATH="$ROOT/tests/bin:$PATH"
     export FAKE_IPOD_MOUNT="$IPOD"
     export FAKE_YTDLP_RECORD="$FETCH_RECORD"
@@ -270,6 +332,12 @@ assert value_of("--postprocessor-args") == "ExtractAudio:-ac 2", args
 # long --output truncated the song title itself and collided tracks.
 assert "--trim-filenames" not in args, args
 
+# Regression: without a JavaScript runtime, YouTube's signature challenge goes
+# unsolved and every commercial track fails with HTTP 403 while metadata
+# extraction still succeeds, so the tool looks like it works right up until it
+# downloads nothing.
+assert value_of("--js-runtimes") == "deno", args
+
 # Without tags the device shows scrambled filenames and tag playlists have
 # nothing to group by.
 assert "--embed-metadata" in args, args
@@ -291,6 +359,31 @@ PY
 
 grep -Fq 'Downloaded 1 track(s)' "$EVIDENCE_DIR/fetch-and-sync.txt"
 
+OLD_FETCH_OUT="$TEST_ROOT/old-yt-dlp"
+OLD_FETCH_RECORD="$EVIDENCE_DIR/old-yt-dlp-invocation.json"
+# These environment changes are confined to the subshell.
+# shellcheck disable=SC2030,SC2031
+(
+    PATH="$ROOT/tests/bin:$PATH"
+    export FAKE_YTDLP_RECORD="$OLD_FETCH_RECORD"
+    export FAKE_YTDLP_SUPPORTS_JS_RUNTIMES=0
+    export IPOD_VENV_YT_DLP="$TEST_ROOT/missing-yt-dlp"
+    "$ROOT/ipod-fetch.sh" \
+        --output "$OLD_FETCH_OUT" \
+        --single \
+        'https://example.invalid/watch?v=test'
+) > "$EVIDENCE_DIR/old-yt-dlp-fallback.txt" 2>&1
+
+/usr/bin/python3 - "$OLD_FETCH_RECORD" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+args = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert "--js-runtimes" not in args, args
+PY
+grep -Fq 'yt-dlp is too old' "$EVIDENCE_DIR/old-yt-dlp-fallback.txt"
+
 printf '%s\n' \
     "PASS: sync copied supported music while preserving source folders" \
     "PASS: playlist flags used explicit upstream values and persisted across rebuild" \
@@ -304,6 +397,11 @@ printf '%s\n' \
     "PASS: unmount fell back to the UDisks2 gdbus Filesystem.Unmount method" \
     "PASS: fetch requested playable AAC with tags and vfat-safe filenames" \
     "PASS: fetch handed artist folders to the sync, not their parent" \
+    "PASS: fetch passed a JavaScript runtime, without which downloads 403" \
+    "PASS: runtime probe reported absence instead of naming an uninstalled one" \
+    "PASS: installer offered nodejs when no supported runtime was present" \
+    "PASS: runtime probe rejected unsupported versions and accepted supported boundaries" \
+    "PASS: old PATH yt-dlp fallback omitted its unsupported runtime option" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
 cat "$EVIDENCE_DIR/product-e2e-summary.txt"

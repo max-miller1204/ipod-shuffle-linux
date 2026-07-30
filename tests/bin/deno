@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Stands in for a JavaScript runtime so js_runtime() resolves to a known value
+# regardless of what the machine running the suite happens to have installed.
+printf 'deno 2.3.0 (stable, release, x86_64-unknown-linux-gnu)\n'

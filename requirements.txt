@@ -12,4 +12,4 @@ mutagen>=1.45
 # Used by ipod-fetch.sh. Distro packages of yt-dlp go stale quickly and stop
 # working when YouTube changes, so this project owns a copy it can update
 # itself through ./ipod-fetch.sh --update.
-yt-dlp>=2024.1.1
+yt-dlp>=2025.11.12

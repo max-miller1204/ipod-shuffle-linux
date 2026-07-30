@@ -17,6 +17,11 @@ if "--version" in args:
     print("0000.00.00")
     raise SystemExit(0)
 
+if "--help" in args:
+    if os.environ.get("FAKE_YTDLP_SUPPORTS_JS_RUNTIMES", "1") != "0":
+        print("    --js-runtimes RUNTIME[:PATH]")
+    raise SystemExit(0)
+
 
 def value_of(flag):
     return args[args.index(flag) + 1] if flag in args else None
