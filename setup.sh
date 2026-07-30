@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 #
-# One-time setup: fetch the database builder and report optional dependencies.
+# One-time setup: fetch the database builder, create its virtualenv, and
+# report anything optional that is missing.
 
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
 readonly UPSTREAM_REPO="https://github.com/nims11/IPod-Shuffle-4g.git"
-readonly TOOLS_DIR="${HOME}/ipod-tools"
 
 # The database builder is GPL-2.0 and lives upstream rather than vendored here,
 # so it can be updated independently and keeps its own licence and history.
@@ -27,16 +27,28 @@ python3 -m py_compile "$DB_TOOL" \
     || die "Database builder failed to compile under this Python version."
 info "Database builder compiles cleanly"
 
-# Optional extras. None of these are required to put music on the device, so
-# report rather than install; installing needs root and that is the user's call.
-declare -a missing=()
-
-if python3 -c 'import mutagen' 2>/dev/null; then
-    info "mutagen: present (artist and album metadata will be written)"
-else
-    warn "mutagen missing - the database will have no artist or album info"
-    missing+=("python3-mutagen")
+# mutagen goes in a virtualenv rather than via the system package manager.
+# See the comment on VENV_PYTHON in lib.sh for why apt is not reliable here.
+if [[ ! -x "$VENV_PYTHON" ]]; then
+    info "Creating virtualenv at $TOOLS_DIR/venv"
+    python3 -m venv "$TOOLS_DIR/venv" \
+        || die "Could not create virtualenv. On Debian and Ubuntu, install python3-venv."
 fi
+
+if "$VENV_PYTHON" -c 'import mutagen' 2>/dev/null; then
+    info "mutagen: present"
+else
+    info "Installing mutagen into the virtualenv"
+    "$TOOLS_DIR/venv/bin/pip" install -q --disable-pip-version-check mutagen \
+        || warn "mutagen install failed; the database will have no artist or album info"
+fi
+
+"$VENV_PYTHON" -c 'import mutagen' 2>/dev/null \
+    && info "Metadata support ready ($("$VENV_PYTHON" -c 'import mutagen; print("mutagen", mutagen.version_string)'))"
+
+# Optional system packages. Reported rather than installed, since installing
+# needs root and that is the user's call.
+declare -a missing=()
 
 if command -v pico2wave >/dev/null; then
     info "pico2wave: present (voiceover available)"
@@ -47,9 +59,22 @@ else
     missing+=("libttspico-utils")
 fi
 
-command -v ffmpeg >/dev/null \
-    || { warn "ffmpeg missing - you will not be able to convert unsupported formats"
-         missing+=("ffmpeg"); }
+if command -v ffmpeg >/dev/null; then
+    info "ffmpeg: present"
+else
+    warn "ffmpeg missing - you will not be able to convert unsupported formats"
+    missing+=("ffmpeg")
+fi
+
+# The GUI needs GTK4 and libadwaita through PyGObject. These come from the
+# distro rather than pip, because building PyGObject from source pulls in
+# gobject-introspection and cairo development headers.
+if gui_python="$(find_gui_python 2>/dev/null)"; then
+    info "GUI ready (GTK4 via $gui_python)"
+else
+    warn "GUI unavailable - no python with GTK4 bindings found"
+    missing+=("python3-gi" "gir1.2-gtk-4.0" "gir1.2-adw-1")
+fi
 
 if (( ${#missing[@]} > 0 )); then
     printf '\n'
@@ -58,4 +83,6 @@ if (( ${#missing[@]} > 0 )); then
 fi
 
 printf '\n'
-info "Setup complete. Plug in the iPod and run ./ipod-sync.sh ~/Music/somefolder"
+info "Setup complete."
+info "  GUI:  ./ipod-gui.sh"
+info "  CLI:  ./ipod-sync.sh ~/Music/somefolder"

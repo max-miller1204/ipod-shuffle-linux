@@ -16,6 +16,7 @@ readonly SUPPORTED_EXT="mp3|m4a|m4b|m4p|aa|wav"
 IPOD=""
 EJECT=0
 CLEAR=0
+REBUILD_ONLY=0
 declare -a DB_ARGS=()
 
 usage() {
@@ -28,6 +29,7 @@ Options:
   -i, --ipod PATH     iPod mount point (default: autodetect)
   -c, --clear         Remove existing tracks before copying
   -e, --eject         Unmount the iPod when finished
+  -r, --rebuild-only  Rebuild the database without copying anything
   -t, --voiceover     Generate spoken track names (needs a TTS engine)
   -d, --playlists     Generate one playlist per source folder
   -h, --help          Show this message
@@ -35,23 +37,29 @@ Options:
 Examples:
   ./ipod-sync.sh ~/Music/roadtrip
   ./ipod-sync.sh --clear --eject ~/Music/albums/*/
+  ./ipod-sync.sh --rebuild-only
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -i|--ipod)      IPOD="$2"; shift 2 ;;
-        -c|--clear)     CLEAR=1; shift ;;
-        -e|--eject)     EJECT=1; shift ;;
-        -t|--voiceover) DB_ARGS+=("--track-voiceover"); shift ;;
-        -d|--playlists) DB_ARGS+=("--auto-dir-playlists"); shift ;;
-        -h|--help)      usage; exit 0 ;;
-        -*)             die "Unknown option: $1 (try --help)" ;;
-        *)              break ;;
+        -i|--ipod)         IPOD="$2"; shift 2 ;;
+        -c|--clear)        CLEAR=1; shift ;;
+        -e|--eject)        EJECT=1; shift ;;
+        -r|--rebuild-only) REBUILD_ONLY=1; shift ;;
+        -t|--voiceover)    DB_ARGS+=("--track-voiceover"); shift ;;
+        -d|--playlists)    DB_ARGS+=("--auto-dir-playlists"); shift ;;
+        -h|--help)         usage; exit 0 ;;
+        -*)                die "Unknown option: $1 (try --help)" ;;
+        *)                 break ;;
     esac
 done
 
-[[ $# -gt 0 ]] || { usage; exit 1; }
+if (( REBUILD_ONLY )); then
+    (( $# == 0 )) || die "--rebuild-only takes no source directories."
+else
+    [[ $# -gt 0 ]] || { usage; exit 1; }
+fi
 
 IPOD="$(find_ipod "$IPOD")"
 assert_shuffle "$IPOD"
@@ -103,17 +111,18 @@ for src in "$@"; do
     done < <(find "$src" -type f -print0)
 done
 
-info "Copied $copied file(s)"
-if (( duplicates > 0 )); then
-    info "Skipped $duplicates file(s) already on the iPod"
-fi
-if (( skipped > 0 )); then
-    warn "Skipped $skipped unsupported file(s). Convert them first, for example:"
-    warn "  ffmpeg -i input.flac -c:a aac -b:a 256k output.m4a"
-fi
-
-if (( copied == 0 && CLEAR == 0 )); then
-    warn "Nothing new copied; rebuilding the database anyway."
+if (( ! REBUILD_ONLY )); then
+    info "Copied $copied file(s)"
+    if (( duplicates > 0 )); then
+        info "Skipped $duplicates file(s) already on the iPod"
+    fi
+    if (( skipped > 0 )); then
+        warn "Skipped $skipped unsupported file(s). Convert them first, for example:"
+        warn "  ffmpeg -i input.flac -c:a aac -b:a 256k output.m4a"
+    fi
+    if (( copied == 0 && CLEAR == 0 )); then
+        warn "Nothing new copied; rebuilding the database anyway."
+    fi
 fi
 
 rebuild_database "$IPOD" "${DB_ARGS[@]+"${DB_ARGS[@]}"}"

@@ -8,7 +8,18 @@ set -euo pipefail
 readonly SHUFFLE_USB_ID="05ac:1303"
 
 # Upstream database builder, installed by setup.sh.
-readonly DB_TOOL="${HOME}/ipod-tools/IPod-Shuffle-4g/ipod-shuffle-4g.py"
+readonly TOOLS_DIR="${HOME}/ipod-tools"
+readonly DB_TOOL="${TOOLS_DIR}/IPod-Shuffle-4g/ipod-shuffle-4g.py"
+
+# Dedicated virtualenv holding mutagen.
+#
+# Distros increasingly ship an externally managed Python (PEP 668), and the
+# interpreter first on PATH is not necessarily the one apt installs into. A
+# uv- or pyenv-managed python3, for example, cannot see /usr/lib/python3/
+# dist-packages at all, so "apt install python3-mutagen" would appear to
+# succeed while the builder still reported no metadata support. Owning a venv
+# sidesteps the question entirely.
+readonly VENV_PYTHON="${TOOLS_DIR}/venv/bin/python"
 
 err()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; }
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
@@ -98,9 +109,47 @@ confirm() {
     [[ "$reply" =~ ^[Yy]$ ]]
 }
 
+# Interpreter used to run the database builder.
+#
+# Prefers setup.sh's venv, which is the only one guaranteed to have mutagen.
+# Falls back to whatever python3 is on PATH so the scripts still work without
+# the venv, just without artist and album metadata in the database.
+db_python() {
+    if [[ -x "$VENV_PYTHON" ]]; then
+        printf '%s' "$VENV_PYTHON"
+    else
+        command -v python3 >/dev/null || die "python3 not found."
+        printf 'python3'
+    fi
+}
+
 require_db_tool() {
     [[ -f "$DB_TOOL" ]] || die "Database tool missing at $DB_TOOL - run ./setup.sh first."
-    command -v python3 >/dev/null || die "python3 not found."
+}
+
+# Interpreter capable of running the GTK4 GUI.
+#
+# PyGObject comes from the distro, so it belongs to the system interpreter,
+# which is often not the python3 first on PATH. Rather than hardcode a path
+# that only holds on Debian derivatives, try the plausible ones and let the
+# import decide. Prints the interpreter and returns 0, or returns 1 if none
+# can drive GTK4.
+find_gui_python() {
+    local candidate
+    for candidate in python3 /usr/bin/python3 /usr/bin/python3.12 /usr/bin/python3.13; do
+        command -v "$candidate" >/dev/null 2>&1 || continue
+        if "$candidate" - <<'PROBE' >/dev/null 2>&1
+import gi
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Gtk, Adw
+PROBE
+        then
+            command -v "$candidate"
+            return 0
+        fi
+    done
+    return 1
 }
 
 # Rebuild iTunesSD, the only database the shuffle firmware actually reads.
@@ -110,5 +159,5 @@ rebuild_database() {
     shift
     require_db_tool
     info "Rebuilding iTunesSD database"
-    python3 "$DB_TOOL" "$@" "$ipod"
+    "$(db_python)" "$DB_TOOL" "$@" "$ipod"
 }

@@ -2,7 +2,7 @@
 
 Use an iPod shuffle 4th generation on Linux without iTunes.
 
-Scripts to wipe, load, and manage a shuffle 4G from the command line, with the device details that make the process work.
+A GTK4 app and a set of scripts to wipe, load, and manage a shuffle 4G, with the device details that make the process work.
 
 ## Why this is not just drag and drop
 
@@ -41,16 +41,41 @@ cd ipod-shuffle-linux
 ./setup.sh
 ```
 
-`setup.sh` fetches the database builder into `~/ipod-tools/`, verifies it compiles against your Python, and reports any optional extras worth installing.
+`setup.sh` fetches the database builder into `~/ipod-tools/`, creates a virtualenv for its one Python dependency, and reports any optional extras worth installing.
 
 The only hard requirement is Python 3.
-Everything else is optional:
+The rest is optional and installed through your package manager:
 
 | Package | Gives you |
 | --- | --- |
-| `python3-mutagen` | Artist and album metadata in the database |
+| `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | The graphical interface |
 | `libttspico-utils` | Spoken track names via VoiceOver |
 | `ffmpeg` | Converting FLAC, OGG, and other unsupported formats |
+
+### Why mutagen goes in a virtualenv
+
+`mutagen` supplies the artist and album metadata written into the database, and `setup.sh` installs it into `~/ipod-tools/venv` rather than through apt.
+
+That is deliberate.
+The `python3` first on your PATH is not necessarily the one apt installs into.
+If you use uv, pyenv, conda, or Homebrew, your `python3` cannot see `/usr/lib/python3/dist-packages` at all, so `sudo apt install python3-mutagen` completes successfully while the database builder still reports `No mutagen found`.
+Owning a virtualenv sidesteps both that and PEP 668's externally-managed-environment error.
+
+The GUI is the exception and does need distro packages, because PyGObject builds from source only with the gobject-introspection and cairo development headers.
+`ipod-gui.sh` therefore looks for an interpreter that can import GTK rather than assuming it is the one on PATH.
+
+## Graphical interface
+
+```bash
+./ipod-gui.sh
+```
+
+![The iPod Shuffle app showing device information, actions, and the track list](docs/screenshot.png)
+
+The window detects the iPod automatically, and appears and updates as the device is plugged in or unmounted.
+It shows real song titles and artists rather than the scrambled filenames stored on the device, and every operation streams its output into the Output pane so nothing happens invisibly.
+
+The buttons map onto the same scripts documented below, so the two interfaces cannot drift apart.
 
 ## Usage
 
@@ -65,6 +90,14 @@ Replace everything currently on the device and unmount when done:
 ```bash
 ./ipod-sync.sh --clear --eject ~/Music/albums/*/
 ```
+
+Rebuild the database without copying anything, which is the fix when tracks are on the device but will not play:
+
+```bash
+./ipod-sync.sh --rebuild-only
+```
+
+Source folders are mirrored rather than flattened, so two albums that both contain a track called `01.mp3` will not overwrite one another.
 
 The iPod is found automatically.
 Pass `--ipod /path/to/mount` if autodetection picks the wrong volume, and note that the script refuses to guess when several iPods are connected.
