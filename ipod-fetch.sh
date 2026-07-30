@@ -145,6 +145,16 @@ declare -a YTDLP_ARGS=(
 
 (( SINGLE )) && YTDLP_ARGS+=(--no-playlist)
 
+# Without this, downloads of most commercial music fail with HTTP 403 while
+# metadata extraction still succeeds, because yt-dlp enables only deno by
+# default and cannot solve YouTube's signature challenge without a runtime.
+if runtime="$(js_runtime)"; then
+    YTDLP_ARGS+=(--js-runtimes "$runtime")
+else
+    warn "No JavaScript runtime (deno, node, or bun) found."
+    warn "YouTube downloads will fail with HTTP 403 for all but the oldest videos."
+fi
+
 count_tracks() { find "$OUTPUT" -type f -name '*.m4a' | wc -l; }
 
 before="$(count_tracks)"

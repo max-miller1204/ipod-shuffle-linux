@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Stands in for a JavaScript runtime so js_runtime() resolves to a known value
+# regardless of what the machine running the suite happens to have installed.
+# Never executed: the yt-dlp double records the flag rather than using it.
+exit 0

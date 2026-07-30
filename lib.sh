@@ -189,6 +189,29 @@ yt_dlp_bin() {
     fi
 }
 
+# Name a JavaScript runtime yt-dlp can use, or return 1 if none is installed.
+#
+# YouTube protects most media URLs behind a signature challenge that has to be
+# solved in JavaScript. yt-dlp enables only deno by default, so on a machine
+# with node or bun but no deno it extracts metadata perfectly, hands back an
+# undeciphered URL, and every download fails with HTTP 403. Old unrestricted
+# uploads still work, which makes the failure look video-specific rather than
+# environmental and sends you looking in the wrong place.
+#
+# Probing for whichever runtime exists follows find_gui_python: ask what the
+# machine actually has rather than hardcode one distribution's answer. deno is
+# first because it is what yt-dlp itself defaults to and tests against.
+js_runtime() {
+    local candidate
+    for candidate in deno node bun; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Interpreter capable of running the GTK4 GUI.
 #
 # PyGObject comes from the distro, so it belongs to the system interpreter,

@@ -158,6 +158,24 @@ grep -Fq \
     'org.freedesktop.UDisks2.Filesystem.Unmount {}' \
     "$EVIDENCE_DIR/gdbus-call.txt"
 
+# The probe has to report absence rather than guessing a runtime that is not
+# installed, because ipod-fetch.sh turns a negative into an explicit warning.
+# Silently naming one would restore the original failure: downloads that die
+# with HTTP 403 while every other part of the run looks healthy.
+(
+    source "$ROOT/lib.sh"
+    mkdir -p "$TEST_ROOT/no-js"
+    # Confined to this subshell.
+    # shellcheck disable=SC2030,SC2031,SC2123
+    PATH="$TEST_ROOT/no-js"
+    if js_runtime; then
+        echo "js_runtime named a runtime that is not installed" >&2
+        exit 1
+    fi
+    echo "absent"
+) > "$EVIDENCE_DIR/js-runtime-absent.txt"
+grep -Fxq "absent" "$EVIDENCE_DIR/js-runtime-absent.txt"
+
 /usr/bin/python3 - "$DB_RECORD" "$IPOD" <<'PY'
 import json
 import sys
@@ -270,6 +288,12 @@ assert value_of("--postprocessor-args") == "ExtractAudio:-ac 2", args
 # long --output truncated the song title itself and collided tracks.
 assert "--trim-filenames" not in args, args
 
+# Regression: without a JavaScript runtime, YouTube's signature challenge goes
+# unsolved and every commercial track fails with HTTP 403 while metadata
+# extraction still succeeds, so the tool looks like it works right up until it
+# downloads nothing.
+assert value_of("--js-runtimes") == "deno", args
+
 # Without tags the device shows scrambled filenames and tag playlists have
 # nothing to group by.
 assert "--embed-metadata" in args, args
@@ -304,6 +328,8 @@ printf '%s\n' \
     "PASS: unmount fell back to the UDisks2 gdbus Filesystem.Unmount method" \
     "PASS: fetch requested playable AAC with tags and vfat-safe filenames" \
     "PASS: fetch handed artist folders to the sync, not their parent" \
+    "PASS: fetch passed a JavaScript runtime, without which downloads 403" \
+    "PASS: runtime probe reported absence instead of naming an uninstalled one" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
 cat "$EVIDENCE_DIR/product-e2e-summary.txt"

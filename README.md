@@ -54,6 +54,7 @@ Everything else is handled for you:
 | `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | system | The graphical interface |
 | `libttspico-utils` | system | Spoken track and playlist names via VoiceOver (the Flatpak bundles espeak-ng instead, see below) |
 | `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats, including YouTube's Opus |
+| `nodejs` | system | Solving YouTube's signature challenge; `deno` or `bun` work equally well |
 
 Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
 System packages are never installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
@@ -288,6 +289,9 @@ The nano supported ALAC; the shuffle never did.
 ./ipod-fetch.sh 'https://www.youtube.com/watch?v=...'
 ```
 
+This is a command line feature only.
+The Flatpak deliberately ships the GUI, the sync, and the wipe, but neither this script nor `yt-dlp`, because the graphical interface has nothing that would call it and bundling a downloader plus a JavaScript runtime into the sandbox would grow the application for a feature it does not expose.
+
 This wraps `yt-dlp` with the settings the shuffle needs, saving into `~/Music/youtube` with one folder per artist so the result is ready for `--dir-playlists`.
 Downloaded video IDs are recorded in `<output>/.fetched` and skipped on later runs, so re-running a playlist URL collects only what is new.
 The ID is also included in each filename so separate videos with the same artist and title cannot overwrite one another; the embedded artist and title tags stay clean.
@@ -325,6 +329,18 @@ YouTube titles stop at 100 characters and vfat allows 255, so it protects agains
 
 `--windows-filenames` does stay, because YouTube titles routinely contain `?`, `|`, and `:`, which vfat rejects outright.
 Sanitising at download time means a sync cannot fail halfway through copying.
+
+**A JavaScript runtime is not optional, despite looking like it.**
+
+YouTube hides most media URLs behind a signature challenge that has to be solved in JavaScript, and `yt-dlp` enables only `deno` by default.
+On a machine with `node` or `bun` but no `deno`, every part of a run looks healthy right up until the download: titles, artists, and formats all resolve, then each track fails with `HTTP Error 403: Forbidden`.
+
+What makes this genuinely confusing is that old unrestricted uploads still work.
+The failure therefore looks specific to the videos you happen to want rather than to the machine, which sends you investigating the wrong thing entirely.
+
+`ipod-fetch.sh` probes for `deno`, `node`, and `bun` and passes whichever exists, so any one of them is enough.
+`install.sh` adds `nodejs` when none is present, and says so plainly rather than reporting downloads as working.
+If none is available the script warns before downloading instead of failing opaquely partway through.
 
 When downloads start failing for no apparent reason, YouTube has changed something and `yt-dlp` needs updating:
 

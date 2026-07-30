@@ -75,6 +75,21 @@ else
     needed+=("ffmpeg")
 fi
 
+# YouTube hides most media URLs behind a signature challenge that has to be
+# solved in JavaScript. Without a runtime yt-dlp still extracts titles and
+# formats perfectly and then fails every download with HTTP 403, which reads
+# as a broken tool rather than a missing dependency.
+#
+# nodejs rather than deno: yt-dlp accepts either, but deno ships as a large
+# standalone binary while nodejs is a normal distribution package. Any of the
+# three already being present is enough, so nothing is installed to replace a
+# runtime that works.
+if js_runtime >/dev/null; then
+    info "YouTube downloads: $(js_runtime) present"
+else
+    needed+=("nodejs")
+fi
+
 if (( ${#needed[@]} == 0 )); then
     info "All system dependencies satisfied"
 else
@@ -152,10 +167,14 @@ else
     warn "  metadata support   missing"
 fi
 
-if [[ -x "$VENV_YT_DLP" ]] || command -v yt-dlp >/dev/null 2>&1; then
-    info "  youtube downloads ok"
+if ! [[ -x "$VENV_YT_DLP" ]] && ! command -v yt-dlp >/dev/null 2>&1; then
+    warn "  youtube downloads unavailable (no yt-dlp)"
+elif ! js_runtime >/dev/null; then
+    # Reporting "ok" on yt-dlp alone would promise a feature that then fails
+    # with HTTP 403 on everything except the oldest unrestricted videos.
+    warn "  youtube downloads unavailable (no JavaScript runtime)"
 else
-    warn "  youtube downloads unavailable"
+    info "  youtube downloads ok"
 fi
 
 if gui_python="$(find_gui_python 2>/dev/null)"; then
