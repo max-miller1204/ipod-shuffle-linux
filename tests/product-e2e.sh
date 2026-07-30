@@ -177,10 +177,10 @@ grep -Fq \
 grep -Fxq "absent" "$EVIDENCE_DIR/js-runtime-absent.txt"
 
 # The installer must report a missing JavaScript runtime rather than offering
-# the distribution's nodejs package to fix it. Ubuntu ships nodejs 18, below
-# yt-dlp's floor of 22, so installing it spends a privileged apt transaction
-# on a runtime js_runtime() then rejects, leaving downloads failing with the
-# same HTTP 403 while appearing to have been dealt with.
+# the distribution's nodejs package to fix it. Ubuntu can provide nodejs 18,
+# below yt-dlp's floor of 22, so installing it spends a privileged apt
+# transaction on a runtime js_runtime() then rejects, leaving downloads
+# failing with the same HTTP 403 while appearing to have been dealt with.
 #
 # Stop the installer immediately after the dependency report so this check
 # cannot install or download anything.
