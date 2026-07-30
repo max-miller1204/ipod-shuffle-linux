@@ -290,12 +290,19 @@ The nano supported ALAC; the shuffle never did.
 
 This wraps `yt-dlp` with the settings the shuffle needs, saving into `~/Music/youtube` with one folder per artist so the result is ready for `--dir-playlists`.
 Downloaded video IDs are recorded in `<output>/.fetched` and skipped on later runs, so re-running a playlist URL collects only what is new.
+The ID is also included in each filename so separate videos with the same artist and title cannot overwrite one another; the embedded artist and title tags stay clean.
 
 `--sync` copies straight onto the iPod when the download finishes:
 
 ```bash
 ./ipod-fetch.sh --single --sync 'https://www.youtube.com/watch?v=...'
 ./ipod-fetch.sh -o ~/Music/mixtape 'https://www.youtube.com/playlist?list=...'
+```
+
+To sync existing downloads later while keeping each artist at the playlist level:
+
+```bash
+./ipod-sync.sh --dir-playlists=1 --playlist-voiceover ~/Music/youtube/*/
 ```
 
 You are responsible for having the right to download whatever you point this at.

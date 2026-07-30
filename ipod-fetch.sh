@@ -48,7 +48,7 @@ One folder is created per artist, so the result is ready for playlists:
   ./ipod-fetch.sh 'https://www.youtube.com/watch?v=...'
   ./ipod-fetch.sh --single --sync 'https://www.youtube.com/watch?v=...'
   ./ipod-fetch.sh -o ~/Music/mixtape 'https://www.youtube.com/playlist?list=...'
-  ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover ~/Music/youtube
+  ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover ~/Music/youtube/*/
 
 Already-downloaded videos are recorded in <output>/.fetched and skipped on
 later runs, so re-running a playlist URL collects only what is new.
@@ -108,13 +108,12 @@ declare -a YTDLP_ARGS=(
     # six-channel file, 1.5% of the device, that its decoder cannot play.
     # Excluding multichannel at selection time leaves the stereo Opus stream,
     # which is both smaller and the one that actually gets converted.
-    --format 'bestaudio[audio_channels<=2]/bestaudio'
+    --format 'bestaudio[audio_channels<=2]'
     --extract-audio
     --audio-format m4a
     --audio-quality "$BITRATE"
 
-    # Downmix anything multichannel that still reaches the encoder, for the
-    # case where a stereo stream was not on offer at all.
+    # Pin encoded output to the shuffle's two supported channels.
     --postprocessor-args 'ExtractAudio:-ac 2'
 
     # Without tags the device shows scrambled four-character filenames and
@@ -140,7 +139,7 @@ declare -a YTDLP_ARGS=(
     # spoken playlist name under --dir-playlists.
     --replace-in-metadata uploader ' - Topic$' ''
 
-    --output "$OUTPUT/%(artist,uploader)s/%(track,title)s.%(ext)s"
+    --output "$OUTPUT/%(artist,uploader)s/%(track,title)s [%(id)s].%(ext)s"
     --download-archive "$OUTPUT/.fetched"
 )
 
@@ -184,5 +183,5 @@ if (( SYNC )); then
 
     "$(dirname "$(readlink -f "$0")")/ipod-sync.sh" "${artist_dirs[@]}"
 else
-    info "Next: ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover $OUTPUT"
+    info "Next: ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover \"$OUTPUT\"/*/"
 fi

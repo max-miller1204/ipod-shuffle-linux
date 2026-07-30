@@ -25,13 +25,13 @@ def value_of(flag):
 with open(os.environ["FAKE_YTDLP_RECORD"], "w", encoding="utf-8") as fh:
     json.dump(args, fh, indent=2)
 
-# "<dir>/%(artist,uploader)s/%(track,title)s.%(ext)s" -> "<dir>"
+# "<dir>/%(artist,uploader)s/%(track,title)s [%(id)s].%(ext)s" -> "<dir>"
 template = value_of("--output")
 if template is None:
     raise SystemExit("ipod-fetch.sh did not pass an output template")
 base = template.split("/%(")[0]
 
-track = os.path.join(base, "Test Artist", "Test Track.m4a")
+track = os.path.join(base, "Test Artist", "Test Track [testvideo].m4a")
 os.makedirs(os.path.dirname(track), exist_ok=True)
 with open(track, "w", encoding="utf-8") as fh:
     fh.write("fake aac payload\n")

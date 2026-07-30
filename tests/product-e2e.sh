@@ -232,13 +232,13 @@ FETCH_RECORD="$EVIDENCE_DIR/yt-dlp-invocation.json"
         'https://example.invalid/watch?v=test'
 ) > "$EVIDENCE_DIR/fetch-and-sync.txt" 2>&1
 
-test -f "$FETCH_OUT/Test Artist/Test Track.m4a"
+test -f "$FETCH_OUT/Test Artist/Test Track [testvideo].m4a"
 test -s "$FETCH_OUT/.fetched"
 
 # Artist folders are handed to the sync, not their parent. Passing $FETCH_OUT
 # itself would bury every track under an extra "youtube" directory and shift
 # what --dir-playlists=1 treats as the artist level.
-test -f "$IPOD/iPod_Control/Music/Test Artist/Test Track.m4a"
+test -f "$IPOD/iPod_Control/Music/Test Artist/Test Track [testvideo].m4a"
 test ! -e "$IPOD/iPod_Control/Music/youtube"
 
 /usr/bin/python3 - "$FETCH_RECORD" <<'PY'
@@ -263,6 +263,7 @@ assert "--extract-audio" in args, args
 # already m4a, so yt-dlp skips the conversion and --audio-quality with it. The
 # device then gets a 30MB six-channel file it cannot decode.
 assert "audio_channels<=2" in value_of("--format"), args
+assert "/bestaudio" not in value_of("--format"), args
 assert value_of("--postprocessor-args") == "ExtractAudio:-ac 2", args
 
 # Regression: --trim-filenames limits the whole path, not the filename, so a
@@ -282,7 +283,7 @@ assert "--no-embed-thumbnail" in args, args
 
 assert "--no-playlist" in args, args
 assert value_of("--output").endswith(
-    "/%(artist,uploader)s/%(track,title)s.%(ext)s"
+    "/%(artist,uploader)s/%(track,title)s [%(id)s].%(ext)s"
 ), args
 assert value_of("--download-archive").endswith("/.fetched"), args
 print(json.dumps(args, indent=2))
