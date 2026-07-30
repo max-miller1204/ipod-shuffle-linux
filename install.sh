@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# Install everything needed to manage an iPod shuffle 4G.
+# Set up the dependencies needed to manage an iPod shuffle 4G.
 #
-# Python dependencies go into a private virtualenv. The few pieces that cannot
-# live there, because they are C libraries or plain binaries, are installed
-# through the system package manager, which is the only step needing
-# privileges. Run with --no-system to skip that part entirely.
+# Python dependencies go into a private virtualenv. Compatible distribution
+# packages are offered through the system package manager, which is the only
+# step needing privileges. A missing JavaScript runtime is reported for manual
+# installation instead. Run with --no-system to skip the package-manager step.
 
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
@@ -21,8 +21,9 @@ usage() {
     cat <<'EOF'
 Usage: ./install.sh [options]
 
-Installs the database builder, a virtualenv with its Python dependencies, and
-any missing system packages.
+Installs the database builder and a virtualenv with its Python dependencies,
+offers compatible missing system packages, and reports a missing JavaScript
+runtime for manual installation.
 
 Options:
   -n, --no-system   Do not install system packages, only report them
@@ -79,17 +80,30 @@ fi
 # solved in JavaScript. Without a runtime yt-dlp still extracts titles and
 # formats perfectly and then fails every download with HTTP 403, which reads
 # as a broken tool rather than a missing dependency.
+JS_RUNTIME_MISSING=0
 if runtime="$(js_runtime)"; then
     info "YouTube downloads: $runtime present"
 else
-    needed+=("nodejs")
+    # Deliberately not added to $needed, unlike every other missing dependency
+    # here. Ubuntu can provide nodejs 18, below yt-dlp's floor of 22, so
+    # installing it would spend a privileged apt transaction producing a
+    # runtime that js_runtime() then rejects, leaving downloads failing with
+    # the same HTTP 403 as before while looking like the problem was handled.
+    JS_RUNTIME_MISSING=1
     warn "YouTube downloads need Deno >= 2.3, Node >= 22, or Bun 1.2.11-1.3.14."
-    warn "Your distribution's JavaScript runtime package may be too old."
-    warn "Install a supported runtime: https://github.com/yt-dlp/yt-dlp/wiki/EJS"
+    warn "Distribution nodejs packages are usually older than that, so this is"
+    warn "not installed for you. Install one of them yourself:"
+    warn "  https://github.com/yt-dlp/yt-dlp/wiki/EJS"
 fi
 
 if (( ${#needed[@]} == 0 )); then
-    info "All system dependencies satisfied"
+    # A missing runtime is no longer in $needed, so an unqualified "satisfied"
+    # here would contradict the warning printed immediately above it.
+    if (( JS_RUNTIME_MISSING )); then
+        info "All apt-installable dependencies satisfied; a JavaScript runtime is still needed"
+    else
+        info "All system dependencies satisfied"
+    fi
 else
     printf '\n'
     info "These need the system package manager:"
