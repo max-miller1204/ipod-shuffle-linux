@@ -2,7 +2,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-EVIDENCE_DIR="${EVIDENCE_DIR:?Set EVIDENCE_DIR to the evidence output directory}"
+
+# Defaults to a temporary directory so the suite can be run with no setup.
+# Set EVIDENCE_DIR to keep the artefacts somewhere durable for inspection.
+EVIDENCE_DIR="${EVIDENCE_DIR:-$(mktemp -d)}"
 mkdir -p "$EVIDENCE_DIR"
 
 TEST_ROOT="$(mktemp -d)"
@@ -77,6 +80,9 @@ diff -u <(printf '%s\n' \
 /usr/bin/python3 "$ROOT/tests/gui-state-smoke.py" "$IPOD" \
     > "$EVIDENCE_DIR/gui-playlist-state.json"
 
+/usr/bin/python3 "$ROOT/tests/gui-detection-smoke.py" \
+    > "$EVIDENCE_DIR/gui-detection.json"
+
 "$ROOT/ipod-sync.sh" \
     --ipod "$IPOD" \
     --forget-options \
@@ -111,19 +117,37 @@ test -s "$BACKUP/Music/Old Album/OLD1.mp3"
 test -s "$BACKUP/Music/Road Trip/Disc 1/01 - Highway.mp3"
 test -s "$BACKUP/iTunes/iTunesDB"
 
+# The stub reproduces the behaviour that caused the original bug rather than
+# returning JSON whatever it is asked for. Raw mode escapes a space as \x20,
+# which is why mount detection cannot use it: an iPod called "Alex's iPod" came
+# back as a path that matched nothing on disk. Emulating both output modes
+# means reverting lib.sh to raw mode fails this assertion instead of silently
+# being handed JSON it never requested.
 (
     source "$ROOT/lib.sh"
     findmnt() {
-        printf '%s\n' \
-            '{"filesystems":[{"target":"/run/media/alex/Alex'\''s iPod"}]}'
+        for arg in "$@"; do
+            if [[ "$arg" == "--json" ]]; then
+                printf '%s\n' \
+                    '{"filesystems":[{"target":"/run/media/alex/Alex'\''s iPod"}]}'
+                return 0
+            fi
+        done
+        printf '%s\n' '/run/media/alex/Alex'\''s\x20iPod'
     }
     list_vfat_mounts
 ) > "$EVIDENCE_DIR/findmnt-space-path.txt"
 grep -Fxq "/run/media/alex/Alex's iPod" "$EVIDENCE_DIR/findmnt-space-path.txt"
+test ! -s "$EVIDENCE_DIR/findmnt-space-path.txt" -o \
+    -z "$(grep -F 'x20' "$EVIDENCE_DIR/findmnt-space-path.txt" || true)"
 
 (
     source "$ROOT/lib.sh"
     mkdir -p "$TEST_ROOT/no-udisks"
+    # Emptying the search path is the point: it reproduces the Flatpak runtime,
+    # which ships gdbus but not udisksctl, so the D-Bus fallback is exercised.
+    # Confined to this subshell.
+    # shellcheck disable=SC2123
     PATH="$TEST_ROOT/no-udisks"
     gdbus() {
         printf '%s\n' "$*" > "$EVIDENCE_DIR/gdbus-call.txt"
@@ -162,6 +186,31 @@ assert records[6] == [ipod]
 print(json.dumps(records, indent=2))
 PY
 
+# Persisting the options must fail loudly rather than reporting success with
+# the file missing, since a later bare rebuild would then silently discard the
+# playlists this file exists to preserve. Root ignores the permission bits, so
+# the check only means something as an unprivileged user.
+if [[ "$(id -u)" -ne 0 ]]; then
+    chmod a-w "$IPOD/iPod_Control"
+    write_failed=0
+    "$ROOT/ipod-sync.sh" \
+        --ipod "$IPOD" \
+        --id3-playlists \
+        --playlist-voiceover \
+        --rebuild-only > "$EVIDENCE_DIR/unwritable-options.txt" 2>&1 \
+        || write_failed=1
+    chmod u+w "$IPOD/iPod_Control"
+
+    if (( ! write_failed )); then
+        echo "sync reported success while unable to persist its options" >&2
+        exit 1
+    fi
+    grep -Fq 'options file' "$EVIDENCE_DIR/unwritable-options.txt"
+else
+    printf 'skipped: running as root, permission bits are not enforced\n' \
+        > "$EVIDENCE_DIR/unwritable-options.txt"
+fi
+
 printf '%s\n' \
     "PASS: sync copied supported music while preserving source folders" \
     "PASS: playlist flags used explicit upstream values and persisted across rebuild" \
@@ -169,6 +218,9 @@ printf '%s\n' \
     "PASS: missing playlist voiceover produced a screenless-device warning" \
     "PASS: wipe backed up music/database and preserved Speakable plus Device state" \
     "PASS: JSON mount detection retained a mount path containing spaces" \
+    "PASS: raw findmnt output stayed rejected, so \\x20 escaping cannot return" \
+    "PASS: GUI refused to choose between two connected iPods" \
+    "PASS: unpersistable options failed loudly instead of reporting success" \
     "PASS: unmount fell back to the UDisks2 gdbus Filesystem.Unmount method" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
