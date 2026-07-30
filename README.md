@@ -363,7 +363,7 @@ The suite runs against a synthetic iPod directory tree with a stand-in for the d
 Set `EVIDENCE_DIR` to keep the artefacts it writes; otherwise they go to a temporary directory.
 
 It covers the failures that actually happened rather than the code that was easiest to assert against.
-Each of these was a real bug, and reintroducing any one of them fails the suite:
+Each of these was a real bug, and reintroducing any one of them fails the suite when it runs as an unprivileged user:
 
 - Playlist flags passed without explicit values, letting `argparse` consume the iPod path as its own argument
 - A bare rebuild discarding the playlists a previous run created
@@ -372,6 +372,8 @@ Each of these was a real bug, and reintroducing any one of them fails the suite:
 - Mount detection using `findmnt` raw mode, which escapes a space as `\x20` and so cannot find an iPod whose name contains one
 - The GUI choosing between several connected iPods rather than refusing, when Add Music and Wipe both act destructively on the choice
 - Options persisted without reporting a failed write, which would silently resurrect the playlist loss
+
+The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 
 The GUI checks call its methods unbound against a stand-in, so they exercise the real logic without needing a display.
 PyGObject still has to be importable, because the module imports it at load time.
