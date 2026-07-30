@@ -147,7 +147,7 @@ test ! -s "$EVIDENCE_DIR/findmnt-space-path.txt" -o \
     # Emptying the search path is the point: it reproduces the Flatpak runtime,
     # which ships gdbus but not udisksctl, so the D-Bus fallback is exercised.
     # Confined to this subshell.
-    # shellcheck disable=SC2123
+    # shellcheck disable=SC2123,SC2030
     PATH="$TEST_ROOT/no-udisks"
     gdbus() {
         printf '%s\n' "$*" > "$EVIDENCE_DIR/gdbus-call.txt"
@@ -211,6 +211,85 @@ else
         > "$EVIDENCE_DIR/unwritable-options.txt"
 fi
 
+# Downloading has to produce something the firmware can decode, which is the
+# whole point of the flags rather than an incidental detail, so the arguments
+# are asserted rather than just the exit status.
+FETCH_OUT="$TEST_ROOT/youtube"
+FETCH_RECORD="$EVIDENCE_DIR/yt-dlp-invocation.json"
+(
+    # tests/bin supplies the yt-dlp and ffmpeg doubles, and the findmnt double
+    # that lets --sync autodetect the fake iPod the way a real one is found.
+    # Confined to this subshell.
+    # shellcheck disable=SC2031
+    PATH="$ROOT/tests/bin:$PATH"
+    export FAKE_IPOD_MOUNT="$IPOD"
+    export FAKE_YTDLP_RECORD="$FETCH_RECORD"
+    export IPOD_VENV_YT_DLP="$ROOT/tests/bin/yt-dlp"
+    "$ROOT/ipod-fetch.sh" \
+        --output "$FETCH_OUT" \
+        --single \
+        --sync \
+        'https://example.invalid/watch?v=test'
+) > "$EVIDENCE_DIR/fetch-and-sync.txt" 2>&1
+
+test -f "$FETCH_OUT/Test Artist/Test Track.m4a"
+test -s "$FETCH_OUT/.fetched"
+
+# Artist folders are handed to the sync, not their parent. Passing $FETCH_OUT
+# itself would bury every track under an extra "youtube" directory and shift
+# what --dir-playlists=1 treats as the artist level.
+test -f "$IPOD/iPod_Control/Music/Test Artist/Test Track.m4a"
+test ! -e "$IPOD/iPod_Control/Music/youtube"
+
+/usr/bin/python3 - "$FETCH_RECORD" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+args = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+
+
+def value_of(flag):
+    return args[args.index(flag) + 1]
+
+
+# Opus is what YouTube serves and the one thing the shuffle cannot play, so a
+# conversion to AAC at the documented bitrate is not optional.
+assert value_of("--audio-format") == "m4a", args
+assert value_of("--audio-quality") == "256k", args
+assert "--extract-audio" in args, args
+
+# Regression: plain "bestaudio" selects YouTube's 5.1 AAC stream, which is
+# already m4a, so yt-dlp skips the conversion and --audio-quality with it. The
+# device then gets a 30MB six-channel file it cannot decode.
+assert "audio_channels<=2" in value_of("--format"), args
+assert value_of("--postprocessor-args") == "ExtractAudio:-ac 2", args
+
+# Regression: --trim-filenames limits the whole path, not the filename, so a
+# long --output truncated the song title itself and collided tracks.
+assert "--trim-filenames" not in args, args
+
+# Without tags the device shows scrambled filenames and tag playlists have
+# nothing to group by.
+assert "--embed-metadata" in args, args
+
+# Names have to survive the copy onto vfat, where YouTube's titles otherwise
+# fail on characters the filesystem rejects.
+assert "--windows-filenames" in args, args
+
+# No screen, so cover art is bytes off a 2GB device for nothing.
+assert "--no-embed-thumbnail" in args, args
+
+assert "--no-playlist" in args, args
+assert value_of("--output").endswith(
+    "/%(artist,uploader)s/%(track,title)s.%(ext)s"
+), args
+assert value_of("--download-archive").endswith("/.fetched"), args
+print(json.dumps(args, indent=2))
+PY
+
+grep -Fq 'Downloaded 1 track(s)' "$EVIDENCE_DIR/fetch-and-sync.txt"
+
 printf '%s\n' \
     "PASS: sync copied supported music while preserving source folders" \
     "PASS: playlist flags used explicit upstream values and persisted across rebuild" \
@@ -222,6 +301,8 @@ printf '%s\n' \
     "PASS: GUI refused to choose between two connected iPods" \
     "PASS: unpersistable options failed loudly instead of reporting success" \
     "PASS: unmount fell back to the UDisks2 gdbus Filesystem.Unmount method" \
+    "PASS: fetch requested playable AAC with tags and vfat-safe filenames" \
+    "PASS: fetch handed artist folders to the sync, not their parent" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
 cat "$EVIDENCE_DIR/product-e2e-summary.txt"

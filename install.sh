@@ -139,6 +139,7 @@ info "Installing Python dependencies"
 "$TOOLS_DIR/venv/bin/pip" install -q --disable-pip-version-check -r "$REQUIREMENTS" \
     || die "Failed to install Python dependencies."
 info "  $("$VENV_PYTHON" -c 'import mutagen; print("mutagen", mutagen.version_string)')"
+info "  yt-dlp $("$VENV_YT_DLP" --version 2>/dev/null || echo "unavailable")"
 
 # ---------------------------------------------------------------- verification
 
@@ -149,6 +150,12 @@ if "$VENV_PYTHON" -c 'import mutagen' 2>/dev/null; then
     info "  metadata support   ok"
 else
     warn "  metadata support   missing"
+fi
+
+if [[ -x "$VENV_YT_DLP" ]] || command -v yt-dlp >/dev/null 2>&1; then
+    info "  youtube downloads ok"
+else
+    warn "  youtube downloads unavailable"
 fi
 
 if gui_python="$(find_gui_python 2>/dev/null)"; then
