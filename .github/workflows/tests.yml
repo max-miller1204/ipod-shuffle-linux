@@ -1,0 +1,50 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The GUI smoke tests import ipod-gui.py, which imports PyGObject at
+      # module level, so the bindings are needed even though no window is ever
+      # opened. They come from the distribution for the same reason the Flatpak
+      # takes them from its runtime: building PyGObject from pip would need the
+      # gobject-introspection and cairo development headers.
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck
+
+      - name: Shell lint
+        run: shellcheck -x ./*.sh flatpak/build.sh tests/product-e2e.sh
+
+      - name: Python syntax
+        run: python3 -m py_compile ipod-gui.py tests/*.py
+
+      # Never run as root. The suite checks that a volume it cannot write to
+      # produces a loud failure, and root ignores the permission bits that
+      # check depends on, which would silently reduce its coverage.
+      - name: End-to-end suite
+        run: |
+          test "$(id -u)" -ne 0 || { echo "must not run as root" >&2; exit 1; }
+          EVIDENCE_DIR="${RUNNER_TEMP}/evidence" bash tests/product-e2e.sh
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-evidence
+          path: ${{ runner.temp }}/evidence
+          if-no-files-found: warn

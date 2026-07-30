@@ -353,6 +353,31 @@ Delete `iPod_Control/iTunes/iTunesSD` and re-run the sync to rebuild it from scr
 If the volume itself is damaged, a restore through iTunes on Windows or macOS rebuilds the whole layout.
 That erases the device, including `Speakable/`, which is restored from the firmware during the process.
 
+## Tests
+
+```bash
+bash tests/product-e2e.sh
+```
+
+The suite runs against a synthetic iPod directory tree with a stand-in for the database builder, so it needs no hardware, no audio, and a few seconds.
+Set `EVIDENCE_DIR` to keep the artefacts it writes; otherwise they go to a temporary directory.
+
+It covers the failures that actually happened rather than the code that was easiest to assert against.
+Each of these was a real bug, and reintroducing any one of them fails the suite:
+
+- Playlist flags passed without explicit values, letting `argparse` consume the iPod path as its own argument
+- A bare rebuild discarding the playlists a previous run created
+- A wipe leaving `.sync-options` behind, so configuration reappeared afterwards
+- A wipe destroying Apple's `Speakable` prompts, which nothing can regenerate
+- Mount detection using `findmnt` raw mode, which escapes a space as `\x20` and so cannot find an iPod whose name contains one
+- The GUI choosing between several connected iPods rather than refusing, when Add Music and Wipe both act destructively on the choice
+- Options persisted without reporting a failed write, which would silently resurrect the playlist loss
+
+The GUI checks call its methods unbound against a stand-in, so they exercise the real logic without needing a display.
+PyGObject still has to be importable, because the module imports it at load time.
+
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, and a Python syntax check on every push and pull request.
+
 ## Credits
 
 The hard part, reverse engineering the `iTunesSD` format and writing it correctly, is [nims11/IPod-Shuffle-4g](https://github.com/nims11/IPod-Shuffle-4g).
