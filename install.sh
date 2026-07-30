@@ -40,41 +40,22 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ---------------------------------------------------------------- unprivileged
+# ---------------------------------------------------------------- prerequisites
 
 command -v python3 >/dev/null || die "python3 is required but not installed."
 command -v git >/dev/null     || die "git is required but not installed."
 info "python3: $(python3 --version)"
-
-info "Installing database builder into $TOOLS_DIR"
-mkdir -p "$TOOLS_DIR"
-if [[ -d "$TOOLS_DIR/IPod-Shuffle-4g/.git" ]]; then
-    git -C "$TOOLS_DIR/IPod-Shuffle-4g" pull --ff-only --quiet
-    info "Database builder updated"
-else
-    git clone --depth 1 --quiet "$UPSTREAM_REPO" "$TOOLS_DIR/IPod-Shuffle-4g"
-    info "Database builder cloned"
-fi
-
-python3 -m py_compile "$DB_TOOL" \
-    || die "Database builder failed to compile under this Python version."
-
-if [[ ! -x "$VENV_PYTHON" ]]; then
-    info "Creating virtualenv at $TOOLS_DIR/venv"
-    python3 -m venv "$TOOLS_DIR/venv" \
-        || die "Could not create virtualenv. On Debian and Ubuntu, install python3-venv."
-fi
-
-info "Installing Python dependencies"
-"$TOOLS_DIR/venv/bin/pip" install -q --disable-pip-version-check -r "$REQUIREMENTS" \
-    || die "Failed to install Python dependencies."
-info "  $("$VENV_PYTHON" -c 'import mutagen; print("mutagen", mutagen.version_string)')"
 
 # ------------------------------------------------------------------ privileged
 
 # Probe for capabilities rather than package names, so the check itself works
 # on any distribution even though the install command below assumes apt.
 declare -a needed=()
+
+if [[ ! -x "$VENV_PYTHON" ]] \
+    && ! python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then
+    needed+=("python3-venv")
+fi
 
 if find_gui_python >/dev/null 2>&1; then
     info "GUI: GTK4 bindings present"
@@ -132,6 +113,32 @@ else
         fi
     fi
 fi
+
+# ---------------------------------------------------------------- unprivileged
+
+info "Installing database builder into $TOOLS_DIR"
+mkdir -p "$TOOLS_DIR"
+if [[ -d "$TOOLS_DIR/IPod-Shuffle-4g/.git" ]]; then
+    git -C "$TOOLS_DIR/IPod-Shuffle-4g" pull --ff-only --quiet
+    info "Database builder updated"
+else
+    git clone --depth 1 --quiet "$UPSTREAM_REPO" "$TOOLS_DIR/IPod-Shuffle-4g"
+    info "Database builder cloned"
+fi
+
+python3 -m py_compile "$DB_TOOL" \
+    || die "Database builder failed to compile under this Python version."
+
+if [[ ! -x "$VENV_PYTHON" ]]; then
+    info "Creating virtualenv at $TOOLS_DIR/venv"
+    python3 -m venv "$TOOLS_DIR/venv" \
+        || die "Could not create virtualenv. Re-run without --no-system to install python3-venv."
+fi
+
+info "Installing Python dependencies"
+"$TOOLS_DIR/venv/bin/pip" install -q --disable-pip-version-check -r "$REQUIREMENTS" \
+    || die "Failed to install Python dependencies."
+info "  $("$VENV_PYTHON" -c 'import mutagen; print("mutagen", mutagen.version_string)')"
 
 # ---------------------------------------------------------------- verification
 

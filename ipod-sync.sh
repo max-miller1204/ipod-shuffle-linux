@@ -187,9 +187,18 @@ fi
 rebuild_database "$IPOD" "${DB_ARGS[@]+"${DB_ARGS[@]}"}"
 
 if (( ${#DB_ARGS[@]} > 0 )); then
-    printf '%s\n' "${DB_ARGS[@]}" > "$OPTIONS_FILE" 2>/dev/null || true
+    options_tmp="$(mktemp "${OPTIONS_FILE}.tmp.XXXXXX")" \
+        || die "Could not create a temporary options file on the iPod."
+    trap 'rm -f -- "${options_tmp:-}"' EXIT
+    printf '%s\n' "${DB_ARGS[@]}" > "$options_tmp" \
+        || die "Could not write playlist and voiceover options to the iPod."
+    mv -f -- "$options_tmp" "$OPTIONS_FILE" \
+        || die "Could not save playlist and voiceover options to the iPod."
+    options_tmp=""
+    trap - EXIT
 else
-    rm -f "$OPTIONS_FILE" 2>/dev/null || true
+    rm -f -- "$OPTIONS_FILE" \
+        || die "Could not clear playlist and voiceover options from the iPod."
 fi
 
 total="$(find "$MUSIC_DIR" -type f | wc -l)"

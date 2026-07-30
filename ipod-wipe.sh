@@ -91,6 +91,7 @@ mkdir -p "$MUSIC_DIR"
 for f in "${STALE_STATE[@]}"; do
     rm -f "$ITUNES_DIR/$f"
 done
+rm -f "$IPOD/iPod_Control/.sync-options"
 info "Cleared stale iTunes state and previous-owner library binding"
 
 rebuild_database "$IPOD"

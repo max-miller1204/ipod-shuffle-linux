@@ -24,6 +24,44 @@ finish-args:
   - --filesystem=home
 
 modules:
+  - name: popt
+    buildsystem: simple
+    build-commands:
+      - ./autogen.sh
+      - ./configure --prefix=${FLATPAK_DEST} --disable-static
+      - make -j${FLATPAK_BUILDER_N_JOBS}
+      - make install
+    sources:
+      - type: archive
+        url: https://github.com/rpm-software-management/popt/archive/refs/tags/popt-1.19-release.tar.gz
+        sha256: 6eb40d650526cb9fe63eb4415bcecdf9cf306f7556e77eff689abc5a44670060
+
+  - name: svox-pico
+    buildsystem: simple
+    build-commands:
+      - |
+        while IFS= read -r patch_name; do
+          case "$patch_name" in
+            ""|\#*) continue ;;
+          esac
+          patch -p1 < "debian/patches/$patch_name"
+        done < debian/patches/series
+      - chmod +x pico/autogen.sh
+      - cd pico && ./autogen.sh
+      - cd pico && CPPFLAGS="-I/app/include" LDFLAGS="-L/app/lib"
+        ./configure --prefix=${FLATPAK_DEST} --disable-static
+      - make -C pico -j${FLATPAK_BUILDER_N_JOBS}
+      - make -C pico install
+      - install -Dm644 pico/lib/NOTICE
+        /app/share/licenses/svox-pico/NOTICE
+      - /app/bin/pico2wave --wave=pico-check.wav "Flatpak voiceover check"
+      - test -s pico-check.wav
+      - rm pico-check.wav
+    sources:
+      - type: git
+        url: https://github.com/ihuguet/picotts.git
+        commit: 21089d223e177ba3cb7e385db8613a093dff74b5
+
   - name: python3-mutagen
     buildsystem: simple
     build-commands:
@@ -37,7 +75,7 @@ modules:
 
   # The reverse-engineered iTunesSD writer. Pinned to a commit rather than a
   # branch so a rebuild is reproducible, and kept as a separate module so its
-  # GPL-2.0 history stays distinct from this wrapper.
+  # GPL-2.0-only history stays distinct from this wrapper.
   - name: ipod-shuffle-4g
     buildsystem: simple
     build-commands:
@@ -65,6 +103,8 @@ modules:
       - install -Dm644 flatpak/io.github.max_miller1204.IpodShuffle.svg
         /app/share/icons/hicolor/scalable/apps/io.github.max_miller1204.IpodShuffle.svg
       - install -Dm644 LICENSE /app/share/licenses/ipod-shuffle/LICENSE
+      - python3 -c 'import shutil;
+        assert shutil.which("pico2wave") == "/app/bin/pico2wave"'
     sources:
       - type: dir
         path: ..

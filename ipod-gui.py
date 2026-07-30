@@ -101,8 +101,8 @@ def read_tags(mount_point):
         return {}
 
 
-def find_ipod():
-    """Return the mount point of a connected iPod, or None.
+def find_ipods():
+    """Return the mount points of connected iPods.
 
     Uses findmnt's JSON output because raw mode escapes spaces as \\x20 and
     iPod names very often contain one.
@@ -114,13 +114,51 @@ def find_ipod():
         ).stdout
         filesystems = json.loads(out).get("filesystems", [])
     except (OSError, ValueError, subprocess.SubprocessError):
-        return None
+        return []
 
+    candidates = []
     for entry in filesystems:
         target = entry.get("target")
         if target and Path(target, "iPod_Control").is_dir():
-            return target
-    return None
+            candidates.append(target)
+    return candidates
+
+
+def saved_sync_options(mount_point):
+    """Return the GUI state and equivalent CLI playlist arguments."""
+    options_file = Path(mount_point, "iPod_Control", ".sync-options")
+    try:
+        options = options_file.read_text().splitlines()
+    except OSError:
+        options = []
+
+    mode = 0
+    playlist_args = []
+    track_voiceover = False
+    playlist_voiceover = False
+    index = 0
+    while index < len(options):
+        option = options[index]
+        if option == "--auto-dir-playlists" and index + 1 < len(options):
+            value = options[index + 1]
+            playlist_args.append(f"--dir-playlists={value}")
+            mode = 1
+            index += 2
+        elif option == "--auto-id3-playlists" and index + 1 < len(options):
+            value = options[index + 1]
+            playlist_args.append(f"--id3-playlists={value}")
+            mode = 3 if value == "{genre}" else 2
+            index += 2
+        elif option == "--track-voiceover":
+            track_voiceover = True
+            index += 1
+        elif option == "--playlist-voiceover":
+            playlist_voiceover = True
+            index += 1
+        else:
+            index += 1
+
+    return mode, playlist_args, track_voiceover, playlist_voiceover
 
 
 def device_for(mount_point):
@@ -228,6 +266,10 @@ class IpodWindow(Adw.ApplicationWindow):
         self.busy = False
         self.track_rows = {}
         self.tag_generation = 0
+        self.loading_options = False
+        self.loaded_playlist_mode = 0
+        self.loaded_playlist_args = []
+        self.speech_engine_available = has_speech_engine()
 
         self.toasts = Adw.ToastOverlay()
         self.set_content(self.toasts)
@@ -257,19 +299,19 @@ class IpodWindow(Adw.ApplicationWindow):
         self.refresh()
 
     def _build_empty_page(self):
-        page = Adw.StatusPage(
+        self.empty_page = Adw.StatusPage(
             icon_name="multimedia-player-symbolic",
             title="No iPod Connected",
             description="Plug in an iPod shuffle and it will appear here.\n"
                         "If it is already connected, it may need mounting.",
         )
-        button = Gtk.Button(label="Mount Connected iPod")
-        button.set_halign(Gtk.Align.CENTER)
-        button.add_css_class("pill")
-        button.add_css_class("suggested-action")
-        button.connect("clicked", self.on_mount_clicked)
-        page.set_child(button)
-        return page
+        self.mount_button = Gtk.Button(label="Mount Connected iPod")
+        self.mount_button.set_halign(Gtk.Align.CENTER)
+        self.mount_button.add_css_class("pill")
+        self.mount_button.add_css_class("suggested-action")
+        self.mount_button.connect("clicked", self.on_mount_clicked)
+        self.empty_page.set_child(self.mount_button)
+        return self.empty_page
 
     def _build_device_page(self):
         scroller = Gtk.ScrolledWindow(vexpand=True)
@@ -368,7 +410,10 @@ class IpodWindow(Adw.ApplicationWindow):
         )
         options.add(self.playlist_voiceover)
 
-        if not has_speech_engine():
+        for row in (self.track_voiceover, self.playlist_voiceover):
+            row.connect("notify::active", self._on_voiceover_changed)
+
+        if not self.speech_engine_available:
             for row in (self.track_voiceover, self.playlist_voiceover):
                 row.set_sensitive(False)
                 row.set_subtitle("No speech engine installed")
@@ -405,12 +450,28 @@ class IpodWindow(Adw.ApplicationWindow):
         if self.busy:
             return False
 
-        self.mount_point = find_ipod()
-        if self.mount_point is None:
+        candidates = find_ipods()
+        if len(candidates) != 1:
+            self.mount_point = None
+            if len(candidates) > 1:
+                self.empty_page.set_title("Multiple iPods Connected")
+                self.empty_page.set_description(
+                    "Disconnect all but the iPod you want to manage."
+                )
+                self.mount_button.set_visible(False)
+            else:
+                self.empty_page.set_title("No iPod Connected")
+                self.empty_page.set_description(
+                    "Plug in an iPod shuffle and it will appear here.\n"
+                    "If it is already connected, it may need mounting."
+                )
+                self.mount_button.set_visible(True)
             self.stack.set_visible_child_name("empty")
             return False
 
+        self.mount_point = candidates[0]
         self.stack.set_visible_child_name("device")
+        self._load_sync_options()
 
         label = Path(self.mount_point).name
         self.name_row.set_subtitle(label)
@@ -496,14 +557,36 @@ class IpodWindow(Adw.ApplicationWindow):
         return False
 
     def _on_playlist_mode_changed(self, *_args):
-        if self.playlist_mode.get_selected() != 0 and has_speech_engine():
+        if self.loading_options:
+            return
+        if self.playlist_mode.get_selected() != 0 and self.speech_engine_available:
             self.playlist_voiceover.set_active(True)
+
+    def _on_voiceover_changed(self, row, *_args):
+        if not self.speech_engine_available:
+            row.set_sensitive(row.get_active())
+
+    def _load_sync_options(self):
+        mode, playlist_args, track_voiceover, playlist_voiceover = (
+            saved_sync_options(self.mount_point)
+        )
+        self.loading_options = True
+        try:
+            self.playlist_mode.set_selected(mode)
+            self.track_voiceover.set_active(track_voiceover)
+            self.playlist_voiceover.set_active(playlist_voiceover)
+        finally:
+            self.loading_options = False
+        self.loaded_playlist_mode = mode
+        self.loaded_playlist_args = playlist_args
 
     def _sync_options(self):
         """Flags for the selected playlist and voiceover options."""
         args = []
         mode = self.playlist_mode.get_selected()
-        if mode == 1:
+        if mode == self.loaded_playlist_mode and self.loaded_playlist_args:
+            args.extend(self.loaded_playlist_args)
+        elif mode == 1:
             args.append("--dir-playlists")
         elif mode == 2:
             args.append("--id3-playlists={artist}")
@@ -513,7 +596,7 @@ class IpodWindow(Adw.ApplicationWindow):
             args.append("--voiceover")
         if self.playlist_voiceover.get_active():
             args.append("--playlist-voiceover")
-        return args
+        return args or ["--forget-options"]
 
     def _set_busy(self, busy, message=""):
         self.busy = busy

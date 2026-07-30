@@ -313,7 +313,7 @@ Re-run the sync and let the script unmount with `--eject`.
 
 **Tracks play but have no names under VoiceOver.**
 `mutagen` is missing, so the database was written without metadata.
-Install `python3-mutagen` and re-run.
+Re-run `./install.sh`, or install `mutagen` into the virtualenv it creates.
 
 **`udisksctl unmount` says the device is busy.**
 Something still has a file open on the volume, often a file manager.
@@ -340,5 +340,5 @@ This repository is a set of wrappers around that tool, plus the device notes.
 
 ## Licence
 
-GPL-2.0, matching the upstream tool these scripts drive.
+GPL-2.0-only, matching the upstream tool these scripts drive.
 See [LICENSE](LICENSE).
