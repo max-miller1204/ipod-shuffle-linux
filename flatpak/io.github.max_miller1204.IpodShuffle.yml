@@ -62,6 +62,12 @@ modules:
         > /app/share/espeak-ng-data/lang/gmw/english_rp
 
       - install -Dm644 COPYING /app/share/licenses/espeak-ng/COPYING
+      - install -Dm644 COPYING.APACHE
+        /app/share/licenses/espeak-ng/COPYING.APACHE
+      - install -Dm644 COPYING.BSD2
+        /app/share/licenses/espeak-ng/COPYING.BSD2
+      - install -Dm644 COPYING.UCD
+        /app/share/licenses/espeak-ng/COPYING.UCD
     sources:
       - type: archive
         url: https://github.com/espeak-ng/espeak-ng/archive/refs/tags/1.52.0.tar.gz
