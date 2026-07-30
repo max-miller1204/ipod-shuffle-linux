@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Stands in for ffmpeg so ipod-fetch.sh's dependency check passes on a machine
+# without it. The yt-dlp double never invokes a real encoder.
+exit 0

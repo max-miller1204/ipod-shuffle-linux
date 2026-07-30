@@ -1,8 +1,15 @@
 # Python dependencies, installed into ~/ipod-tools/venv by install.sh.
 #
-# Only one, deliberately. GTK4 is a C library and its Python bindings need the
+# Two, deliberately. GTK4 is a C library and its Python bindings need the
 # gobject-introspection and cairo development headers to build from source, so
 # pip-installing PyGObject would mean adding three -dev system packages in
 # order to avoid adding one runtime package. The distro's python3-gi is both
 # smaller and better tested; install.sh fetches it separately.
+
+# Artist and album metadata, which the database builder writes into iTunesDB.
 mutagen>=1.45
+
+# Used by ipod-fetch.sh. Distro packages of yt-dlp go stale quickly and stop
+# working when YouTube changes, so this project owns a copy it can update
+# itself through ./ipod-fetch.sh --update.
+yt-dlp>=2024.1.1

@@ -25,6 +25,9 @@ readonly DB_TOOL="${IPOD_DB_TOOL:-${TOOLS_DIR}/IPod-Shuffle-4g/ipod-shuffle-4g.p
 # sidesteps the question entirely.
 readonly VENV_PYTHON="${IPOD_VENV_PYTHON:-${TOOLS_DIR}/venv/bin/python}"
 
+# yt-dlp, used by ipod-fetch.sh. Same virtualenv, for the same reasons.
+readonly VENV_YT_DLP="${IPOD_VENV_YT_DLP:-${TOOLS_DIR}/venv/bin/yt-dlp}"
+
 err()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; }
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
@@ -169,6 +172,21 @@ db_python() {
 
 require_db_tool() {
     [[ -f "$DB_TOOL" ]] || die "Database tool missing at $DB_TOOL - run ./install.sh first."
+}
+
+# Locate yt-dlp, preferring install.sh's virtualenv over PATH.
+#
+# The venv copy is the one this project keeps current, but a system or pipx
+# install is just as good and is often newer, so PATH is a fallback rather
+# than an error. Prints the executable, or dies if neither exists.
+yt_dlp_bin() {
+    if [[ -x "$VENV_YT_DLP" ]]; then
+        printf '%s' "$VENV_YT_DLP"
+    elif command -v yt-dlp >/dev/null 2>&1; then
+        command -v yt-dlp
+    else
+        die "yt-dlp not found - run ./install.sh, or install it with 'pipx install yt-dlp'."
+    fi
 }
 
 # Interpreter capable of running the GTK4 GUI.

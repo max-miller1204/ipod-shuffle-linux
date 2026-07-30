@@ -50,9 +50,10 @@ Everything else is handled for you:
 | Component | Where it goes | Gives you |
 | --- | --- | --- |
 | `mutagen` | virtualenv | Artist and album metadata, including tag-based playlists |
+| `yt-dlp` | virtualenv | Downloading music from YouTube via `ipod-fetch.sh` |
 | `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | system | The graphical interface |
 | `libttspico-utils` | system | Spoken track and playlist names via VoiceOver (the Flatpak bundles espeak-ng instead, see below) |
-| `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats |
+| `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats, including YouTube's Opus |
 
 Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
 System packages are never installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
@@ -274,6 +275,63 @@ Convert first:
 ffmpeg -i input.flac -c:a aac -b:a 256k output.m4a
 ```
 
+AAC in an `.m4a` container is the best of these on a 2GB device.
+`.wav` is the only lossless option on the list, but it costs about 42MB per four-minute track against 7.7MB for 256k AAC, and it carries no tags worth relying on, which leaves tracks anonymous on a device that identifies them by tag.
+
+Note that Apple Lossless will not play.
+ALAC lives in an `.m4a` container, so it passes the extension check and copies onto the device happily, but the shuffle 4G cannot decode it and the track will skip.
+The nano supported ALAC; the shuffle never did.
+
+### Downloading from YouTube
+
+```bash
+./ipod-fetch.sh 'https://www.youtube.com/watch?v=...'
+```
+
+This wraps `yt-dlp` with the settings the shuffle needs, saving into `~/Music/youtube` with one folder per artist so the result is ready for `--dir-playlists`.
+Downloaded video IDs are recorded in `<output>/.fetched` and skipped on later runs, so re-running a playlist URL collects only what is new.
+The ID is also included in each filename so separate videos with the same artist and title cannot overwrite one another; the embedded artist and title tags stay clean.
+
+`--sync` copies straight onto the iPod when the download finishes:
+
+```bash
+./ipod-fetch.sh --single --sync 'https://www.youtube.com/watch?v=...'
+./ipod-fetch.sh -o ~/Music/mixtape 'https://www.youtube.com/playlist?list=...'
+```
+
+To sync existing downloads later while keeping each artist at the playlist level:
+
+```bash
+./ipod-sync.sh --dir-playlists=1 --playlist-voiceover ~/Music/youtube/*/
+```
+
+You are responsible for having the right to download whatever you point this at.
+
+**Two of its flags exist because the obvious version produces files the device cannot play.**
+
+YouTube normally serves its best stereo audio as Opus, which the shuffle cannot decode at all, so it is usually converted to AAC; 256k is deliberate headroom over the roughly 160k source.
+Encoding lossy to lossy loses a little every time, and giving the second encoder room is the cheapest way to keep that inaudible.
+If the selected stereo stream is already AAC, `yt-dlp` remuxes it without re-encoding, so `--audio-quality` does not change its bitrate.
+That is intentional: forcing another lossy generation would only reduce quality.
+
+The trap is that plain `bestaudio` does not select Opus.
+YouTube also offers 5.1 AAC at 388k, which ranks highest on bitrate and arrives already in an `.m4a` container, so `yt-dlp` reports `already in target format`, skips the conversion, and discards the requested bitrate along with it.
+The result is a 30MB six-channel file, 1.5% of the device, that its stereo decoder cannot play.
+Restricting selection to stereo normally leaves the Opus stream, which is both smaller and the one that actually gets converted.
+
+There is deliberately no `--trim-filenames`.
+It limits the length of the whole path rather than the filename, so a long `--output` directory eats the budget and truncates the song title itself, silently collapsing different tracks onto the same name.
+YouTube titles stop at 100 characters and vfat allows 255, so it protects against nothing.
+
+`--windows-filenames` does stay, because YouTube titles routinely contain `?`, `|`, and `:`, which vfat rejects outright.
+Sanitising at download time means a sync cannot fail halfway through copying.
+
+When downloads start failing for no apparent reason, YouTube has changed something and `yt-dlp` needs updating:
+
+```bash
+./ipod-fetch.sh --update
+```
+
 ## Renaming the device
 
 The shuffle's name is not stored in any of its databases.
@@ -372,6 +430,9 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - Mount detection using `findmnt` raw mode, which escapes a space as `\x20` and so cannot find an iPod whose name contains one
 - The GUI choosing between several connected iPods rather than refusing, when Add Music and Wipe both act destructively on the choice
 - Options persisted without reporting a failed write, which would silently resurrect the playlist loss
+- `yt-dlp` selecting YouTube's 5.1 AAC stream, which skips the conversion because it is already `.m4a` and leaves a six-channel file the device cannot decode
+- `--trim-filenames` truncating song titles, because it limits the whole path rather than the filename
+- `ipod-fetch.sh --sync` handing the parent directory to the sync instead of the artist folders, burying every track a level deeper than playlists expect
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 
