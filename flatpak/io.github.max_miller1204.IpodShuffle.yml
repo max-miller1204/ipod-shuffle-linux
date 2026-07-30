@@ -27,94 +27,51 @@ finish-args:
   - --filesystem=home
 
 modules:
-  - name: popt
-    buildsystem: simple
-    build-commands:
-      - ./autogen.sh
-      - ./configure --prefix=${FLATPAK_DEST} --disable-static
-      - make -j${FLATPAK_BUILDER_N_JOBS}
-      - make install
-      - install -Dm644 COPYING /app/share/licenses/popt/COPYING
-    sources:
-      - type: archive
-        url: https://github.com/rpm-software-management/popt/archive/refs/tags/popt-1.19-release.tar.gz
-        sha256: 6eb40d650526cb9fe63eb4415bcecdf9cf306f7556e77eff689abc5a44670060
+  # espeak-ng rather than SVOX Pico. Pico is unmaintained 2013 code, and the
+  # build produced here is non-deterministic: the same text yields different
+  # audio on every run, the signature of reading uninitialised memory. That
+  # survived -O0 -fno-strict-aliasing -fwrapv, and Debian's working package is
+  # built from a different patch set than the fork packaged here. espeak-ng is
+  # maintained, builds cleanly, and the database builder already supports it.
+  # The native install still prefers pico2wave, where it works correctly.
+  - name: espeak-ng
+    buildsystem: autotools
+    config-opts:
+      - --without-pcaudiolib
+      - --without-klatt
+      - --without-speechplayer
+      - --without-mbrola
+    build-options:
+      env:
+        # Upstream regenerates dictionaries during the build and needs to find
+        # its own freshly built data rather than any copy already on the system.
+        ESPEAK_DATA_PATH: /app/share/espeak-ng-data
+    post-install:
+      # The database builder invokes the binary as `espeak`, which is the
+      # traditional name; upstream installs `espeak-ng` and ships the compat
+      # wrapper only in some packagings, so it is created explicitly here.
+      - ln -sf espeak-ng /app/bin/espeak
 
-  - name: svox-pico
-    buildsystem: simple
-    build-commands:
-      - patch -p1 < git-0-Use-long-to-store-pointer
-      - patch -p1 < git-1-fix-memset-overflow-of-wcep_pI
-      - patch -p1 < git-fix
-      - patch -p1 < 0001-autoconf-building-of-library-using-libtool.patch
-      - patch -p1 < 0002-gitignore-for-autotools-files.patch
-      - patch -p1 <
-        0003-pico2wave-Convert-text-to-.wav-using-svox-text-to-sp.patch
-      - patch -p1 < 0004-add-header-files.patch
-      - patch -p1 < 0005-Install-lang-files.patch
-      - patch -p1 < 0006-Set-picolangdir.patch
-      - patch -p1 < 0009-Fix-link-order.patch
-      - patch -p1 < 0010-platform.patch
-      - patch -p1 < volume
-      - patch -p1 < fix-undefined
-      - patch -p1 < 2f86050dc5da9ab68fc61510b594d8e6975c4d2d.patch
-      - chmod +x pico/autogen.sh
-      - cd pico && ./autogen.sh
-      - cd pico && CPPFLAGS="-I/app/include" LDFLAGS="-L/app/lib"
-        ./configure --prefix=${FLATPAK_DEST} --disable-static
-      - make -C pico -j${FLATPAK_BUILDER_N_JOBS}
-      - make -C pico install
-      - install -Dm644 pico/lib/NOTICE
-        /app/share/licenses/svox-pico/NOTICE
-      - /app/bin/pico2wave --wave=pico-check.wav "Flatpak voiceover check"
-      - test -s pico-check.wav
-      - rm pico-check.wav
+      # It also hardcodes `-v english_rp`, the voice name from espeak 1.48.
+      # espeak-ng renamed that voice to en-gb-x-rp and rejects the old name
+      # outright, which would fail every synthesis. Rather than fork the
+      # GPL-2.0-only builder to change one string, the old name is provided
+      # as an alias of the same voice definition.
+      - sed 's/^name .*/name english_rp/'
+        /app/share/espeak-ng-data/lang/gmw/en-GB-x-rp
+        > /app/share/espeak-ng-data/lang/gmw/english_rp
+
+      - install -Dm644 COPYING /app/share/licenses/espeak-ng/COPYING
+      - install -Dm644 COPYING.APACHE
+        /app/share/licenses/espeak-ng/COPYING.APACHE
+      - install -Dm644 COPYING.BSD2
+        /app/share/licenses/espeak-ng/COPYING.BSD2
+      - install -Dm644 COPYING.UCD
+        /app/share/licenses/espeak-ng/COPYING.UCD
     sources:
       - type: archive
-        url: https://deb.debian.org/debian/pool/non-free/s/svox/svox_1.0+git20130326.orig.tar.gz
-        sha256: 337b25e6ccb3764f0df1e176470b883c90e40e98840d4133340fcc89eb3cea0c
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/git-0-Use-long-to-store-pointer
-        sha256: c7e8181aee3faab044c15dbc584c31a44df1de4289d1423cf9093e60395050dd
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/git-1-fix-memset-overflow-of-wcep_pI
-        sha256: 3ff3c7c95a279a6dab8bb5be9ac874e41de974934bc9bcc1c7c1e219a04305e3
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/git-fix
-        sha256: 758697bad5c42b97a073de3498977bd12862c14677a3956858dee37debec85c9
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0001-autoconf-building-of-library-using-libtool.patch
-        sha256: 2aa2e2bd685b92fba44a435cafe6ad0a76f98cd794cb04f9b12e59015d885968
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0002-gitignore-for-autotools-files.patch
-        sha256: 71e53c70d7962f28e0e07dd8a3caf0267f952e8056504edcef556e5cbe629d93
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0003-pico2wave-Convert-text-to-.wav-using-svox-text-to-sp.patch
-        sha256: 5546202d43461e1935b3be609c47528c405bfd95f2502386df9390813a25e80f
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0004-add-header-files.patch
-        sha256: a41f23c398edd475557dabb2543e9bfc4fc67a839cd938b24c98502fa53f99d5
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0005-Install-lang-files.patch
-        sha256: b042f56732878b3c07e12a83e7059fea264a0e916dee4333074e7684853e773a
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0006-Set-picolangdir.patch
-        sha256: 54b900881b464f70ff68e0bf83f69d741324474dac8b209e6845005cedaf68c6
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0009-Fix-link-order.patch
-        sha256: 4f2295b684a734bccc88edee56f1c21557d2660cec684bc35300df467354d0a1
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/0010-platform.patch
-        sha256: 0ecc42371318cf160d8db2c59633b452055575b0ae6c2ff551df1abc60a1b097
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/volume
-        sha256: 1fa6dc703a8f81bb823a002eba27420dcb4afdc9dd3c7e38ae95953d4f846da9
-      - type: file
-        url: https://raw.githubusercontent.com/ihuguet/picotts/21089d223e177ba3cb7e385db8613a093dff74b5/debian/patches/fix-undefined
-        sha256: 04640ba173d7ecfdc9879b2133cda69fa7576eee2aa4ebe4eb26ffaa24c8171c
-      - type: file
-        url: https://github.com/ihuguet/picotts/commit/2f86050dc5da9ab68fc61510b594d8e6975c4d2d.patch
-        sha256: c3e66e6f91f26b80d793a8c617d91c1c4b3c5cb056c42801b525eaf249fa3fdf
+        url: https://github.com/espeak-ng/espeak-ng/archive/refs/tags/1.52.0.tar.gz
+        sha256: bb4338102ff3b49a81423da8a1a158b420124b055b60fa76cfb4b18677130a23
 
   - name: python3-mutagen
     buildsystem: simple
@@ -157,8 +114,25 @@ modules:
       - install -Dm644 flatpak/io.github.max_miller1204.IpodShuffle.svg
         /app/share/icons/hicolor/scalable/apps/io.github.max_miller1204.IpodShuffle.svg
       - install -Dm644 LICENSE /app/share/licenses/ipod-shuffle/LICENSE
+
+      # The speech engine must satisfy the detection the GUI performs, under
+      # the traditional name the database builder invokes.
       - python3 -c 'import shutil;
-        assert shutil.which("pico2wave") == "/app/bin/pico2wave"'
+        assert shutil.which("espeak") == "/app/bin/espeak"'
+
+      # It must produce real audio, not merely exist. A WAV holding no samples
+      # is exactly its 44-byte canonical header, so anything larger has sound
+      # in it. The arguments mirror what the database builder actually passes.
+      - espeak -v english_rp -s 150 -w speech-check.wav -- "Voiceover check"
+      - test "$(wc -c < speech-check.wav)" -gt 44
+
+      # And it must be deterministic. The engine this replaced returned
+      # different audio for identical input on every run, which reached the
+      # device as playlists that could not be told apart, so the property that
+      # failed before is asserted here rather than assumed.
+      - espeak -v english_rp -s 150 -w speech-repeat.wav -- "Voiceover check"
+      - cmp speech-check.wav speech-repeat.wav
+      - rm speech-check.wav speech-repeat.wav
     sources:
       - type: dir
         path: ..
