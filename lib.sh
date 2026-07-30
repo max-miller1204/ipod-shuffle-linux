@@ -155,7 +155,7 @@ confirm() {
 
 # Interpreter used to run the database builder.
 #
-# Prefers setup.sh's venv, which is the only one guaranteed to have mutagen.
+# Prefers install.sh's venv, which is the only one guaranteed to have mutagen.
 # Falls back to whatever python3 is on PATH so the scripts still work without
 # the venv, just without artist and album metadata in the database.
 db_python() {
@@ -168,7 +168,7 @@ db_python() {
 }
 
 require_db_tool() {
-    [[ -f "$DB_TOOL" ]] || die "Database tool missing at $DB_TOOL - run ./setup.sh first."
+    [[ -f "$DB_TOOL" ]] || die "Database tool missing at $DB_TOOL - run ./install.sh first."
 }
 
 # Interpreter capable of running the GTK4 GUI.
