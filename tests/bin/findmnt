@@ -1,0 +1,15 @@
+#!/usr/bin/env python3
+"""Minimal findmnt test double used to render the GUI with a fake volume."""
+
+import json
+import os
+import sys
+
+
+mount_point = os.environ["FAKE_IPOD_MOUNT"]
+if "--json" in sys.argv:
+    print(json.dumps({"filesystems": [{"target": mount_point}]}))
+elif "--target" in sys.argv:
+    print("/dev/sdz")
+else:
+    raise SystemExit(f"unsupported findmnt arguments: {sys.argv[1:]}")

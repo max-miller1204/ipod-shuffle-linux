@@ -49,13 +49,13 @@ Everything else is handled for you:
 
 | Component | Where it goes | Gives you |
 | --- | --- | --- |
-| `mutagen` | virtualenv | Artist and album metadata in the database |
+| `mutagen` | virtualenv | Artist and album metadata, including tag-based playlists |
 | `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | system | The graphical interface |
-| `libttspico-utils` | system | Spoken track names via VoiceOver |
+| `libttspico-utils` | system | Spoken track and playlist names via VoiceOver |
 | `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats |
 
 Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
-Nothing is ever installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
+System packages are never installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
 
 ### Why not put everything in the virtualenv
 
@@ -104,6 +104,12 @@ flatpak run io.github.max_miller1204.IpodShuffle
 ```
 
 It needs `org.flatpak.Builder` and the GNOME SDK, both from Flathub.
+Install the GNOME 50 build dependencies together:
+
+```bash
+flatpak install --user flathub org.flatpak.Builder org.gnome.Sdk//50
+```
+
 The build takes the repository root as a source directory, so the build tree is kept in the cache directory rather than inside the checkout.
 
 Flatpak is a better fit here than an AppImage.

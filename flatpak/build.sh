@@ -2,8 +2,7 @@
 #
 # Build and install the Flatpak locally.
 #
-# Needs org.flatpak.Builder and the GNOME SDK, both from Flathub:
-#   flatpak install --user flathub org.flatpak.Builder org.gnome.Sdk//50
+# See README.md for the required Flatpak applications and SDK branch.
 
 set -euo pipefail
 

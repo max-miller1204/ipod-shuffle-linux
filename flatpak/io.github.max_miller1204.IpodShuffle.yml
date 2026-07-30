@@ -1,3 +1,6 @@
+---
+# Source URLs and checksums are kept intact for reproducible Flatpak builds.
+# yamllint disable rule:line-length
 app-id: io.github.max_miller1204.IpodShuffle
 runtime: org.gnome.Platform
 runtime-version: '50'

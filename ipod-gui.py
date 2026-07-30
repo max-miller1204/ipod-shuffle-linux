@@ -36,6 +36,7 @@ def _tag_interpreter():
     """
     try:
         import mutagen  # noqa: F401
+
         return sys.executable
     except ImportError:
         pass
@@ -94,7 +95,9 @@ def read_tags(mount_point):
     try:
         result = subprocess.run(
             [TAG_PYTHON, "-c", _TAG_READER, str(music)],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True,
+            text=True,
+            timeout=60,
         )
         return json.loads(result.stdout or "{}")
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -110,7 +113,9 @@ def find_ipods():
     try:
         out = subprocess.run(
             ["findmnt", "-no", "TARGET", "-t", "vfat", "--json"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         ).stdout
         filesystems = json.loads(out).get("filesystems", [])
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -164,10 +169,15 @@ def saved_sync_options(mount_point):
 def device_for(mount_point):
     """Block device backing a mount point, e.g. /dev/sda."""
     try:
-        return subprocess.run(
-            ["findmnt", "-rno", "SOURCE", "--target", mount_point],
-            capture_output=True, text=True, timeout=5,
-        ).stdout.strip() or None
+        return (
+            subprocess.run(
+                ["findmnt", "-rno", "SOURCE", "--target", mount_point],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            ).stdout.strip()
+            or None
+        )
     except (OSError, subprocess.SubprocessError):
         return None
 
@@ -187,9 +197,13 @@ def udisks_filesystem_call(device, method):
         result = bus.call_sync(
             "org.freedesktop.UDisks2",
             f"/org/freedesktop/UDisks2/block_devices/{Path(device).name}",
-            "org.freedesktop.UDisks2.Filesystem", method,
+            "org.freedesktop.UDisks2.Filesystem",
+            method,
             GLib.Variant("(a{sv})", ({},)),
-            None, Gio.DBusCallFlags.NONE, -1, None,
+            None,
+            Gio.DBusCallFlags.NONE,
+            -1,
+            None,
         )
     except GLib.Error as exc:
         return False, exc.message
@@ -206,9 +220,15 @@ def unmounted_vfat_devices():
     try:
         bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
         result = bus.call_sync(
-            "org.freedesktop.UDisks2", "/org/freedesktop/UDisks2",
-            "org.freedesktop.DBus.ObjectManager", "GetManagedObjects",
-            None, None, Gio.DBusCallFlags.NONE, -1, None,
+            "org.freedesktop.UDisks2",
+            "/org/freedesktop/UDisks2",
+            "org.freedesktop.DBus.ObjectManager",
+            "GetManagedObjects",
+            None,
+            None,
+            Gio.DBusCallFlags.NONE,
+            -1,
+            None,
         )
     except GLib.Error:
         return []
@@ -251,7 +271,9 @@ def list_tracks(mount_point, limit=500):
 def human_size(num_bytes):
     for unit in ("B", "KB", "MB", "GB"):
         if abs(num_bytes) < 1024:
-            return f"{num_bytes:.0f} {unit}" if unit == "B" else f"{num_bytes:.1f} {unit}"
+            return (
+                f"{num_bytes:.0f} {unit}" if unit == "B" else f"{num_bytes:.1f} {unit}"
+            )
         num_bytes /= 1024
     return f"{num_bytes:.1f} TB"
 
@@ -303,7 +325,7 @@ class IpodWindow(Adw.ApplicationWindow):
             icon_name="multimedia-player-symbolic",
             title="No iPod Connected",
             description="Plug in an iPod shuffle and it will appear here.\n"
-                        "If it is already connected, it may need mounting.",
+            "If it is already connected, it may need mounting.",
         )
         self.mount_button = Gtk.Button(label="Mount Connected iPod")
         self.mount_button.set_halign(Gtk.Align.CENTER)
@@ -316,14 +338,15 @@ class IpodWindow(Adw.ApplicationWindow):
     def _build_device_page(self):
         scroller = Gtk.ScrolledWindow(vexpand=True)
         box = Gtk.Box(
-            orientation=Gtk.Orientation.VERTICAL, spacing=18,
-            margin_top=18, margin_bottom=18, margin_start=18, margin_end=18,
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=18,
+            hexpand=True,
+            margin_top=18,
+            margin_bottom=18,
+            margin_start=18,
+            margin_end=18,
         )
-        # Keep the content column readable when the window is wide, instead of
-        # stretching rows across the whole screen. Standard libadwaita layout.
-        clamp = Adw.Clamp(maximum_size=680, tightening_threshold=600)
-        clamp.set_child(box)
-        scroller.set_child(clamp)
+        scroller.set_child(box)
 
         info_group = Adw.PreferencesGroup(title="Device")
         self.name_row = Adw.ActionRow(title="Name")
@@ -429,12 +452,19 @@ class IpodWindow(Adw.ApplicationWindow):
         self.tracks_group.add(self.tracks_list)
         box.append(self.tracks_group)
 
-        self.log_expander = Adw.ExpanderRow(title="Output", subtitle="Details of the last operation")
+        self.log_expander = Adw.ExpanderRow(
+            title="Output", subtitle="Details of the last operation"
+        )
         log_group = Adw.PreferencesGroup()
         log_group.add(self.log_expander)
         self.log_view = Gtk.TextView(
-            editable=False, monospace=True, cursor_visible=False,
-            left_margin=12, right_margin=12, top_margin=8, bottom_margin=8,
+            editable=False,
+            monospace=True,
+            cursor_visible=False,
+            left_margin=12,
+            right_margin=12,
+            top_margin=8,
+            bottom_margin=8,
         )
         log_scroller = Gtk.ScrolledWindow(min_content_height=180, vexpand=False)
         log_scroller.set_child(self.log_view)
@@ -502,7 +532,9 @@ class IpodWindow(Adw.ApplicationWindow):
         self.track_rows = {}
         tracks = list_tracks(self.mount_point)
         if not tracks:
-            empty = Adw.ActionRow(title="No tracks", subtitle="Use Add Music to copy some over")
+            empty = Adw.ActionRow(
+                title="No tracks", subtitle="Use Add Music to copy some over"
+            )
             self.tracks_list.append(empty)
             self.tracks_group.set_description(None)
             return
@@ -567,8 +599,8 @@ class IpodWindow(Adw.ApplicationWindow):
             row.set_sensitive(row.get_active())
 
     def _load_sync_options(self):
-        mode, playlist_args, track_voiceover, playlist_voiceover = (
-            saved_sync_options(self.mount_point)
+        mode, playlist_args, track_voiceover, playlist_voiceover = saved_sync_options(
+            self.mount_point
         )
         self.loading_options = True
         try:
@@ -644,8 +676,11 @@ class IpodWindow(Adw.ApplicationWindow):
             code = -1
             try:
                 proc = subprocess.Popen(
-                    argv, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, bufsize=1,
+                    argv,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
                 )
                 if proc.stdout is not None:
                     for line in proc.stdout:
@@ -682,9 +717,15 @@ class IpodWindow(Adw.ApplicationWindow):
                 self._toast("No supported audio found in that folder")
                 return
             self._run(
-                [str(SYNC_SCRIPT), "--ipod", self.mount_point,
-                 *self._sync_options(), path],
-                "Copying music…", "Music added",
+                [
+                    str(SYNC_SCRIPT),
+                    "--ipod",
+                    self.mount_point,
+                    *self._sync_options(),
+                    path,
+                ],
+                "Copying music…",
+                "Music added",
             )
 
         dialog.select_folder(self, None, chosen)
@@ -701,19 +742,27 @@ class IpodWindow(Adw.ApplicationWindow):
         # --rebuild-only rather than passing the Music directory as a source,
         # which would copy the iPod's own library into a subfolder of itself.
         self._run(
-            [str(SYNC_SCRIPT), "--ipod", self.mount_point, "--rebuild-only",
-             *self._sync_options()],
-            "Rebuilding database…", "Database rebuilt",
+            [
+                str(SYNC_SCRIPT),
+                "--ipod",
+                self.mount_point,
+                "--rebuild-only",
+                *self._sync_options(),
+            ],
+            "Rebuilding database…",
+            "Database rebuilt",
         )
 
     def on_wipe(self, _button):
         total = count_tracks(self.mount_point)
         dialog = Adw.AlertDialog(
             heading="Wipe this iPod?",
-            body=(f"All {total} track(s) will be removed from the device.\n\n"
-                  "Backing up first is strongly recommended: iPod filenames are "
-                  "scrambled codes, and the database that maps them back to real "
-                  "song titles is deleted too."),
+            body=(
+                f"All {total} track(s) will be removed from the device.\n\n"
+                "Backing up first is strongly recommended: iPod filenames are "
+                "scrambled codes, and the database that maps them back to real "
+                "song titles is deleted too."
+            ),
         )
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("wipe", "Wipe Without Backup")
@@ -774,14 +823,18 @@ class IpodWindow(Adw.ApplicationWindow):
                 # Something else on the bus. Put it back as it was rather
                 # than leaving an unrelated volume mounted.
                 udisks_filesystem_call(device, "Unmount")
-            GLib.idle_add(self._finish_dbus, False, "", "no iPod among the connected volumes")
+            GLib.idle_add(
+                self._finish_dbus, False, "", "no iPod among the connected volumes"
+            )
 
         threading.Thread(target=worker, daemon=True).start()
 
 
 class IpodApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        super().__init__(
+            application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS
+        )
 
     def do_activate(self):
         window = self.props.active_window or IpodWindow(application=self)
