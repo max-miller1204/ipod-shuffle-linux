@@ -38,31 +38,48 @@ The 3rd generation shuffle uses the same database format and will probably work,
 ```bash
 git clone https://github.com/max-miller1204/ipod-shuffle-linux.git
 cd ipod-shuffle-linux
-./setup.sh
+./install.sh
 ```
 
-`setup.sh` fetches the database builder into `~/ipod-tools/`, creates a virtualenv for its one Python dependency, and reports any optional extras worth installing.
+That is the whole installation.
+It fetches the database builder into `~/ipod-tools/`, creates a virtualenv for the Python dependencies, works out which system packages are missing, and offers to install them.
 
-The only hard requirement is Python 3.
-The rest is optional and installed through your package manager:
+The only hard requirements are Python 3 and git.
+Everything else is handled for you:
 
-| Package | Gives you |
-| --- | --- |
-| `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | The graphical interface |
-| `libttspico-utils` | Spoken track names via VoiceOver |
-| `ffmpeg` | Converting FLAC, OGG, and other unsupported formats |
+| Component | Where it goes | Gives you |
+| --- | --- | --- |
+| `mutagen` | virtualenv | Artist and album metadata in the database |
+| `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | system | The graphical interface |
+| `libttspico-utils` | system | Spoken track names via VoiceOver |
+| `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats |
 
-### Why mutagen goes in a virtualenv
+Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
+Nothing is ever installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
 
-`mutagen` supplies the artist and album metadata written into the database, and `setup.sh` installs it into `~/ipod-tools/venv` rather than through apt.
+### Why not put everything in the virtualenv
+
+It is a fair question, and the answer differs per dependency.
+
+`mutagen` is pure Python, so it goes in the virtualenv and needs no privileges at all.
+
+PyGObject cannot.
+Building it from pip requires the gobject-introspection and cairo development headers, so pip-installing it would mean adding three `-dev` system packages in order to avoid adding one runtime package.
+GTK4 itself is a C library that no virtualenv can contain.
+The distro's `python3-gi` is smaller, already built, and better tested.
+
+`pico2wave` and `ffmpeg` are plain binaries rather than Python packages, so they have no virtualenv to go in either.
+
+This split is why `ipod-gui.sh` looks for an interpreter that can import GTK instead of assuming the one on PATH, and why the GUI reads tags by calling into the virtualenv as a subprocess.
+
+### Why mutagen goes in a virtualenv rather than apt
+
+`mutagen` supplies the artist and album metadata written into the database, and `install.sh` installs it into `~/ipod-tools/venv` rather than through apt.
 
 That is deliberate.
 The `python3` first on your PATH is not necessarily the one apt installs into.
 If you use uv, pyenv, conda, or Homebrew, your `python3` cannot see `/usr/lib/python3/dist-packages` at all, so `sudo apt install python3-mutagen` completes successfully while the database builder still reports `No mutagen found`.
 Owning a virtualenv sidesteps both that and PEP 668's externally-managed-environment error.
-
-The GUI is the exception and does need distro packages, because PyGObject builds from source only with the gobject-introspection and cairo development headers.
-`ipod-gui.sh` therefore looks for an interpreter that can import GTK rather than assuming it is the one on PATH.
 
 ## Graphical interface
 
@@ -130,13 +147,24 @@ ffmpeg -i input.flac -c:a aac -b:a 256k output.m4a
 The shuffle's name is not stored in any of its databases.
 It lives only in the FAT32 volume label, so renaming is a filesystem operation and no iPod-specific tool is involved.
 
+The tidiest way is to ask udisks, which needs no root at all.
+Polkit grants label changes on removable media to the logged-in user, so this succeeds without a password:
+
 ```bash
 udisksctl unmount -b /dev/sda
-sudo fatlabel /dev/sda "MAX SHUFFLE"
+gdbus call --system --dest org.freedesktop.UDisks2 \
+  --object-path /org/freedesktop/UDisks2/block_devices/sda \
+  --method org.freedesktop.UDisks2.Filesystem.SetLabel "MAX_SHUFFLE" "{}"
 udisksctl mount -b /dev/sda
 ```
 
-The label is limited to 11 characters, and `fatlabel` rejects anything longer.
+`fatlabel` does the same thing if you would rather, but it writes to the block device directly and therefore needs root:
+
+```bash
+sudo fatlabel /dev/sda "MAX_SHUFFLE"
+```
+
+The label is limited to 11 characters, and both methods reject anything longer.
 
 FAT32 stores the label in two places, the boot sector and a root directory entry, and they can disagree.
 `fatlabel` 4.2 and later write both.
@@ -198,7 +226,7 @@ That erases the device, including `Speakable/`, which is restored from the firmw
 The hard part, reverse engineering the `iTunesSD` format and writing it correctly, is [nims11/IPod-Shuffle-4g](https://github.com/nims11/IPod-Shuffle-4g).
 This repository is a set of wrappers around that tool, plus the device notes.
 
-`setup.sh` fetches it from upstream rather than vendoring a copy, so it keeps its own history and updates independently.
+`install.sh` fetches it from upstream rather than vendoring a copy, so it keeps its own history and updates independently.
 
 ## Licence
 
