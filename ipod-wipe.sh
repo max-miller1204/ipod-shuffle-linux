@@ -31,7 +31,7 @@ Preserves Apple's Speakable system prompts and the Device directory.
 Options:
   -i, --ipod PATH     iPod mount point (default: autodetect)
   -b, --backup DIR    Copy existing music and databases to DIR first
-  -y, --yes           Skip the confirmation prompt
+  -y, --yes           Answer yes to every prompt
   -h, --help          Show this message
 
 Example:

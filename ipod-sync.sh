@@ -32,7 +32,7 @@ Options:
   -r, --rebuild-only     Rebuild the database without copying anything
   -n, --forget-options   Ignore the saved playlist and voiceover options,
                          building a plain database with neither
-  -y, --yes              Skip the confirmation prompt
+  -y, --yes              Answer yes to every prompt
   -h, --help             Show this message
 
 Voiceover (the shuffle has no screen, so this is how you hear what is playing):

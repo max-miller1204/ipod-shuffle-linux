@@ -26,7 +26,7 @@ A folder may be given instead of a file, which removes everything in it.
 Options:
   -i, --ipod PATH   iPod mount point (default: autodetect)
   -l, --list        Print what is on the iPod and exit
-  -y, --yes         Skip the confirmation prompt
+  -y, --yes         Answer yes to every prompt
   -e, --eject       Unmount the iPod when finished
   -h, --help        Show this message
 
