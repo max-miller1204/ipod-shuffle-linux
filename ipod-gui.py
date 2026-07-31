@@ -60,6 +60,9 @@ def _tag_interpreter():
 
 TAG_PYTHON = None  # resolved lazily on first use
 
+# Kept in step with SUPPORTED_EXT in lib.sh, which is the canonical list; a
+# test asserts the two agree, because a stale copy of this silently miscounts
+# the library rather than failing outright.
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".m4b", ".m4p", ".aa", ".wav"}
 
 # The scripts colour their output for a terminal. A text view has no idea what
@@ -908,7 +911,7 @@ class IpodWindow(Adw.ApplicationWindow):
         dialog = Adw.AlertDialog(
             heading="Add from YouTube",
             body=(
-                "The audio is converted to AAC, tagged with its artist and "
+                "The audio is converted to MP3, tagged with its artist and "
                 f"title, kept in {home_relative(YOUTUBE_LIBRARY)}, and copied "
                 "onto the iPod."
             ),

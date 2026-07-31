@@ -13,6 +13,7 @@ which is the approach the other GUI checks use.
 
 import importlib.util
 import json
+import re
 import tempfile
 from pathlib import Path
 
@@ -90,6 +91,21 @@ coloured = "\x1b[36m==>\x1b[0m Removed 1 track(s)\n"
 assert ipod_gui.strip_ansi(coloured) == "==> Removed 1 track(s)\n", coloured
 assert ipod_gui.strip_ansi("plain\n") == "plain\n"
 
+# ------------------------------------------------------- playable formats
+#
+# The GUI cannot source lib.sh, so it keeps its own copy of the format list and
+# the two can drift. That is not hypothetical: ipod-fetch.sh once counted only
+# *.m4a, and the run that switched the download format to MP3 reported
+# "Downloaded 10 track(s)" followed by "now holds 0 track(s)". Comparing the
+# lists here means the next format change fails a test rather than a user.
+lib_sh = (repo / "lib.sh").read_text(encoding="utf-8")
+declared = re.search(r'^readonly SUPPORTED_EXT="([^"]+)"', lib_sh, re.MULTILINE)
+assert declared, "lib.sh no longer declares SUPPORTED_EXT"
+assert {f".{e}" for e in declared.group(1).split("|")} == ipod_gui.AUDIO_EXTENSIONS, (
+    declared.group(1),
+    ipod_gui.AUDIO_EXTENSIONS,
+)
+
 # ------------------------------------------------------------------ youtube
 
 assert ipod_gui.is_downloadable_url("https://www.youtube.com/watch?v=abc")
@@ -122,7 +138,7 @@ assert rejected_window.toasts, "a rejected link said nothing"
 # What the download reported is exactly what gets copied. Anything else in the
 # library, downloaded on an earlier day, stays where it is.
 library = Path(tempfile.mkdtemp())
-downloaded = library / "New Artist" / "New Song [abc].m4a"
+downloaded = library / "New Artist" / "New Song [abc].mp3"
 downloaded.parent.mkdir(parents=True)
 downloaded.touch()
 (library / "Old Artist").mkdir()
