@@ -104,6 +104,7 @@ modules:
     build-commands:
       - install -Dm644 lib.sh          /app/share/ipod-shuffle/lib.sh
       - install -Dm755 ipod-sync.sh    /app/share/ipod-shuffle/ipod-sync.sh
+      - install -Dm755 ipod-remove.sh  /app/share/ipod-shuffle/ipod-remove.sh
       - install -Dm755 ipod-wipe.sh    /app/share/ipod-shuffle/ipod-wipe.sh
       - install -Dm755 ipod-gui.py     /app/share/ipod-shuffle/ipod-gui.py
       - install -Dm755 flatpak/ipod-shuffle-launcher /app/bin/ipod-shuffle

@@ -1,29 +1,40 @@
 #!/usr/bin/env python3
 """GTK4 front end for the iPod shuffle 4G scripts.
 
-Drives ipod-sync.sh and ipod-wipe.sh rather than reimplementing their logic,
-so the command line and the GUI cannot drift apart. Launch it via
-./ipod-gui.sh, which picks an interpreter that has the GTK bindings.
+Drives ipod-sync.sh, ipod-remove.sh, ipod-wipe.sh and ipod-fetch.sh rather
+than reimplementing their logic, so the command line and the GUI cannot drift
+apart. Launch it via ./ipod-gui.sh, which picks an interpreter that has the
+GTK bindings.
 """
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
+import urllib.parse
 from pathlib import Path
 
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 APP_ID = "io.github.max_miller1204.IpodShuffle"
 SCRIPT_DIR = Path(__file__).resolve().parent
+LIB_SCRIPT = SCRIPT_DIR / "lib.sh"
 SYNC_SCRIPT = SCRIPT_DIR / "ipod-sync.sh"
 WIPE_SCRIPT = SCRIPT_DIR / "ipod-wipe.sh"
+REMOVE_SCRIPT = SCRIPT_DIR / "ipod-remove.sh"
+FETCH_SCRIPT = SCRIPT_DIR / "ipod-fetch.sh"
+
+# Mirrors ipod-fetch.sh's default --output. Named here as well because the GUI
+# syncs out of the same folder once the download has finished.
+YOUTUBE_LIBRARY = Path.home() / "Music" / "youtube"
 
 
 def _tag_interpreter():
@@ -50,6 +61,17 @@ def _tag_interpreter():
 TAG_PYTHON = None  # resolved lazily on first use
 
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".m4b", ".m4p", ".aa", ".wav"}
+
+# The scripts colour their output for a terminal. A text view has no idea what
+# to do with the escape sequences, so every line arrived as literal noise:
+# "[36m==>[0m Removed 1 track(s)".
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def strip_ansi(text):
+    """Text as a terminal would show it, without the colour escapes."""
+    return ANSI_ESCAPE.sub("", text)
+
 
 _TAG_READER = """
 import json, sys
@@ -252,6 +274,81 @@ def has_speech_engine():
     return any(shutil.which(engine) for engine in ("pico2wave", "espeak", "say"))
 
 
+def lib_function_succeeds(name):
+    """Run a helper from lib.sh and report whether it succeeded.
+
+    Asking the shared library rather than repeating its checks here keeps the
+    GUI's idea of an installed dependency identical to the scripts'. The
+    supported runtime versions in particular are a moving target, and a second
+    copy of those rules would eventually disagree with the one that matters.
+    """
+    if not LIB_SCRIPT.is_file():
+        return False
+    try:
+        return (
+            subprocess.run(
+                ["bash", "-c", f'source "$1" && {name}', "_", str(LIB_SCRIPT)],
+                capture_output=True,
+                timeout=20,
+            ).returncode
+            == 0
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def youtube_unavailable_reason():
+    """Why downloading from YouTube is not possible here, or None if it is.
+
+    Checked before offering the button because every one of these failures
+    surfaces late and misleadingly: without a JavaScript runtime the download
+    dies with HTTP 403 on everything but the oldest uploads, and without
+    ffmpeg yt-dlp hands back the Opus file the shuffle silently ignores.
+    """
+    if not FETCH_SCRIPT.is_file():
+        return "Not available in this build"
+    if not lib_function_succeeds("yt_dlp_bin"):
+        return "yt-dlp is not installed - run ./install.sh"
+    if shutil.which("ffmpeg") is None:
+        return "ffmpeg is not installed - run ./install.sh"
+    if not lib_function_succeeds("js_runtime"):
+        return "Needs Deno, Node, or Bun - see the README"
+    return None
+
+
+def home_relative(path):
+    """~/Music/youtube rather than the full path, which reads as noise."""
+    try:
+        return str(Path("~", Path(path).relative_to(Path.home())))
+    except ValueError:
+        return str(path)
+
+
+def is_downloadable_url(text):
+    """Whether text looks like a link that can be handed to yt-dlp."""
+    try:
+        parsed = urllib.parse.urlsplit((text or "").strip())
+    except ValueError:
+        return False
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def fetched_sources(list_path, library):
+    """What to copy onto the iPod after a download.
+
+    ipod-fetch.sh writes the path of each newly downloaded track, so this is
+    normally those tracks alone and nothing else the library already held.
+    It deletes the file instead when its yt-dlp is too old to report them, and
+    the artist folders are then the closest honest answer. An empty list is
+    the third case and means the video had been downloaded before.
+    """
+    try:
+        lines = Path(list_path).read_text().splitlines()
+    except OSError:
+        return sorted(str(p) for p in Path(library).glob("*") if p.is_dir())
+    return [line.strip() for line in lines if line.strip()]
+
+
 def count_tracks(mount_point):
     music = Path(mount_point, "iPod_Control", "Music")
     if not music.is_dir():
@@ -287,11 +384,13 @@ class IpodWindow(Adw.ApplicationWindow):
         self.mount_point = None
         self.busy = False
         self.track_rows = {}
+        self.track_names = {}
         self.tag_generation = 0
         self.loading_options = False
         self.loaded_playlist_mode = 0
         self.loaded_playlist_args = []
         self.speech_engine_available = has_speech_engine()
+        self.youtube_unavailable = youtube_unavailable_reason()
 
         self.toasts = Adw.ToastOverlay()
         self.set_content(self.toasts)
@@ -369,6 +468,22 @@ class IpodWindow(Adw.ApplicationWindow):
         self.add_row.add_suffix(add_button)
         self.add_row.set_activatable_widget(add_button)
         actions.add(self.add_row)
+
+        self.youtube_row = Adw.ActionRow(
+            title="Add from YouTube",
+            subtitle="Paste a link; it is converted to a format the iPod plays",
+        )
+        youtube_button = Gtk.Button(label="Paste Link…", valign=Gtk.Align.CENTER)
+        youtube_button.connect("clicked", self.on_add_youtube)
+        self.youtube_row.add_suffix(youtube_button)
+        self.youtube_row.set_activatable_widget(youtube_button)
+        # Better to say why than to let the user paste a link and watch the
+        # download fail several steps later for a reason the log explains only
+        # to someone who already knows what to look for.
+        if self.youtube_unavailable:
+            self.youtube_row.set_subtitle(self.youtube_unavailable)
+            self.youtube_row.set_sensitive(False)
+        actions.add(self.youtube_row)
 
         self.rebuild_row = Adw.ActionRow(
             title="Rebuild Database",
@@ -461,6 +576,10 @@ class IpodWindow(Adw.ApplicationWindow):
             editable=False,
             monospace=True,
             cursor_visible=False,
+            # The lines carry mount points and library paths, which are long
+            # enough that without wrapping the interesting half of the message
+            # sits off the right edge behind a scrollbar nobody drags.
+            wrap_mode=Gtk.WrapMode.WORD_CHAR,
             left_margin=12,
             right_margin=12,
             top_margin=8,
@@ -530,6 +649,7 @@ class IpodWindow(Adw.ApplicationWindow):
             child = nxt
 
         self.track_rows = {}
+        self.track_names = {}
         tracks = list_tracks(self.mount_point)
         if not tracks:
             empty = Adw.ActionRow(
@@ -545,8 +665,19 @@ class IpodWindow(Adw.ApplicationWindow):
             folder = str(path.parent)
             if folder and folder != ".":
                 row.set_subtitle(folder)
+            remove_button = Gtk.Button(
+                icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER
+            )
+            remove_button.add_css_class("flat")
+            remove_button.set_tooltip_text("Remove this track from the iPod")
+            remove_button.connect("clicked", self.on_remove_track, relpath)
+            row.add_suffix(remove_button)
             self.tracks_list.append(row)
             self.track_rows[relpath] = row
+            # Kept unescaped alongside the row, whose title is markup. The
+            # confirmation dialog shows plain text and would otherwise ask
+            # about a song called "Me &amp; You".
+            self.track_names[relpath] = path.name
 
         total = count_tracks(self.mount_point)
         if total > len(tracks):
@@ -584,6 +715,7 @@ class IpodWindow(Adw.ApplicationWindow):
             title, artist = entry
             if title:
                 row.set_title(GLib.markup_escape_text(title))
+                self.track_names[relpath] = title
             if artist:
                 row.set_subtitle(GLib.markup_escape_text(artist))
         return False
@@ -634,17 +766,25 @@ class IpodWindow(Adw.ApplicationWindow):
         self.busy = busy
         for row in (self.add_row, self.rebuild_row, self.wipe_row, self.eject_row):
             row.set_sensitive(not busy)
+        self.youtube_row.set_sensitive(not busy and not self.youtube_unavailable)
+        # Also the per-track remove buttons, which are otherwise a way to start
+        # a second script against the same device while one is still running.
+        self.tracks_list.set_sensitive(not busy)
         self.refresh_button.set_sensitive(not busy)
         self.progress.set_visible(busy)
+
+        # Cleared unconditionally: one operation can hand over to the next
+        # without ever going idle, and a timeout left behind would keep
+        # pulsing a bar nothing is driving.
+        pulse_id = getattr(self, "_pulse_id", None)
+        if pulse_id:
+            GLib.source_remove(pulse_id)
+        self._pulse_id = None
+
         if busy:
             self.progress.set_text(message)
             self.progress.pulse()
             self._pulse_id = GLib.timeout_add(120, self._pulse)
-        else:
-            pulse_id = getattr(self, "_pulse_id", None)
-            if pulse_id:
-                GLib.source_remove(pulse_id)
-                self._pulse_id = None
 
     def _pulse(self):
         if not self.busy:
@@ -654,7 +794,12 @@ class IpodWindow(Adw.ApplicationWindow):
 
     def _log(self, text):
         buf = self.log_view.get_buffer()
-        buf.insert(buf.get_end_iter(), text)
+        buf.insert(buf.get_end_iter(), strip_ansi(text))
+        # Follow the output as it arrives. A pane that stays at the first line
+        # of a copy shows the least useful part of a running operation.
+        end = buf.create_mark(None, buf.get_end_iter(), False)
+        self.log_view.scroll_to_mark(end, 0, False, 0, 0)
+        buf.delete_mark(end)
         return False
 
     def _clear_log(self):
@@ -666,9 +811,18 @@ class IpodWindow(Adw.ApplicationWindow):
 
     # ------------------------------------------------------------- commands
 
-    def _run(self, argv, busy_message, done_message):
-        """Run a script in a worker thread, streaming output into the log."""
-        self._clear_log()
+    def _run(self, argv, busy_message, done_message, then=None, clear=True):
+        """Run a script in a worker thread, streaming output into the log.
+
+        then, when given, is called on success and returns either the next
+        command as (argv, busy_message, done_message) or a string to report as
+        the outcome when there is nothing further to do. That is how the
+        YouTube flow runs a download and a sync as one operation from the
+        user's point of view, deciding what to copy only once the download has
+        said what it produced.
+        """
+        if clear:
+            self._clear_log()
         self._set_busy(True, busy_message)
         self.log_expander.set_expanded(True)
 
@@ -688,11 +842,20 @@ class IpodWindow(Adw.ApplicationWindow):
                 code = proc.wait()
             except OSError as exc:
                 GLib.idle_add(self._log, f"failed to run: {exc}\n")
-            GLib.idle_add(self._finish, code, done_message)
+            GLib.idle_add(self._finish, code, done_message, then)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _finish(self, code, done_message):
+    def _finish(self, code, done_message, then=None):
+        if code == 0 and then is not None:
+            outcome = then()
+            if isinstance(outcome, tuple):
+                # Straight into the next command, staying busy, so the two
+                # read as one action rather than appearing to finish twice.
+                self._run(*outcome, clear=False)
+                return False
+            done_message = outcome
+
         self._set_busy(False)
         if code == 0:
             self._toast(done_message)
@@ -729,6 +892,149 @@ class IpodWindow(Adw.ApplicationWindow):
             )
 
         dialog.select_folder(self, None, chosen)
+
+    def on_add_youtube(self, _button):
+        url_entry = Adw.EntryRow(title="YouTube link")
+        url_entry.set_activates_default(True)
+        whole_playlist = Adw.SwitchRow(
+            title="Whole playlist",
+            subtitle="Off downloads only the linked video",
+        )
+
+        fields = Adw.PreferencesGroup()
+        fields.add(url_entry)
+        fields.add(whole_playlist)
+
+        dialog = Adw.AlertDialog(
+            heading="Add from YouTube",
+            body=(
+                "The audio is converted to AAC, tagged with its artist and "
+                f"title, kept in {home_relative(YOUTUBE_LIBRARY)}, and copied "
+                "onto the iPod."
+            ),
+        )
+        dialog.set_extra_child(fields)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("download", "Download")
+        dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("download")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_youtube_response, url_entry, whole_playlist)
+        dialog.present(self)
+
+        # Pasting a link is the entire interaction, so offer the one already on
+        # the clipboard rather than making the user paste it by hand.
+        display = Gdk.Display.get_default()
+        if display is not None:
+            display.get_clipboard().read_text_async(
+                None, self._offer_clipboard_url, url_entry
+            )
+
+    @staticmethod
+    def _offer_clipboard_url(clipboard, result, url_entry):
+        try:
+            text = clipboard.read_text_finish(result)
+        except GLib.Error:
+            return
+        if is_downloadable_url(text) and not url_entry.get_text():
+            url_entry.set_text(text.strip())
+
+    def _on_youtube_response(self, _dialog, response, url_entry, whole_playlist):
+        if response != "download":
+            return
+
+        url = url_entry.get_text().strip()
+        if not is_downloadable_url(url):
+            self._toast("Enter a link starting with http:// or https://")
+            return
+
+        # Written by the download and read by the sync that follows it, so
+        # only what this run actually fetched is copied over. Without it the
+        # whole library would go back onto the device every time.
+        handle, new_tracks = tempfile.mkstemp(prefix="ipod-fetch-", suffix=".list")
+        os.close(handle)
+
+        fetch = [
+            str(FETCH_SCRIPT),
+            "--output",
+            str(YOUTUBE_LIBRARY),
+            "--new-tracks",
+            new_tracks,
+        ]
+        if not whole_playlist.get_active():
+            fetch.append("--single")
+        fetch.append(url)
+
+        # Read here rather than in the callback below, which runs after the
+        # download and must not touch widgets from outside the main loop.
+        options = self._sync_options()
+
+        self._run(
+            fetch,
+            "Downloading from YouTube…",
+            "Downloaded",
+            then=lambda: self._sync_downloaded(new_tracks, options),
+        )
+
+    def _sync_downloaded(self, new_tracks, options):
+        """Copy what the download produced, or say why there is nothing to."""
+        sources = fetched_sources(new_tracks, YOUTUBE_LIBRARY)
+        try:
+            os.unlink(new_tracks)
+        except OSError:
+            pass
+
+        if not sources:
+            return "Already downloaded - nothing new to add"
+        return (
+            [
+                str(SYNC_SCRIPT),
+                "--ipod",
+                self.mount_point,
+                *options,
+                # A YouTube title can start with a dash, and the shell script
+                # would read that as a flag rather than a path.
+                "--",
+                *sources,
+            ],
+            "Copying onto the iPod…",
+            "Music added",
+        )
+
+    def on_remove_track(self, _button, relpath):
+        name = self.track_names.get(relpath, Path(relpath).name)
+        dialog = Adw.AlertDialog(
+            heading="Remove this track?",
+            body=(
+                f"{name}\n\n"
+                "It is deleted from the iPod and the database is rebuilt. "
+                "Any copy in your own music folder is left alone."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_remove_response, relpath)
+        dialog.present(self)
+
+    def _on_remove_response(self, _dialog, response, relpath):
+        if response != "remove":
+            return
+        self._run(
+            [
+                str(REMOVE_SCRIPT),
+                "--ipod",
+                self.mount_point,
+                "--yes",
+                # Track names are whatever the tags said, dashes included.
+                "--",
+                relpath,
+            ],
+            "Removing track…",
+            "Track removed",
+        )
 
     @staticmethod
     def _has_audio(path):

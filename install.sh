@@ -188,7 +188,7 @@ else
     verification_ytdlp=
 fi
 
-if [[ -n "$verification_ytdlp" ]] && ! yt_dlp_supports_js_runtimes "$verification_ytdlp"; then
+if [[ -n "$verification_ytdlp" ]] && ! yt_dlp_supports "$verification_ytdlp" --js-runtimes; then
     warn "  youtube downloads limited (yt-dlp lacks --js-runtimes)"
 elif [[ -n "$verification_ytdlp" ]] && ! js_runtime >/dev/null; then
     # Reporting "ok" on yt-dlp alone would promise a feature that then fails

@@ -4,6 +4,9 @@
 Records the arguments ipod-fetch.sh built and writes a file where the real
 thing would have written one, so the suite can assert on the flags without
 reaching the network.
+
+The two options a distribution package may be too old to have are separately
+switchable, because they arrived years apart and the fallbacks differ.
 """
 
 import json
@@ -20,11 +23,13 @@ if "--version" in args:
 if "--help" in args:
     if os.environ.get("FAKE_YTDLP_SUPPORTS_JS_RUNTIMES", "1") != "0":
         print("    --js-runtimes RUNTIME[:PATH]")
+    if os.environ.get("FAKE_YTDLP_SUPPORTS_PRINT_TO_FILE", "1") != "0":
+        print("    --print-to-file [WHEN:]TEMPLATE FILE")
     raise SystemExit(0)
 
 
-def value_of(flag):
-    return args[args.index(flag) + 1] if flag in args else None
+def value_of(flag, offset=1):
+    return args[args.index(flag) + offset] if flag in args else None
 
 
 with open(os.environ["FAKE_YTDLP_RECORD"], "w", encoding="utf-8") as fh:
@@ -36,14 +41,30 @@ if template is None:
     raise SystemExit("ipod-fetch.sh did not pass an output template")
 base = template.split("/%(")[0]
 
+archive = value_of("--download-archive")
+
+# Already fetched once, so the real thing would skip it and no postprocessor
+# would run. That is the difference between "nothing new" and "downloaded
+# nothing", which decides whether anything gets copied onto the iPod.
+if archive and os.path.exists(archive):
+    with open(archive, encoding="utf-8") as fh:
+        if "youtube testvideo" in fh.read():
+            print("[download] testvideo has already been recorded in the archive")
+            raise SystemExit(0)
+
 track = os.path.join(base, "Test Artist", "Test Track [testvideo].m4a")
 os.makedirs(os.path.dirname(track), exist_ok=True)
 with open(track, "w", encoding="utf-8") as fh:
     fh.write("fake aac payload\n")
 
-archive = value_of("--download-archive")
 if archive:
     with open(archive, "a", encoding="utf-8") as fh:
         fh.write("youtube testvideo\n")
+
+# The real thing appends one line per download after the file reaches its
+# final name, which is what makes the path usable by whatever runs next.
+if value_of("--print-to-file") == "after_move:filepath":
+    with open(value_of("--print-to-file", 2), "a", encoding="utf-8") as fh:
+        fh.write(track + "\n")
 
 print(f"[ExtractAudio] Destination: {track}")

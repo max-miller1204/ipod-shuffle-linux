@@ -189,10 +189,15 @@ yt_dlp_bin() {
     fi
 }
 
-yt_dlp_supports_js_runtimes() {
+# Whether a yt-dlp understands an option.
+#
+# Distribution packages go stale quickly, and an old one accepts the flags it
+# knows and dies on the rest, so anything recent has to be probed for rather
+# than assumed. Takes the executable and the option, e.g. --js-runtimes.
+yt_dlp_supports() {
     local help
     help="$("$1" --help 2>/dev/null)" || return 1
-    [[ "$help" == *"--js-runtimes"* ]]
+    [[ "$help" == *"$2"* ]]
 }
 
 _version_at_least() {
@@ -285,6 +290,24 @@ PROBE
         fi
     done
     return 1
+}
+
+# Where the playlist and voiceover options of the last sync are remembered.
+#
+# The database is regenerated from scratch every time, so any rebuild that does
+# not know about them silently discards the playlists an earlier run created.
+# Removing a track rebuilds too, which is why this lives here rather than in
+# ipod-sync.sh alone.
+sync_options_file() {
+    printf '%s/iPod_Control/.sync-options' "${1%/}"
+}
+
+# Print the saved options one per line, or nothing when none were saved.
+read_sync_options() {
+    local file
+    file="$(sync_options_file "$1")"
+    [[ -f "$file" ]] || return 0
+    cat -- "$file"
 }
 
 # Rebuild iTunesSD, the only database the shuffle firmware actually reads.

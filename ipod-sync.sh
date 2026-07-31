@@ -21,9 +21,13 @@ declare -a DB_ARGS=()
 
 usage() {
     cat <<'EOF'
-Usage: ./ipod-sync.sh [options] <music-dir> [more-dirs...]
+Usage: ./ipod-sync.sh [options] <music-dir-or-file> [more...]
 
 Copies audio into iPod_Control/Music/ and rebuilds the iTunesSD database.
+
+A folder is mirrored under a folder of the same name. A single file is copied
+into a folder named after the one it came from, so syncing an album and
+syncing one track out of it put that track in the same place.
 
 Options:
   -i, --ipod PATH        iPod mount point (default: autodetect)
@@ -50,6 +54,7 @@ Playlists:
 
 Examples:
   ./ipod-sync.sh ~/Music/roadtrip
+  ./ipod-sync.sh ~/Music/roadtrip/01-highway.mp3
   ./ipod-sync.sh --clear --eject ~/Music/albums/*/
   ./ipod-sync.sh --rebuild-only
   ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover ~/Music
@@ -89,6 +94,10 @@ while [[ $# -gt 0 ]]; do
                            DB_ARGS+=("--auto-id3-playlists" "${1#*=}")
                            PLAYLISTS=1; shift ;;
         -h|--help)         usage; exit 0 ;;
+        # Everything after this is a path, however much it looks like an
+        # option. Track names come from tags and from YouTube titles, and a
+        # song called "-1" would otherwise be rejected as a bad flag.
+        --)                shift; break ;;
         -*)                die "Unknown option: $1 (try --help)" ;;
         *)                 break ;;
     esac
@@ -127,9 +136,48 @@ fi
 copied=0
 skipped=0
 duplicates=0
+
+# Copy one track, unless it is a format the firmware cannot decode or is
+# already on the device. The counters belong to the enclosing script.
+copy_track() {
+    local source="$1" target="$2"
+
+    if [[ ! "${source,,}" =~ \.(${SUPPORTED_EXT})$ ]]; then
+        skipped=$((skipped + 1))
+        return 0
+    fi
+    if [[ -e "$target" ]]; then
+        duplicates=$((duplicates + 1))
+        return 0
+    fi
+
+    mkdir -p "$(dirname "$target")"
+    cp "$source" "$target"
+    copied=$((copied + 1))
+}
+
+# The folder a lone file argument lands in: the one it came from. Syncing an
+# album and syncing a single track out of that album then put the track in the
+# same place, and a file dropped straight at the music root would be invisible
+# to --dir-playlists, which has only folders to group by.
+file_dest_dir() {
+    local parent
+    parent="$(basename "$(dirname "$(readlink -f -- "$1")")")"
+    if [[ -z "$parent" || "$parent" == "/" || "$parent" == "." ]]; then
+        printf '%s' "$MUSIC_DIR"
+    else
+        printf '%s/%s' "$MUSIC_DIR" "$parent"
+    fi
+}
+
 for src in "$@"; do
     [[ -e "$src" ]] || { warn "No such path, skipping: $src"; continue; }
     src="${src%/}"
+
+    if [[ -f "$src" ]]; then
+        copy_track "$src" "$(file_dest_dir "$src")/$(basename "$src")"
+        continue
+    fi
 
     # Mirror the source tree under a folder named after it, rather than
     # flattening. Two albums each containing a track called 01.mp3 would
@@ -138,22 +186,7 @@ for src in "$@"; do
     dest="$MUSIC_DIR/$(basename "$src")"
 
     while IFS= read -r -d '' f; do
-        if [[ ! "${f,,}" =~ \.(${SUPPORTED_EXT})$ ]]; then
-            skipped=$((skipped + 1))
-            continue
-        fi
-
-        rel="${f#"$src"/}"
-        target="$dest/$rel"
-
-        if [[ -e "$target" ]]; then
-            duplicates=$((duplicates + 1))
-            continue
-        fi
-
-        mkdir -p "$(dirname "$target")"
-        cp "$f" "$target"
-        copied=$((copied + 1))
+        copy_track "$f" "$dest/${f#"$src"/}"
     done < <(find "$src" -type f -print0)
 done
 
@@ -175,10 +208,10 @@ fi
 # omits the playlist and voiceover flags silently discards whatever the last
 # run created. Remembering them on the device makes a bare rebuild safe, which
 # matters most for the GUI's Rebuild button after the app has been restarted.
-OPTIONS_FILE="$IPOD/iPod_Control/.sync-options"
+OPTIONS_FILE="$(sync_options_file "$IPOD")"
 
-if (( ${#DB_ARGS[@]} == 0 && ! FORGET_OPTIONS )) && [[ -f "$OPTIONS_FILE" ]]; then
-    mapfile -t DB_ARGS < "$OPTIONS_FILE"
+if (( ${#DB_ARGS[@]} == 0 && ! FORGET_OPTIONS )); then
+    mapfile -t DB_ARGS < <(read_sync_options "$IPOD")
     if (( ${#DB_ARGS[@]} > 0 )); then
         info "Reusing saved options: ${DB_ARGS[*]}"
     fi
