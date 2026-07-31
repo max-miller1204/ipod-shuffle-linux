@@ -9,14 +9,14 @@
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
-# The shuffle decodes AAC but not Opus, and YouTube's best audio stream is
-# almost always Opus, so one re-encode is usually needed.
+# MP3 is deliberate even though AAC looks better on paper: ffmpeg's native AAC
+# output crackled on a real shuffle 4G, while this MP3 configuration played
+# cleanly. README.md owns the device-bisect results and encoder rationale.
 #
 # 256k is deliberate headroom over that ~160k source rather than a claim about
 # it: encoding lossy to lossy loses a little every time, and the cheapest way
-# to keep that loss inaudible is to give the second encoder room. Where yt-dlp
-# does find a native AAC stream it is remuxed rather than re-encoded, and this
-# bitrate does not apply.
+# to keep that loss inaudible is to give the second encoder room. It is also
+# exactly the configuration that tested clean, so it is not rounded off.
 readonly DEFAULT_BITRATE="256k"
 readonly DEFAULT_OUTPUT="${HOME}/Music/youtube"
 
@@ -31,13 +31,12 @@ usage() {
     cat <<EOF
 Usage: ./ipod-fetch.sh [options] <url> [more-urls...]
 
-Downloads audio as ${DEFAULT_BITRATE} AAC in an .m4a container, which is the best
-quality the shuffle firmware can actually decode, tagged so that artist and
-title survive onto the device.
+Downloads audio as ${DEFAULT_BITRATE} MP3, which is what the shuffle firmware decodes
+cleanly, tagged so that artist and title survive onto the device.
 
 Options:
   -o, --output DIR    Where to save (default: ~/Music/youtube)
-  -b, --bitrate RATE  AAC bitrate, e.g. 128k, 192k (default: ${DEFAULT_BITRATE})
+  -b, --bitrate RATE  MP3 bitrate, e.g. 128k, 192k (default: ${DEFAULT_BITRATE})
   -1, --single        Download only the given video, not its whole playlist
   -s, --sync          Copy what this run downloaded onto the iPod afterwards
       --new-tracks FILE
@@ -98,30 +97,35 @@ fi
 
 YT_DLP="$(yt_dlp_bin)"
 
-# The AAC encoder and the tag writer are both ffmpeg, so without it yt-dlp
+# The MP3 encoder and the tag writer are both ffmpeg, so without it yt-dlp
 # would hand back the Opus file it downloaded and the shuffle would ignore it.
 command -v ffmpeg >/dev/null \
-    || die "ffmpeg is required to produce AAC - run ./install.sh."
+    || die "ffmpeg is required to produce MP3 - run ./install.sh."
 
 mkdir -p "$OUTPUT"
 
 declare -a YTDLP_ARGS=(
-    # Stereo only, and not merely because the shuffle has two channels.
-    #
-    # YouTube offers 5.1 AAC (itag 258, 388k) and plain bestaudio ranks it top
-    # on bitrate. It arrives already in an m4a container, so yt-dlp reports
-    # "already in target format" and skips the conversion entirely, which
-    # silently discards --audio-quality as well. The result is a 30MB
-    # six-channel file, 1.5% of the device, that its decoder cannot play.
-    # Excluding multichannel at selection time leaves the stereo Opus stream,
-    # which is both smaller and the one that actually gets converted.
+    # Reject multichannel at selection time: plain bestaudio can choose a large
+    # 5.1 AAC stream that this stereo device would only downmix.
     --format 'bestaudio[audio_channels<=2]'
     --extract-audio
-    --audio-format m4a
+    --audio-format mp3
     --audio-quality "$BITRATE"
 
-    # Pin encoded output to the shuffle's two supported channels.
-    --postprocessor-args 'ExtractAudio:-ac 2'
+    # Pin output to stereo and give the encoder 4 dB of headroom. Re-encoding
+    # brickwalled masters otherwise added clipping, and the unlimited version
+    # sounded worse on the device. README.md owns the measurements.
+    #
+    # level=false stops the limiter handing the gain straight back as makeup,
+    # which would put the peaks back exactly where they started. latency=true
+    # compensates the lookahead: without it every track is shifted late by the
+    # attack time, 240 samples at 48kHz, even when the limiter never engages.
+    # With it, a source that stays under the threshold comes out bit-identical.
+    #
+    # Pin 44.1kHz because it is the shuffle's native rate and the configuration
+    # verified by ear. Sample rate was explicitly ruled out as the crackle's
+    # cause, but leaving YouTube's 48kHz Opus rate would ship an untested format.
+    --postprocessor-args 'ExtractAudio:-ac 2 -af alimiter=limit=0.631:level=false:latency=true,aresample=44100:resampler=soxr'
 
     # Without tags the device shows scrambled four-character filenames and
     # nothing else, and --id3-playlists has nothing to group by.
@@ -197,11 +201,14 @@ else
     fi
 fi
 
-count_tracks() { find "$OUTPUT" -type f -name '*.m4a' | wc -l; }
+count_tracks() {
+    find "$OUTPUT" -type f -regextype posix-extended \
+        -iregex ".*\.(${SUPPORTED_EXT})$" | wc -l
+}
 
 before="$(count_tracks)"
 
-info "Downloading as $BITRATE AAC into $OUTPUT"
+info "Downloading as $BITRATE MP3 into $OUTPUT"
 "$YT_DLP" "${YTDLP_ARGS[@]}" -- "$@" || {
     err "yt-dlp failed."
     err "If this started happening suddenly, YouTube has probably changed:"

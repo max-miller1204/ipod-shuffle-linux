@@ -478,13 +478,13 @@ printf 'old download\n' > "$FETCH_OUT/Old Artist/Old Song.m4a"
         'https://example.invalid/watch?v=test'
 ) > "$EVIDENCE_DIR/fetch-and-sync.txt" 2>&1
 
-test -f "$FETCH_OUT/Test Artist/Test Track [testvideo].m4a"
+test -f "$FETCH_OUT/Test Artist/Test Track [testvideo].mp3"
 test -s "$FETCH_OUT/.fetched"
 
 # Artist folders are handed to the sync, not their parent. Passing $FETCH_OUT
 # itself would bury every track under an extra "youtube" directory and shift
 # what --dir-playlists=1 treats as the artist level.
-test -f "$IPOD/iPod_Control/Music/Test Artist/Test Track [testvideo].m4a"
+test -f "$IPOD/iPod_Control/Music/Test Artist/Test Track [testvideo].mp3"
 test ! -e "$IPOD/iPod_Control/Music/youtube"
 test ! -e "$IPOD/iPod_Control/Music/Old Artist"
 
@@ -501,17 +501,37 @@ def value_of(flag):
 
 
 # Opus is what YouTube serves and the one thing the shuffle cannot play, so a
-# conversion to AAC at the documented bitrate is not optional.
-assert value_of("--audio-format") == "m4a", args
+# conversion at the documented bitrate is not optional.
+#
+# Regression: native ffmpeg AAC crackled on a real 4G, while this MP3
+# configuration played cleanly. README.md owns the hardware-bisect details.
+assert value_of("--audio-format") == "mp3", args
 assert value_of("--audio-quality") == "256k", args
 assert "--extract-audio" in args, args
 
-# Regression: plain "bestaudio" selects YouTube's 5.1 AAC stream, which is
-# already m4a, so yt-dlp skips the conversion and --audio-quality with it. The
-# device then gets a 30MB six-channel file it cannot decode.
+# Regression: plain "bestaudio" selects YouTube's 5.1 AAC stream at 388k, a
+# 30MB download on a 2GB device that has to be downmixed to stereo anyway.
 assert "audio_channels<=2" in value_of("--format"), args
 assert "/bestaudio" not in value_of("--format"), args
-assert value_of("--postprocessor-args") == "ExtractAudio:-ac 2", args
+assert value_of("--postprocessor-args").startswith("ExtractAudio:-ac 2"), args
+
+# Regression: brickwalled pop masters already peak at full scale, and the
+# encoder adds ringing on top, so the shuffle's decoder clamps and crackles.
+# The limiter gives it headroom; level=false stops the limiter handing the gain
+# straight back, which would leave the peaks exactly where they were.
+#
+# latency=true compensates the lookahead, without which every track is shifted
+# late by the attack time even when the limiter never engages at all.
+#
+# 44.1kHz is not what caused the crackling, since AAC failed identically at
+# both rates. It is pinned because it is the shuffle's native DAC rate and the
+# exact configuration that was listened to on the device, and YouTube's Opus is
+# always 48kHz, so dropping it would ship a format nobody verified by ear.
+ppa = value_of("--postprocessor-args")
+assert "alimiter=limit=0.631" in ppa, args
+assert "level=false" in ppa, args
+assert "latency=true" in ppa, args
+assert "aresample=44100" in ppa, args
 
 # Regression: --trim-filenames limits the whole path, not the filename, so a
 # long --output truncated the song title itself and collided tracks.
@@ -588,7 +608,7 @@ printf 'old download\n' > "$FRESH_OUT/Old Artist/Old Song.m4a"
 ) > "$EVIDENCE_DIR/fetch-new-tracks.txt" 2>&1
 
 diff -u \
-    <(printf '%s\n' "$FRESH_OUT/Test Artist/Test Track [testvideo].m4a") \
+    <(printf '%s\n' "$FRESH_OUT/Test Artist/Test Track [testvideo].mp3") \
     "$NEW_LIST"
 
 # An old yt-dlp cannot report what it downloaded at all. The list has to be
@@ -677,7 +697,7 @@ printf '%s\n' \
     "PASS: a single file synced into a folder named after the one it came from" \
     "PASS: a track name starting with a dash stayed a path rather than a flag" \
     "PASS: GUI removal and YouTube commands named the device, options and paths" \
-    "PASS: fetch requested playable AAC with tags and vfat-safe filenames" \
+    "PASS: fetch requested playable MP3 with tags and vfat-safe filenames" \
     "PASS: fetch copied only this run's downloads, not the whole output folder" \
     "PASS: fetch reported new tracks for the GUI, and deleted a list it could not fill" \
     "PASS: fetch handed artist folders to the sync when it could not name files" \

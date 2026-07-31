@@ -52,10 +52,13 @@ if archive and os.path.exists(archive):
             print("[download] testvideo has already been recorded in the archive")
             raise SystemExit(0)
 
-track = os.path.join(base, "Test Artist", "Test Track [testvideo].m4a")
+# Name the output after the format actually requested, so the fake cannot keep
+# claiming to produce a container the tool stopped asking for.
+ext = value_of("--audio-format") or "mp3"
+track = os.path.join(base, "Test Artist", f"Test Track [testvideo].{ext}")
 os.makedirs(os.path.dirname(track), exist_ok=True)
 with open(track, "w", encoding="utf-8") as fh:
-    fh.write("fake aac payload\n")
+    fh.write(f"fake {ext} payload\n")
 
 if archive:
     with open(archive, "a", encoding="utf-8") as fh:

@@ -9,10 +9,6 @@
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
-# Formats the shuffle firmware can decode. Anything else is copied by neither
-# this script nor the database builder, so it would sit on the device unplayable.
-readonly SUPPORTED_EXT="mp3|m4a|m4b|m4p|aa|wav"
-
 IPOD=""
 EJECT=0
 CLEAR=0
@@ -205,8 +201,10 @@ if (( ! REBUILD_ONLY )); then
         info "Skipped $duplicates file(s) already on the iPod"
     fi
     if (( skipped > 0 )); then
+        # MP3 rather than AAC deliberately: the firmware's AAC decoder crackles
+        # on the dense frames a 256k encode of real music produces.
         warn "Skipped $skipped unsupported file(s). Convert them first, for example:"
-        warn "  ffmpeg -i input.flac -c:a aac -b:a 256k output.m4a"
+        warn "  ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3"
     fi
     if (( copied == 0 && CLEAR == 0 )); then
         warn "Nothing new copied; rebuilding the database anyway."

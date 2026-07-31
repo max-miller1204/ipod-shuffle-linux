@@ -96,7 +96,7 @@ The window detects the iPod automatically, and appears and updates as the device
 It shows real song titles and artists rather than the scrambled filenames stored on the device, and every operation streams its output into the Output pane so nothing happens invisibly.
 
 Each track in the list has a delete button, which removes that one song and rebuilds the database.
-**Add from YouTube** asks for a link, offering whatever is already on the clipboard, and downloads it as AAC into `~/Music/youtube` before copying it onto the device.
+**Add from YouTube** asks for a link, offering whatever is already on the clipboard, and downloads it as MP3 into `~/Music/youtube` before copying it onto the device.
 When `yt-dlp` can report the files it fetched, only the tracks that download produced are copied, so pasting a second link does not push a growing library back onto a 2GB device, and pasting a link you have already fetched reports that there is nothing new rather than doing it again.
 
 That button is insensitive when a download could not succeed, and says which piece is missing: `yt-dlp`, `ffmpeg`, or a JavaScript runtime.
@@ -308,11 +308,16 @@ Anything else is skipped with a warning.
 Convert first:
 
 ```bash
-ffmpeg -i input.flac -c:a aac -b:a 256k output.m4a
+ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3
 ```
 
-AAC in an `.m4a` container is the best of these on a 2GB device.
-`.wav` is the only lossless option on the list, but it costs about 42MB per four-minute track against 7.7MB for 256k AAC, and it carries no tags worth relying on, which leaves tracks anonymous on a device that identifies them by tag.
+MP3 is the recommendation on this hardware, and not because it is the better codec.
+AAC is specified to work and store-bought AAC from iTunes does work, but AAC produced by ffmpeg's native encoder crackles continuously on the 4G, because its frames pack close to the 1536-byte AAC-LC stereo ceiling and the firmware's decoder cannot sustain that.
+There is more on how that was pinned down under [Downloading from YouTube](#downloading-from-youtube).
+
+`.wav` is the only lossless option on the list and it does play cleanly, but it costs about 42MB per four-minute track against 7.7MB for 256k MP3, which is 3 hours of music on the device against 16.
+It also carries no tags the database builder can read: `mutagen` returns nothing at all for a `.wav`, so tracks arrive anonymous, tag-based playlists have nothing to group by, and VoiceOver falls back to reading the filename.
+On a device with no screen, that is the whole interface.
 
 Note that Apple Lossless will not play.
 ALAC lives in an `.m4a` container, so it passes the extension check and copies onto the device happily, but the shuffle 4G cannot decode it and the track will skip.
@@ -354,17 +359,51 @@ To sync existing downloads later while keeping each artist at the playlist level
 
 You are responsible for having the right to download whatever you point this at.
 
-**Two of its flags exist because the obvious version produces files the device cannot play.**
+**Three of its flags exist because the obvious version produces files the device cannot play, or cannot play cleanly.**
 
-YouTube normally serves its best stereo audio as Opus, which the shuffle cannot decode at all, so it is usually converted to AAC; 256k is deliberate headroom over the roughly 160k source.
-Encoding lossy to lossy loses a little every time, and giving the second encoder room is the cheapest way to keep that inaudible.
-If the selected stereo stream is already AAC, `yt-dlp` remuxes it without re-encoding, so `--audio-quality` does not change its bitrate.
-That is intentional: forcing another lossy generation would only reduce quality.
+YouTube normally serves its best stereo audio as Opus, which the shuffle cannot decode at all, so one re-encode is always needed.
+256k is deliberate headroom over the roughly 160k source: encoding lossy to lossy loses a little every time, and giving the second encoder room is the cheapest way to keep that inaudible.
 
-The trap is that plain `bestaudio` does not select Opus.
-YouTube also offers 5.1 AAC at 388k, which ranks highest on bitrate and arrives already in an `.m4a` container, so `yt-dlp` reports `already in target format`, skips the conversion, and discards the requested bitrate along with it.
-The result is a 30MB six-channel file, 1.5% of the device, that its stereo decoder cannot play.
-Restricting selection to stereo normally leaves the Opus stream, which is both smaller and the one that actually gets converted.
+The first flag picks MP3 rather than AAC, which is not the obvious choice and was arrived at the hard way.
+AAC is the more modern codec, the shuffle 4G is specified to decode it up to 320k, and store-bought AAC from iTunes plays on this hardware perfectly.
+Our AAC did not.
+It crackled continuously, on every track, unrelated to how loud the music was.
+
+That was bisected by putting the same 45-second chorus on a real device seven ways.
+The codec and sample-rate comparisons were:
+
+| Encoding | Result |
+| --- | --- |
+| AAC 256k, 48kHz | crackles |
+| AAC 256k, 44.1kHz | crackles |
+| AAC 128k, 44.1kHz | crackles less |
+| MP3 256k, 44.1kHz | clean |
+| WAV, 44.1kHz | clean |
+| Synthetic tone as AAC 256k | clean |
+
+A seventh comparison removed the limiter; it still crackled and was audibly worse, as discussed below.
+
+That pattern rules out almost everything.
+Not the hardware or the headphones, because a synthetic tone through the same decoder at the same bitrate is clean.
+Not the sample rate, because 48kHz and 44.1kHz crackle identically.
+Not the source material, because MP3 and WAV of that exact same audio are clean.
+What is left is frame density: our AAC frames run to 1422 bytes against the 1536-byte AAC-LC stereo ceiling, and the firmware's decoder cannot sustain that, which is why halving the bitrate helps and why a tone that packs frames nowhere near full is fine.
+A better AAC encoder would likely also fix it, but ffmpeg ships only its native `aac` encoder and `libfdk_aac` is not generally available, whereas MP3 is proven clean on the device itself.
+
+The second flag restricts selection to stereo.
+Plain `bestaudio` picks YouTube's 5.1 AAC at 388k because it ranks highest on bitrate, which means a 30MB download, 1.5% of the whole device, to be downmixed back to two channels anyway.
+
+The third flag is a limiter.
+Commercial pop is mastered brickwalled: across a sample of ten YouTube sources, every single one already pinned its sample peak to full scale, with inter-sample peaks reaching +2.9 dBFS.
+Re-encoding adds the encoder's own ringing on top, so one track came back out at +4.3 dBFS with 69,921 samples stuck at full scale.
+Each of those is a hard clamp in the shuffle's fixed-point decoder.
+Limiting to -4 dBFS before the encoder brought that worst case to zero clipped samples while still landing at -9.8 LUFS, far louder than any streaming target, so nothing sounds quiet.
+Because a limiter only engages above its threshold, sources that are not brickwalled pass through untouched.
+
+On its own the limiter did not fix the crackling, and the codec was the larger problem, but the unlimited version was audibly worse than the limited one on the device, so both changes earn their place.
+Note also that this only undoes damage the pipeline was adding, not damage already in the master.
+Sources that clip before anyone downloads them still clip, and no download setting can undo that.
+For the same reason, switching to `.wav` fixes nothing on its own: it preserves the clipped waveform exactly, at roughly five times the size.
 
 There is deliberately no `--trim-filenames`.
 It limits the length of the whole path rather than the filename, so a long `--output` directory eats the budget and truncates the song title itself, silently collapsing different tracks onto the same name.
@@ -492,7 +531,9 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - Mount detection using `findmnt` raw mode, which escapes a space as `\x20` and so cannot find an iPod whose name contains one
 - The GUI choosing between several connected iPods rather than refusing, when Add Music and Wipe both act destructively on the choice
 - Options persisted without reporting a failed write, which would silently resurrect the playlist loss
-- `yt-dlp` selecting YouTube's 5.1 AAC stream, which skips the conversion because it is already `.m4a` and leaves a six-channel file the device cannot decode
+- `yt-dlp` selecting YouTube's 5.1 AAC stream, a 30MB download on a 2GB device that has to be downmixed to stereo anyway
+- Downloading as AAC, which the shuffle 4G is specified to decode but whose firmware crackles continuously on frames packed near the AAC-LC ceiling, as a 256k encode of dense music produces
+- Re-encoding brickwalled masters without headroom, so the decoder clamps every peak
 - `--trim-filenames` truncating song titles, because it limits the whole path rather than the filename
 - `ipod-fetch.sh --sync` handing the parent directory to the sync instead of the artist folders, burying every track a level deeper than playlists expect
 - A track path from the GUI or the shell escaping the music folder through `../`, on the way into an `rm -rf`

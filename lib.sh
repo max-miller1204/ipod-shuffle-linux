@@ -28,6 +28,15 @@ readonly VENV_PYTHON="${IPOD_VENV_PYTHON:-${TOOLS_DIR}/venv/bin/python}"
 # yt-dlp, used by ipod-fetch.sh. Same virtualenv, for the same reasons.
 readonly VENV_YT_DLP="${IPOD_VENV_YT_DLP:-${TOOLS_DIR}/venv/bin/yt-dlp}"
 
+# What the shuffle firmware will actually play, and so what is worth copying.
+#
+# Shared because ipod-fetch.sh counts these files and ipod-sync.sh filters by
+# the same contract; disagreement would silently miscount or skip tracks.
+#
+# Read by the scripts that source this file, which shellcheck cannot see.
+# shellcheck disable=SC2034
+readonly SUPPORTED_EXT="mp3|m4a|m4b|m4p|aa|wav"
+
 err()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; }
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
