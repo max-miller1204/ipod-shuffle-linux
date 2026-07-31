@@ -121,6 +121,15 @@ assert_shuffle "$IPOD"
 info "iPod: $IPOD"
 
 MUSIC_DIR="$IPOD/iPod_Control/Music"
+OPTIONS_FILE="$(sync_options_file "$IPOD")"
+
+if (( ${#DB_ARGS[@]} == 0 && ! FORGET_OPTIONS )); then
+    read_sync_options "$IPOD" DB_ARGS
+    if (( ${#DB_ARGS[@]} > 0 )); then
+        info "Reusing saved options: ${DB_ARGS[*]}"
+    fi
+fi
+
 mkdir -p "$MUSIC_DIR"
 
 if (( CLEAR )); then
@@ -208,15 +217,6 @@ fi
 # omits the playlist and voiceover flags silently discards whatever the last
 # run created. Remembering them on the device makes a bare rebuild safe, which
 # matters most for the GUI's Rebuild button after the app has been restarted.
-OPTIONS_FILE="$(sync_options_file "$IPOD")"
-
-if (( ${#DB_ARGS[@]} == 0 && ! FORGET_OPTIONS )); then
-    mapfile -t DB_ARGS < <(read_sync_options "$IPOD")
-    if (( ${#DB_ARGS[@]} > 0 )); then
-        info "Reusing saved options: ${DB_ARGS[*]}"
-    fi
-fi
-
 rebuild_database "$IPOD" "${DB_ARGS[@]+"${DB_ARGS[@]}"}"
 
 if (( ${#DB_ARGS[@]} > 0 )); then

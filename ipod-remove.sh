@@ -113,6 +113,15 @@ for target in "${TARGETS[@]}"; do
     removing=$(( removing + $(find "$target" -type f | wc -l) ))
 done
 
+require_db_tool
+db_python >/dev/null
+
+declare -a DB_ARGS=()
+read_sync_options "$IPOD" DB_ARGS
+if (( ${#DB_ARGS[@]} > 0 )); then
+    info "Reusing saved options: ${DB_ARGS[*]}"
+fi
+
 if (( ! ASSUME_YES )); then
     info "About to remove $removing track(s):"
     printf '  %s\n' "${TARGETS[@]#"$MUSIC_REAL"/}"
@@ -140,12 +149,6 @@ info "Removed $removing track(s)"
 
 # The device only forgets a track once the database no longer lists it. Until
 # then the player still offers it and stops dead when it tries to play it.
-declare -a DB_ARGS=()
-mapfile -t DB_ARGS < <(read_sync_options "$IPOD")
-if (( ${#DB_ARGS[@]} > 0 )); then
-    info "Reusing saved options: ${DB_ARGS[*]}"
-fi
-
 rebuild_database "$IPOD" "${DB_ARGS[@]+"${DB_ARGS[@]}"}"
 
 total="$(find "$MUSIC_REAL" -type f | wc -l)"

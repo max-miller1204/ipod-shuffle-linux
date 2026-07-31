@@ -301,6 +301,57 @@ printf 'whole side\n' > "$REMOVE_SOURCE/Side B/01 - Gone.mp3"
 "$ROOT/ipod-remove.sh" --ipod "$IPOD" --list > "$EVIDENCE_DIR/remove-list.txt"
 grep -Fxq 'Mixtape/Side A/02 - Delete.mp3' "$EVIDENCE_DIR/remove-list.txt"
 
+# A missing builder has to be discovered before deletion. Otherwise the track
+# disappears while the old database continues offering it to the player.
+missing_builder_failed=0
+IPOD_DB_TOOL="$TEST_ROOT/missing-db-builder.py" \
+    "$ROOT/ipod-remove.sh" \
+    --ipod "$IPOD" \
+    --yes \
+    'Mixtape/Side A/02 - Delete.mp3' \
+    > "$EVIDENCE_DIR/remove-missing-builder.txt" 2>&1 \
+    || missing_builder_failed=1
+test "$missing_builder_failed" -eq 1
+test -s "$IPOD/iPod_Control/Music/Mixtape/Side A/02 - Delete.mp3"
+grep -Fq 'Database tool missing' "$EVIDENCE_DIR/remove-missing-builder.txt"
+
+# An options path that exists but cannot be read is not the same as having no
+# saved options. Both mutating commands must stop before changing the library,
+# or the next database would silently lose every playlist.
+OPTIONS_FILE="$IPOD/iPod_Control/.sync-options"
+SAVED_OPTIONS="$TEST_ROOT/saved-sync-options"
+mv -- "$OPTIONS_FILE" "$SAVED_OPTIONS"
+mkdir "$OPTIONS_FILE"
+
+unreadable_remove_failed=0
+"$ROOT/ipod-remove.sh" \
+    --ipod "$IPOD" \
+    --yes \
+    'Mixtape/Side A/02 - Delete.mp3' \
+    > "$EVIDENCE_DIR/remove-unreadable-options.txt" 2>&1 \
+    || unreadable_remove_failed=1
+test "$unreadable_remove_failed" -eq 1
+test -s "$IPOD/iPod_Control/Music/Mixtape/Side A/02 - Delete.mp3"
+
+READ_FAILURE_SOURCE="$TEST_ROOT/Read Failure"
+mkdir "$READ_FAILURE_SOURCE"
+printf 'do not copy\n' > "$READ_FAILURE_SOURCE/Unread.mp3"
+unreadable_sync_failed=0
+"$ROOT/ipod-sync.sh" \
+    --ipod "$IPOD" \
+    "$READ_FAILURE_SOURCE/Unread.mp3" \
+    > "$EVIDENCE_DIR/sync-unreadable-options.txt" 2>&1 \
+    || unreadable_sync_failed=1
+test "$unreadable_sync_failed" -eq 1
+test ! -e "$IPOD/iPod_Control/Music/Read Failure/Unread.mp3"
+
+rmdir -- "$OPTIONS_FILE"
+mv -- "$SAVED_OPTIONS" "$OPTIONS_FILE"
+grep -Fq 'Could not read saved playlist and voiceover options' \
+    "$EVIDENCE_DIR/remove-unreadable-options.txt"
+grep -Fq 'Could not read saved playlist and voiceover options' \
+    "$EVIDENCE_DIR/sync-unreadable-options.txt"
+
 # Without --yes it asks first, listing what it is about to delete. Answering
 # no has to leave the device exactly as it was, since this prompt is the only
 # thing between a mistyped path and the one copy of a song.
@@ -617,6 +668,8 @@ printf '%s\n' \
     "PASS: GUI refused to choose between two connected iPods" \
     "PASS: unpersistable options failed loudly instead of reporting success" \
     "PASS: unmount fell back to the UDisks2 gdbus Filesystem.Unmount method" \
+    "PASS: removal checked its database builder before deleting tracks" \
+    "PASS: unreadable saved options stopped removal and sync before changes" \
     "PASS: removal listed the tracks and kept them when the prompt was declined" \
     "PASS: removal deleted only the named track and rebuilt with saved options" \
     "PASS: removal pruned emptied folders, which playlists would otherwise keep" \

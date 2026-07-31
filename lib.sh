@@ -302,12 +302,21 @@ sync_options_file() {
     printf '%s/iPod_Control/.sync-options' "${1%/}"
 }
 
-# Print the saved options one per line, or nothing when none were saved.
+# Load the saved options into the named array, or leave it empty when none were
+# saved.
 read_sync_options() {
     local file
+    local -n options="$2"
+
+    options=()
     file="$(sync_options_file "$1")"
-    [[ -f "$file" ]] || return 0
-    cat -- "$file"
+    if [[ ! -e "$file" && ! -L "$file" ]]; then
+        return 0
+    fi
+    [[ -f "$file" ]] \
+        || die "Could not read saved playlist and voiceover options from the iPod."
+    mapfile -t options < "$file" \
+        || die "Could not read saved playlist and voiceover options from the iPod."
 }
 
 # Rebuild iTunesSD, the only database the shuffle firmware actually reads.
