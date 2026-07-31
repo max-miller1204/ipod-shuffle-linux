@@ -172,7 +172,7 @@ confirm() {
     # only guarded its local confirm still blocked on a device with no
     # Speakable directory, which is exactly when nobody is watching.
     if (( ASSUME_YES )); then
-        info "$prompt yes (--yes)"
+        info "$prompt yes (--yes)" >&2
         return 0
     fi
 

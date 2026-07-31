@@ -145,9 +145,16 @@ for script in ipod-sync.sh ipod-remove.sh ipod-wipe.sh; do
         ipod-wipe.sh)   args=(--yes) ;;
     esac
     "$ROOT/$script" --ipod "$NOT_A_SHUFFLE" "${args[@]}" \
-        < /dev/null > "$EVIDENCE_DIR/no-speakable-$script.txt" 2>&1 \
+        < /dev/null \
+        > "$EVIDENCE_DIR/no-speakable-$script.stdout.txt" \
+        2> "$EVIDENCE_DIR/no-speakable-$script.stderr.txt" \
         || { echo "$script --yes stopped at the Speakable prompt" >&2; exit 1; }
-    grep -Fq 'Continue anyway?' "$EVIDENCE_DIR/no-speakable-$script.txt"
+    grep -Fq 'Continue anyway?' \
+        "$EVIDENCE_DIR/no-speakable-$script.stderr.txt"
+    if [[ "$script" == ipod-remove.sh ]]; then
+        diff -u <(printf '%s\n' 'yes-source/track.mp3') \
+            "$EVIDENCE_DIR/no-speakable-$script.stdout.txt"
+    fi
 done
 
 printf '%s\n' \
