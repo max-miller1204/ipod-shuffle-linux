@@ -95,6 +95,13 @@ Owning a virtualenv sidesteps both that and PEP 668's externally-managed-environ
 The window detects the iPod automatically, and appears and updates as the device is plugged in or unmounted.
 It shows real song titles and artists rather than the scrambled filenames stored on the device, and every operation streams its output into the Output pane so nothing happens invisibly.
 
+Each track in the list has a delete button, which removes that one song and rebuilds the database.
+**Add from YouTube** asks for a link, offering whatever is already on the clipboard, and downloads it as AAC into `~/Music/youtube` before copying it onto the device.
+When `yt-dlp` can report the files it fetched, only the tracks that download produced are copied, so pasting a second link does not push a growing library back onto a 2GB device, and pasting a link you have already fetched reports that there is nothing new rather than doing it again.
+
+That button is insensitive when a download could not succeed, and says which piece is missing: `yt-dlp`, `ffmpeg`, or a JavaScript runtime.
+Checking beforehand is worth the trouble because every one of those failures otherwise appears several steps later as something else, most memorably as `HTTP Error 403` on every track but the oldest.
+
 The buttons map onto the same scripts documented below, so the two interfaces cannot drift apart.
 
 ## Flatpak
@@ -179,8 +186,35 @@ Rebuild the database without copying anything, which is the fix when tracks are 
 
 Source folders are mirrored rather than flattened, so two albums that both contain a track called `01.mp3` will not overwrite one another.
 
+A single file works as well as a folder, and lands in a folder named after the one it came from:
+
+```bash
+./ipod-sync.sh ~/Music/roadtrip/01-highway.mp3
+```
+
+That puts it in `iPod_Control/Music/roadtrip/`, exactly where syncing the whole folder would have put it, so adding one track later does not create a second copy of the album or leave a stray file that `--dir-playlists` cannot group.
+
 The iPod is found automatically.
 Pass `--ipod /path/to/mount` if autodetection picks the wrong volume, and note that the script refuses to guess when several iPods are connected.
+
+### Remove individual tracks
+
+```bash
+./ipod-remove.sh --list
+./ipod-remove.sh 'roadtrip/01-highway.mp3'
+```
+
+Tracks are named by their path under `iPod_Control/Music`, which is what `--list` prints.
+Passing a folder removes everything in it, so `./ipod-remove.sh roadtrip` clears the album.
+
+Deleting the file is only half the job.
+The firmware plays what `iTunesSD` lists, so a track deleted without a rebuild is still offered by the player, which then stops dead when it tries to play it.
+`ipod-remove.sh` rebuilds the database itself, reusing the playlist and voiceover options the last sync saved on the device.
+
+Folders left empty are removed too.
+With `--dir-playlists` an empty folder becomes a playlist that plays nothing, and on a device with no screen there is no way to tell that is what happened.
+
+The script refuses any path that resolves outside the music folder, and points at `ipod-wipe.sh` if you aim it at the whole library.
 
 ### Wipe the device
 
@@ -290,8 +324,11 @@ The nano supported ALAC; the shuffle never did.
 ./ipod-fetch.sh 'https://www.youtube.com/watch?v=...'
 ```
 
-This is a command line feature only.
-The Flatpak deliberately ships the GUI, the sync, and the wipe, but neither this script nor `yt-dlp`, because the graphical interface has nothing that would call it and bundling a downloader plus a JavaScript runtime into the sandbox would grow the application for a feature it does not expose.
+The GUI's **Add from YouTube** button runs this script, so the two share every setting below.
+
+The Flatpak is the exception: it ships the GUI, the sync, the removal, and the wipe, but neither this script nor `yt-dlp`.
+Downloading inside the sandbox would mean granting it network access and bundling a JavaScript runtime, which is a large addition for a feature that works perfectly well from a native install.
+The button is therefore insensitive there and says so rather than failing when pressed.
 
 This wraps `yt-dlp` with the settings the shuffle needs, saving into `~/Music/youtube` with one folder per artist so the result is ready for `--dir-playlists`.
 Downloaded video IDs are recorded in `<output>/.fetched` and skipped on later runs, so re-running a playlist URL collects only what is new.
@@ -303,6 +340,11 @@ The ID is also included in each filename so separate videos with the same artist
 ./ipod-fetch.sh --single --sync 'https://www.youtube.com/watch?v=...'
 ./ipod-fetch.sh -o ~/Music/mixtape 'https://www.youtube.com/playlist?list=...'
 ```
+
+It copies the tracks this run downloaded, not the contents of the output folder.
+That folder is a growing library, so the difference is between adding one song and pushing a year of downloads back onto a 2GB device.
+`yt-dlp` names each file it fetched, and `--new-tracks FILE` writes those paths out for another tool to act on, which is how the GUI knows what to copy.
+A `yt-dlp` too old to report them says so and falls back to syncing every artist folder, deleting that file rather than leaving a stale one behind for its reader to trust.
 
 To sync existing downloads later while keeping each artist at the playlist level:
 
@@ -453,6 +495,11 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - `yt-dlp` selecting YouTube's 5.1 AAC stream, which skips the conversion because it is already `.m4a` and leaves a six-channel file the device cannot decode
 - `--trim-filenames` truncating song titles, because it limits the whole path rather than the filename
 - `ipod-fetch.sh --sync` handing the parent directory to the sync instead of the artist folders, burying every track a level deeper than playlists expect
+- A track path from the GUI or the shell escaping the music folder through `../`, on the way into an `rm -rf`
+- A removal leaving the folder it emptied behind, which `--dir-playlists` turns into a playlist that plays nothing
+- A removal rebuilding the database without the saved options, silently taking every playlist on the device with it
+- `--sync` copying the whole download folder rather than what the run downloaded, so one new song dragged the entire library onto the device
+- A `--new-tracks` file left stale by a `yt-dlp` that could not fill it, which reads as a definite answer to whoever picks it up next
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 

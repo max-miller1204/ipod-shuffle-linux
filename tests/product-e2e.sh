@@ -284,11 +284,184 @@ else
         > "$EVIDENCE_DIR/unwritable-options.txt"
 fi
 
+# Removing single tracks works on its own library rather than on whatever the
+# sections above happened to leave behind, since the wipe emptied the device.
+REMOVE_SOURCE="$TEST_ROOT/Mixtape"
+mkdir -p "$REMOVE_SOURCE/Side A" "$REMOVE_SOURCE/Side B"
+printf 'keep me\n'   > "$REMOVE_SOURCE/Side A/01 - Keep.mp3"
+printf 'delete me\n' > "$REMOVE_SOURCE/Side A/02 - Delete.mp3"
+printf 'whole side\n' > "$REMOVE_SOURCE/Side B/01 - Gone.mp3"
+
+"$ROOT/ipod-sync.sh" \
+    --ipod "$IPOD" \
+    --dir-playlists=1 \
+    --playlist-voiceover \
+    "$REMOVE_SOURCE" > "$EVIDENCE_DIR/remove-setup.txt" 2>&1
+
+"$ROOT/ipod-remove.sh" --ipod "$IPOD" --list > "$EVIDENCE_DIR/remove-list.txt"
+grep -Fxq 'Mixtape/Side A/02 - Delete.mp3' "$EVIDENCE_DIR/remove-list.txt"
+
+# A missing builder has to be discovered before deletion. Otherwise the track
+# disappears while the old database continues offering it to the player.
+missing_builder_failed=0
+IPOD_DB_TOOL="$TEST_ROOT/missing-db-builder.py" \
+    "$ROOT/ipod-remove.sh" \
+    --ipod "$IPOD" \
+    --yes \
+    'Mixtape/Side A/02 - Delete.mp3' \
+    > "$EVIDENCE_DIR/remove-missing-builder.txt" 2>&1 \
+    || missing_builder_failed=1
+test "$missing_builder_failed" -eq 1
+test -s "$IPOD/iPod_Control/Music/Mixtape/Side A/02 - Delete.mp3"
+grep -Fq 'Database tool missing' "$EVIDENCE_DIR/remove-missing-builder.txt"
+
+# An options path that exists but cannot be read is not the same as having no
+# saved options. Both mutating commands must stop before changing the library,
+# or the next database would silently lose every playlist.
+OPTIONS_FILE="$IPOD/iPod_Control/.sync-options"
+SAVED_OPTIONS="$TEST_ROOT/saved-sync-options"
+mv -- "$OPTIONS_FILE" "$SAVED_OPTIONS"
+mkdir "$OPTIONS_FILE"
+
+unreadable_remove_failed=0
+"$ROOT/ipod-remove.sh" \
+    --ipod "$IPOD" \
+    --yes \
+    'Mixtape/Side A/02 - Delete.mp3' \
+    > "$EVIDENCE_DIR/remove-unreadable-options.txt" 2>&1 \
+    || unreadable_remove_failed=1
+test "$unreadable_remove_failed" -eq 1
+test -s "$IPOD/iPod_Control/Music/Mixtape/Side A/02 - Delete.mp3"
+
+READ_FAILURE_SOURCE="$TEST_ROOT/Read Failure"
+mkdir "$READ_FAILURE_SOURCE"
+printf 'do not copy\n' > "$READ_FAILURE_SOURCE/Unread.mp3"
+unreadable_sync_failed=0
+"$ROOT/ipod-sync.sh" \
+    --ipod "$IPOD" \
+    "$READ_FAILURE_SOURCE/Unread.mp3" \
+    > "$EVIDENCE_DIR/sync-unreadable-options.txt" 2>&1 \
+    || unreadable_sync_failed=1
+test "$unreadable_sync_failed" -eq 1
+test ! -e "$IPOD/iPod_Control/Music/Read Failure/Unread.mp3"
+
+rmdir -- "$OPTIONS_FILE"
+mv -- "$SAVED_OPTIONS" "$OPTIONS_FILE"
+grep -Fq 'Could not read saved playlist and voiceover options' \
+    "$EVIDENCE_DIR/remove-unreadable-options.txt"
+grep -Fq 'Could not read saved playlist and voiceover options' \
+    "$EVIDENCE_DIR/sync-unreadable-options.txt"
+
+# Without --yes it asks first, listing what it is about to delete. Answering
+# no has to leave the device exactly as it was, since this prompt is the only
+# thing between a mistyped path and the one copy of a song.
+declined=0
+printf 'n\n' | "$ROOT/ipod-remove.sh" \
+    --ipod "$IPOD" \
+    'Mixtape/Side A/02 - Delete.mp3' > "$EVIDENCE_DIR/remove-declined.txt" 2>&1 \
+    || declined=1
+test "$declined" -eq 1
+test -s "$IPOD/iPod_Control/Music/Mixtape/Side A/02 - Delete.mp3"
+grep -Fq 'Mixtape/Side A/02 - Delete.mp3' "$EVIDENCE_DIR/remove-declined.txt"
+
+"$ROOT/ipod-remove.sh" \
+    --ipod "$IPOD" \
+    --yes \
+    'Mixtape/Side A/02 - Delete.mp3' > "$EVIDENCE_DIR/remove-track.txt" 2>&1
+
+test ! -e "$IPOD/iPod_Control/Music/Mixtape/Side A/02 - Delete.mp3"
+test -s "$IPOD/iPod_Control/Music/Mixtape/Side A/01 - Keep.mp3"
+
+# The rebuild a removal triggers has to reuse the options the sync saved, or
+# deleting one track would silently take every playlist with it.
+grep -Fq 'Reusing saved options: --auto-dir-playlists 1 --playlist-voiceover' \
+    "$EVIDENCE_DIR/remove-track.txt"
+diff -u <(printf '%s\n' \
+    --auto-dir-playlists \
+    1 \
+    --playlist-voiceover) \
+    "$IPOD/iPod_Control/.sync-options"
+
+# A folder argument takes the folder with it. --dir-playlists builds one
+# playlist per folder, so an empty one left behind is a playlist that plays
+# nothing on a device with no screen to show that it is empty.
+"$ROOT/ipod-remove.sh" \
+    --ipod "$IPOD" \
+    --yes \
+    'Mixtape/Side B' > "$EVIDENCE_DIR/remove-folder.txt" 2>&1
+test ! -e "$IPOD/iPod_Control/Music/Mixtape/Side B"
+test -d "$IPOD/iPod_Control/Music/Mixtape/Side A"
+
+# Same reason for the folder a last remaining track leaves behind, all the way
+# up to the music root.
+"$ROOT/ipod-remove.sh" \
+    --ipod "$IPOD" \
+    --yes \
+    'Mixtape/Side A/01 - Keep.mp3' > "$EVIDENCE_DIR/remove-last.txt" 2>&1
+test ! -e "$IPOD/iPod_Control/Music/Mixtape"
+test -d "$IPOD/iPod_Control/Music"
+
+# A track path is joined to the music folder, so it must not be able to leave
+# it. The names come from the GUI's track list and from a shell prompt where a
+# stray ../ is one keystroke away, and rm -rf is on the other side.
+OUTSIDE="$TEST_ROOT/outside.mp3"
+printf 'not on the ipod\n' > "$OUTSIDE"
+: > "$EVIDENCE_DIR/remove-refusals.txt"
+for refusal in '../../../outside.mp3' "$OUTSIDE" '.' 'No Such/Track.mp3'; do
+    if "$ROOT/ipod-remove.sh" --ipod "$IPOD" --yes "$refusal" \
+        >> "$EVIDENCE_DIR/remove-refusals.txt" 2>&1; then
+        echo "ipod-remove.sh accepted a path it should have refused: $refusal" >&2
+        exit 1
+    fi
+done
+test -s "$OUTSIDE"
+grep -Fq 'Use ./ipod-wipe.sh' "$EVIDENCE_DIR/remove-refusals.txt"
+
+# A single file lands in a folder named after the one it came from, so adding
+# one track out of an album puts it where syncing the whole album would, and
+# --dir-playlists still has a folder to group it by. The GUI's YouTube flow
+# depends on this to copy exactly the tracks a download produced.
+"$ROOT/ipod-sync.sh" \
+    --ipod "$IPOD" \
+    "$SOURCE/Disc 1/01 - Highway.mp3" \
+    "$SOURCE/Disc 1/cover.flac" > "$EVIDENCE_DIR/sync-single-file.txt" 2>&1
+
+test -s "$IPOD/iPod_Control/Music/Disc 1/01 - Highway.mp3"
+test ! -e "$IPOD/iPod_Control/Music/Disc 1/cover.flac"
+grep -Fq 'Skipped 1 unsupported file(s)' "$EVIDENCE_DIR/sync-single-file.txt"
+
+# A leading dash in a track name is a filename, not a flag. Both scripts take
+# paths built from tags and YouTube titles, where "-1" is a plausible song.
+DASH_SOURCE="$TEST_ROOT/Dashes"
+mkdir -p "$DASH_SOURCE"
+printf 'dash\n' > "$DASH_SOURCE/-1 Countdown.mp3"
+
+"$ROOT/ipod-sync.sh" \
+    --ipod "$IPOD" \
+    -- "$DASH_SOURCE/-1 Countdown.mp3" > "$EVIDENCE_DIR/dash-name.txt" 2>&1
+test -s "$IPOD/iPod_Control/Music/Dashes/-1 Countdown.mp3"
+
+"$ROOT/ipod-remove.sh" \
+    --ipod "$IPOD" \
+    --yes \
+    -- 'Dashes/-1 Countdown.mp3' >> "$EVIDENCE_DIR/dash-name.txt" 2>&1
+test ! -e "$IPOD/iPod_Control/Music/Dashes"
+
+/usr/bin/python3 "$ROOT/tests/gui-actions-smoke.py" \
+    > "$EVIDENCE_DIR/gui-actions.json"
+
 # Downloading has to produce something the firmware can decode, which is the
 # whole point of the flags rather than an incidental detail, so the arguments
 # are asserted rather than just the exit status.
 FETCH_OUT="$TEST_ROOT/youtube"
 FETCH_RECORD="$EVIDENCE_DIR/yt-dlp-invocation.json"
+
+# A track the output folder already held. Only what this run downloads may
+# reach the device: copying the whole folder every time would push a year of
+# downloads back onto a 2GB device the moment one new song is fetched.
+mkdir -p "$FETCH_OUT/Old Artist"
+printf 'old download\n' > "$FETCH_OUT/Old Artist/Old Song.m4a"
+
 # These environment changes are confined to the subshell.
 # shellcheck disable=SC2030,SC2031
 (
@@ -313,6 +486,7 @@ test -s "$FETCH_OUT/.fetched"
 # what --dir-playlists=1 treats as the artist level.
 test -f "$IPOD/iPod_Control/Music/Test Artist/Test Track [testvideo].m4a"
 test ! -e "$IPOD/iPod_Control/Music/youtube"
+test ! -e "$IPOD/iPod_Control/Music/Old Artist"
 
 /usr/bin/python3 - "$FETCH_RECORD" <<'PY'
 import json
@@ -343,6 +517,11 @@ assert value_of("--postprocessor-args") == "ExtractAudio:-ac 2", args
 # long --output truncated the song title itself and collided tracks.
 assert "--trim-filenames" not in args, args
 
+# Without this yt-dlp cannot say which files it just downloaded, and --sync
+# would have to hand over the entire output folder and hope the copy skipped
+# everything already on the device.
+assert value_of("--print-to-file") == "after_move:filepath", args
+
 # Regression: without a JavaScript runtime, YouTube's signature challenge goes
 # unsolved and every commercial track fails with HTTP 403 while metadata
 # extraction still succeeds, so the tool looks like it works right up until it
@@ -369,6 +548,89 @@ print(json.dumps(args, indent=2))
 PY
 
 grep -Fq 'Downloaded 1 track(s)' "$EVIDENCE_DIR/fetch-and-sync.txt"
+
+# Re-fetching a link already in the archive must copy nothing, rather than
+# treat "I downloaded no files" as a reason to fall back to the whole folder.
+# These environment changes are confined to the subshell.
+# shellcheck disable=SC2030,SC2031
+(
+    PATH="$ROOT/tests/bin:$PATH"
+    export FAKE_IPOD_MOUNT="$IPOD"
+    export FAKE_YTDLP_RECORD="$EVIDENCE_DIR/yt-dlp-repeat-invocation.json"
+    export IPOD_VENV_YT_DLP="$ROOT/tests/bin/yt-dlp"
+    "$ROOT/ipod-fetch.sh" \
+        --output "$FETCH_OUT" \
+        --single \
+        --sync \
+        'https://example.invalid/watch?v=test'
+) > "$EVIDENCE_DIR/fetch-nothing-new.txt" 2>&1
+
+grep -Fq 'Nothing new to copy onto the iPod.' "$EVIDENCE_DIR/fetch-nothing-new.txt"
+test ! -e "$IPOD/iPod_Control/Music/Old Artist"
+
+# --new-tracks is how the GUI learns what to copy after a download, so the file
+# has to name exactly what arrived and nothing the folder already held.
+NEW_LIST="$TEST_ROOT/new-tracks.list"
+FRESH_OUT="$TEST_ROOT/youtube-fresh"
+mkdir -p "$FRESH_OUT/Old Artist"
+printf 'old download\n' > "$FRESH_OUT/Old Artist/Old Song.m4a"
+# These environment changes are confined to the subshell.
+# shellcheck disable=SC2030,SC2031
+(
+    PATH="$ROOT/tests/bin:$PATH"
+    export FAKE_YTDLP_RECORD="$EVIDENCE_DIR/yt-dlp-new-tracks-invocation.json"
+    export IPOD_VENV_YT_DLP="$ROOT/tests/bin/yt-dlp"
+    "$ROOT/ipod-fetch.sh" \
+        --output "$FRESH_OUT" \
+        --single \
+        --new-tracks "$NEW_LIST" \
+        'https://example.invalid/watch?v=test'
+) > "$EVIDENCE_DIR/fetch-new-tracks.txt" 2>&1
+
+diff -u \
+    <(printf '%s\n' "$FRESH_OUT/Test Artist/Test Track [testvideo].m4a") \
+    "$NEW_LIST"
+
+# An old yt-dlp cannot report what it downloaded at all. The list has to be
+# deleted rather than left stale, because a leftover file reads as a definite
+# answer: the GUI would copy tracks that are no longer there, or report having
+# added nothing after a download that worked.
+STALE_LIST="$TEST_ROOT/stale-tracks.list"
+printf '%s\n' "$TEST_ROOT/gone.m4a" > "$STALE_LIST"
+FALLBACK_OUT="$TEST_ROOT/youtube-old"
+mkdir -p "$FALLBACK_OUT/Legacy Artist"
+printf 'already downloaded\n' > "$FALLBACK_OUT/Legacy Artist/Legacy Song.m4a"
+# These environment changes are confined to the subshell.
+# shellcheck disable=SC2030,SC2031
+(
+    PATH="$ROOT/tests/bin:$PATH"
+    export FAKE_IPOD_MOUNT="$IPOD"
+    export FAKE_YTDLP_RECORD="$EVIDENCE_DIR/yt-dlp-no-print-invocation.json"
+    export FAKE_YTDLP_SUPPORTS_PRINT_TO_FILE=0
+    export IPOD_VENV_YT_DLP="$ROOT/tests/bin/yt-dlp"
+    "$ROOT/ipod-fetch.sh" \
+        --output "$FALLBACK_OUT" \
+        --single \
+        --sync \
+        --new-tracks "$STALE_LIST" \
+        'https://example.invalid/watch?v=test'
+) > "$EVIDENCE_DIR/fetch-no-print-to-file.txt" 2>&1
+
+test ! -e "$STALE_LIST"
+grep -Fq 'too old to report which files it downloaded' \
+    "$EVIDENCE_DIR/fetch-no-print-to-file.txt"
+# Syncing every artist folder is the honest fallback when it cannot say which
+# tracks are new, so the folder that was already there does reach the device.
+test -s "$IPOD/iPod_Control/Music/Legacy Artist/Legacy Song.m4a"
+
+/usr/bin/python3 - "$EVIDENCE_DIR/yt-dlp-no-print-invocation.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+args = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert "--print-to-file" not in args, args
+PY
 
 OLD_FETCH_OUT="$TEST_ROOT/old-yt-dlp"
 OLD_FETCH_RECORD="$EVIDENCE_DIR/old-yt-dlp-invocation.json"
@@ -406,8 +668,19 @@ printf '%s\n' \
     "PASS: GUI refused to choose between two connected iPods" \
     "PASS: unpersistable options failed loudly instead of reporting success" \
     "PASS: unmount fell back to the UDisks2 gdbus Filesystem.Unmount method" \
+    "PASS: removal checked its database builder before deleting tracks" \
+    "PASS: unreadable saved options stopped removal and sync before changes" \
+    "PASS: removal listed the tracks and kept them when the prompt was declined" \
+    "PASS: removal deleted only the named track and rebuilt with saved options" \
+    "PASS: removal pruned emptied folders, which playlists would otherwise keep" \
+    "PASS: removal refused paths outside the music folder and the folder itself" \
+    "PASS: a single file synced into a folder named after the one it came from" \
+    "PASS: a track name starting with a dash stayed a path rather than a flag" \
+    "PASS: GUI removal and YouTube commands named the device, options and paths" \
     "PASS: fetch requested playable AAC with tags and vfat-safe filenames" \
-    "PASS: fetch handed artist folders to the sync, not their parent" \
+    "PASS: fetch copied only this run's downloads, not the whole output folder" \
+    "PASS: fetch reported new tracks for the GUI, and deleted a list it could not fill" \
+    "PASS: fetch handed artist folders to the sync when it could not name files" \
     "PASS: fetch passed a JavaScript runtime, without which downloads 403" \
     "PASS: runtime probe reported absence instead of naming an uninstalled one" \
     "PASS: installer reported a missing runtime instead of offering a stale nodejs" \

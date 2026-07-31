@@ -25,6 +25,7 @@ BITRATE="$DEFAULT_BITRATE"
 SYNC=0
 SINGLE=0
 UPDATE=0
+NEW_TRACKS=""
 
 usage() {
     cat <<EOF
@@ -38,7 +39,12 @@ Options:
   -o, --output DIR    Where to save (default: ~/Music/youtube)
   -b, --bitrate RATE  AAC bitrate, e.g. 128k, 192k (default: ${DEFAULT_BITRATE})
   -1, --single        Download only the given video, not its whole playlist
-  -s, --sync          Sync the downloaded music onto the iPod afterwards
+  -s, --sync          Copy what this run downloaded onto the iPod afterwards
+      --new-tracks FILE
+                      Write the path of each newly downloaded track to FILE,
+                      one per line, for another tool to act on. The file is
+                      deleted rather than left stale when this yt-dlp is too
+                      old to report them.
   -u, --update        Update yt-dlp and exit; the fix when downloads start
                       failing, which happens whenever YouTube changes
   -h, --help          Show this message
@@ -63,6 +69,7 @@ while [[ $# -gt 0 ]]; do
         -b|--bitrate) BITRATE="$2"; shift 2 ;;
         -1|--single)  SINGLE=1; shift ;;
         -s|--sync)    SYNC=1; shift ;;
+        --new-tracks) NEW_TRACKS="$2"; shift 2 ;;
         -u|--update)  UPDATE=1; shift ;;
         -h|--help)    usage; exit 0 ;;
         -*)           die "Unknown option: $1 (try --help)" ;;
@@ -149,7 +156,7 @@ declare -a YTDLP_ARGS=(
 # metadata extraction still succeeds, because yt-dlp enables only deno by
 # default and cannot solve YouTube's signature challenge without a runtime.
 if runtime="$(js_runtime)"; then
-    if yt_dlp_supports_js_runtimes "$YT_DLP"; then
+    if yt_dlp_supports "$YT_DLP" --js-runtimes; then
         YTDLP_ARGS+=(--js-runtimes "$runtime")
     else
         warn "This yt-dlp is too old to select the installed JavaScript runtime."
@@ -159,6 +166,35 @@ else
     warn "No supported JavaScript runtime found."
     warn "Need Deno >= 2.3, Node >= 22, or Bun 1.2.11-1.3.14."
     warn "YouTube downloads will fail with HTTP 403 for all but the oldest videos."
+fi
+
+# Have yt-dlp name each file it downloads, which is the difference between
+# syncing this run's tracks and syncing the whole library every time. The
+# output folder accumulates, so counting files before and after says how many
+# arrived but not which, and --sync would then have to copy everything and let
+# ipod-sync.sh skip the duplicates.
+TRACK_LIST=""
+TEMP_LIST=""
+if yt_dlp_supports "$YT_DLP" --print-to-file; then
+    if [[ -n "$NEW_TRACKS" ]]; then
+        TRACK_LIST="$NEW_TRACKS"
+    else
+        TEMP_LIST="$(mktemp -t ipod-fetch-tracks.XXXXXX)"
+        trap 'rm -f -- "${TEMP_LIST:-}"' EXIT
+        TRACK_LIST="$TEMP_LIST"
+    fi
+    # --print-to-file appends, so a file left over from an earlier run would
+    # otherwise be reported as freshly downloaded.
+    : > "$TRACK_LIST" || die "Cannot write the track list at $TRACK_LIST."
+    YTDLP_ARGS+=(--print-to-file "after_move:filepath" "$TRACK_LIST")
+else
+    warn "This yt-dlp is too old to report which files it downloaded."
+    warn "Falling back to counting the output folder."
+    # Absent rather than empty, so a caller can tell "cannot say" from
+    # "nothing new" instead of concluding the download produced nothing.
+    if [[ -n "$NEW_TRACKS" ]]; then
+        rm -f -- "$NEW_TRACKS"
+    fi
 fi
 
 count_tracks() { find "$OUTPUT" -type f -name '*.m4a' | wc -l; }
@@ -174,7 +210,18 @@ info "Downloading as $BITRATE AAC into $OUTPUT"
 }
 
 after="$(count_tracks)"
-fetched=$(( after - before ))
+
+declare -a NEW_FILES=()
+if [[ -n "$TRACK_LIST" ]]; then
+    while IFS= read -r line; do
+        if [[ -n "$line" ]]; then
+            NEW_FILES+=("$line")
+        fi
+    done < "$TRACK_LIST"
+    fetched=${#NEW_FILES[@]}
+else
+    fetched=$(( after - before ))
+fi
 
 if (( fetched > 0 )); then
     info "Downloaded $fetched track(s)"
@@ -184,20 +231,32 @@ fi
 info "$OUTPUT now holds $after track(s)"
 
 if (( SYNC )); then
-    # Pass the artist folders rather than $OUTPUT itself. ipod-sync.sh mirrors
-    # each source under a folder named after it, so handing it the parent
-    # would bury everything one level deeper under "youtube" and shift what
-    # --dir-playlists=1 considers the artist level.
-    shopt -s nullglob
-    artist_dirs=("$OUTPUT"/*/)
-    shopt -u nullglob
+    declare -a SOURCES=()
+    if [[ -n "$TRACK_LIST" ]]; then
+        if (( ${#NEW_FILES[@]} == 0 )); then
+            info "Nothing new to copy onto the iPod."
+            info "For the whole library: ./ipod-sync.sh \"$OUTPUT\"/*/"
+            exit 0
+        fi
+        # ipod-sync.sh files each track under the folder it came from, so these
+        # land in Music/<artist>/ exactly as the folders below would put them.
+        SOURCES=("${NEW_FILES[@]}")
+    else
+        # Pass the artist folders rather than $OUTPUT itself. ipod-sync.sh
+        # mirrors each source folder under one named after it, so handing it
+        # the parent would bury everything a level deeper under "youtube" and
+        # shift what --dir-playlists=1 considers the artist level.
+        shopt -s nullglob
+        SOURCES=("$OUTPUT"/*/)
+        shopt -u nullglob
 
-    if (( ${#artist_dirs[@]} == 0 )); then
-        warn "Nothing in $OUTPUT to sync."
-        exit 0
+        if (( ${#SOURCES[@]} == 0 )); then
+            warn "Nothing in $OUTPUT to sync."
+            exit 0
+        fi
     fi
 
-    "$(dirname "$(readlink -f "$0")")/ipod-sync.sh" "${artist_dirs[@]}"
+    "$(dirname "$(readlink -f "$0")")/ipod-sync.sh" -- "${SOURCES[@]}"
 else
     info "Next: ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover \"$OUTPUT\"/*/"
 fi

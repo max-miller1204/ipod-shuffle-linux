@@ -23,6 +23,7 @@
       <li>Detects the iPod automatically as it is plugged in or unmounted</li>
       <li>Copies music across and rebuilds the database in one step</li>
       <li>Shows real song titles rather than the scrambled filenames on the device</li>
+      <li>Removes individual tracks and rebuilds the database safely</li>
       <li>Wipes the device while preserving Apple's built-in spoken prompts</li>
       <li>Backs up existing tracks, and the database that maps them to their titles</li>
     </ul>

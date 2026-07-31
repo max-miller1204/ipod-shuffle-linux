@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared helpers for the iPod shuffle 4G scripts.
-# Sourced by ipod-sync.sh and ipod-wipe.sh; not meant to be run directly.
+# Sourced by the command-line scripts and GUI dependency probes; not run directly.
 
 set -euo pipefail
 
@@ -189,10 +189,15 @@ yt_dlp_bin() {
     fi
 }
 
-yt_dlp_supports_js_runtimes() {
+# Whether a yt-dlp understands an option.
+#
+# Distribution packages go stale quickly, and an old one accepts the flags it
+# knows and dies on the rest, so anything recent has to be probed for rather
+# than assumed. Takes the executable and the option, e.g. --js-runtimes.
+yt_dlp_supports() {
     local help
     help="$("$1" --help 2>/dev/null)" || return 1
-    [[ "$help" == *"--js-runtimes"* ]]
+    [[ "$help" == *"$2"* ]]
 }
 
 _version_at_least() {
@@ -285,6 +290,35 @@ PROBE
         fi
     done
     return 1
+}
+
+# Where the playlist and voiceover options of the last sync are remembered.
+#
+# The database is regenerated from scratch every time, so any rebuild that does
+# not know about them silently discards the playlists an earlier run created.
+# Removing a track rebuilds too, which is why this lives here rather than in
+# ipod-sync.sh alone.
+sync_options_file() {
+    printf '%s/iPod_Control/.sync-options' "${1%/}"
+}
+
+# Load the saved options into the named array, or leave it empty when none were
+# saved.
+read_sync_options() {
+    local file
+    local -n options="$2"
+
+    options=()
+    file="$(sync_options_file "$1")"
+    if [[ ! -e "$file" && ! -L "$file" ]]; then
+        return 0
+    fi
+    [[ -f "$file" ]] \
+        || die "Could not read saved playlist and voiceover options from the iPod."
+    # ShellCheck cannot see that the caller's array is used through a nameref.
+    # shellcheck disable=SC2034
+    mapfile -t options < "$file" \
+        || die "Could not read saved playlist and voiceover options from the iPod."
 }
 
 # Rebuild iTunesSD, the only database the shuffle firmware actually reads.
