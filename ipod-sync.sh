@@ -2,7 +2,7 @@
 #
 # Copy music onto an iPod shuffle 4G and rebuild its database.
 #
-# Usage: ./ipod-sync.sh [options] <music-dir> [more-dirs...]
+# Usage: ./ipod-sync.sh [options] <music-dir-or-file> [more...]
 #
 # See README.md for the full workflow.
 

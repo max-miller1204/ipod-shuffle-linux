@@ -97,7 +97,7 @@ It shows real song titles and artists rather than the scrambled filenames stored
 
 Each track in the list has a delete button, which removes that one song and rebuilds the database.
 **Add from YouTube** asks for a link, offering whatever is already on the clipboard, and downloads it as AAC into `~/Music/youtube` before copying it onto the device.
-Only the tracks that download produced are copied, so pasting a second link does not push a growing library back onto a 2GB device, and pasting a link you have already fetched reports that there is nothing new rather than doing it again.
+When `yt-dlp` can report the files it fetched, only the tracks that download produced are copied, so pasting a second link does not push a growing library back onto a 2GB device, and pasting a link you have already fetched reports that there is nothing new rather than doing it again.
 
 That button is insensitive when a download could not succeed, and says which piece is missing: `yt-dlp`, `ffmpeg`, or a JavaScript runtime.
 Checking beforehand is worth the trouble because every one of those failures otherwise appears several steps later as something else, most memorably as `HTTP Error 403` on every track but the oldest.

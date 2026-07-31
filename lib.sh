@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared helpers for the iPod shuffle 4G scripts.
-# Sourced by ipod-sync.sh and ipod-wipe.sh; not meant to be run directly.
+# Sourced by the command-line scripts and GUI dependency probes; not run directly.
 
 set -euo pipefail
 
@@ -315,6 +315,8 @@ read_sync_options() {
     fi
     [[ -f "$file" ]] \
         || die "Could not read saved playlist and voiceover options from the iPod."
+    # ShellCheck cannot see that the caller's array is used through a nameref.
+    # shellcheck disable=SC2034
     mapfile -t options < "$file" \
         || die "Could not read saved playlist and voiceover options from the iPod."
 }
