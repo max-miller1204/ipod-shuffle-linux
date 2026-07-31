@@ -32,6 +32,7 @@ Options:
   -r, --rebuild-only     Rebuild the database without copying anything
   -n, --forget-options   Ignore the saved playlist and voiceover options,
                          building a plain database with neither
+  -y, --yes              Answer yes to every prompt
   -h, --help             Show this message
 
 Voiceover (the shuffle has no screen, so this is how you hear what is playing):
@@ -69,6 +70,7 @@ while [[ $# -gt 0 ]]; do
         -e|--eject)        EJECT=1; shift ;;
         -r|--rebuild-only) REBUILD_ONLY=1; shift ;;
         -n|--forget-options) FORGET_OPTIONS=1; shift ;;
+        -y|--yes)          ASSUME_YES=1; shift ;;
         -t|--voiceover)    DB_ARGS+=("--track-voiceover"); shift ;;
         -p|--playlist-voiceover)
                            DB_ARGS+=("--playlist-voiceover")

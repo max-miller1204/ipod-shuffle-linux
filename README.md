@@ -178,6 +178,14 @@ Replace everything currently on the device and unmount when done:
 ./ipod-sync.sh --clear --eject ~/Music/albums/*/
 ```
 
+`--clear` asks before it deletes anything, so from a script or a cron job add `--yes` to answer that automatically, exactly as `ipod-remove.sh` and `ipod-wipe.sh` accept it:
+
+```bash
+./ipod-sync.sh --clear --yes ~/Music/albums/*/
+```
+
+`--yes` answers every prompt the run can reach, including the one that asks whether to continue on a volume that does not look like a shuffle.
+
 Rebuild the database without copying anything, which is the fix when tracks are on the device but will not play:
 
 ```bash

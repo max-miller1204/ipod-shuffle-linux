@@ -159,8 +159,21 @@ ipod_mount() {
     fi
 }
 
+# Shared default for prompt handling. Scripts that expose --yes set this after
+# parsing; keeping the default beside confirm() also protects callers without
+# that flag under set -u.
+ASSUME_YES=0
+
 confirm() {
     local prompt="$1" reply
+
+    # --yes covers every prompt, including assert_shuffle()'s device-type
+    # warning.
+    if (( ASSUME_YES )); then
+        info "$prompt yes (--yes)" >&2
+        return 0
+    fi
+
     read -r -p "$prompt [y/N] " reply
     [[ "$reply" =~ ^[Yy]$ ]]
 }
