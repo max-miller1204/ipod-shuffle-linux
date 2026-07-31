@@ -93,11 +93,8 @@ assert ipod_gui.strip_ansi("plain\n") == "plain\n"
 
 # ------------------------------------------------------- playable formats
 #
-# The GUI cannot source lib.sh, so it keeps its own copy of the format list and
-# the two can drift. That is not hypothetical: ipod-fetch.sh once counted only
-# *.m4a, and the run that switched the download format to MP3 reported
-# "Downloaded 10 track(s)" followed by "now holds 0 track(s)". Comparing the
-# lists here means the next format change fails a test rather than a user.
+# The GUI cannot source lib.sh, so compare its necessary copy of the format
+# list with the canonical shell declaration.
 lib_sh = (repo / "lib.sh").read_text(encoding="utf-8")
 declared = re.search(r'^readonly SUPPORTED_EXT="([^"]+)"', lib_sh, re.MULTILINE)
 assert declared, "lib.sh no longer declares SUPPORTED_EXT"

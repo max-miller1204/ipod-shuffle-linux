@@ -30,10 +30,8 @@ readonly VENV_YT_DLP="${IPOD_VENV_YT_DLP:-${TOOLS_DIR}/venv/bin/yt-dlp}"
 
 # What the shuffle firmware will actually play, and so what is worth copying.
 #
-# Shared rather than per-script because the two readers disagreeing is a silent
-# bug in both directions: ipod-fetch.sh once counted only *.m4a and reported
-# "0 tracks" the moment the download format changed, while ipod-sync.sh knew
-# better and copied them anyway.
+# Shared because ipod-fetch.sh counts these files and ipod-sync.sh filters by
+# the same contract; disagreement would silently miscount or skip tracks.
 #
 # Read by the scripts that source this file, which shellcheck cannot see.
 # shellcheck disable=SC2034

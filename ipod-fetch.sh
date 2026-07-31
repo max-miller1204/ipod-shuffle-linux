@@ -9,19 +9,9 @@
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
-# MP3 rather than AAC, which the shuffle also decodes and which looks like the
-# better choice on paper. It is not, on this hardware.
-#
-# Bisected on a real 4G by putting the same chorus on the device seven ways:
-# AAC 256k crackled, AAC 128k crackled less, MP3 256k and WAV were clean, and a
-# synthetic tone encoded as AAC 256k was also clean. So it is not the source,
-# not the sample rate, not the bitrate as a number, and not the hardware. It
-# tracks frame density. Our AAC frames run to 1422 bytes against the 1536-byte
-# AAC-LC stereo ceiling, and the firmware's AAC decoder cannot sustain that; a
-# tone at the same nominal bitrate packs frames nowhere near full and plays
-# fine. Store-bought AAC from iTunes plays fine here too, so a better encoder
-# would likely also fix it, but ffmpeg ships only its native aac encoder and
-# libfdk_aac is not available, and MP3 is proven clean on the device itself.
+# MP3 is deliberate even though AAC looks better on paper: ffmpeg's native AAC
+# output crackled on a real shuffle 4G, while this MP3 configuration played
+# cleanly. README.md owns the device-bisect results and encoder rationale.
 #
 # 256k is deliberate headroom over that ~160k source rather than a claim about
 # it: encoding lossy to lossy loses a little every time, and the cheapest way
@@ -115,36 +105,16 @@ command -v ffmpeg >/dev/null \
 mkdir -p "$OUTPUT"
 
 declare -a YTDLP_ARGS=(
-    # Stereo only, and not merely because the shuffle has two channels.
-    #
-    # YouTube offers 5.1 AAC (itag 258, 388k) and plain bestaudio ranks it top
-    # on bitrate, so it wins selection on a 2GB device that has no use for it:
-    # a 30MB download, 1.5% of the whole device, to be downmixed back to two
-    # channels anyway. Excluding multichannel at selection time leaves the
-    # stereo Opus stream, which is smaller and downloads faster.
+    # Reject multichannel at selection time: plain bestaudio can choose a large
+    # 5.1 AAC stream that this stereo device would only downmix.
     --format 'bestaudio[audio_channels<=2]'
     --extract-audio
     --audio-format mp3
     --audio-quality "$BITRATE"
 
-    # Pin encoded output to the shuffle's two supported channels, and leave the
-    # encoder headroom so the shuffle can decode without clipping.
-    #
-    # Commercial pop masters are brickwalled: measured across a sample of ten,
-    # every YouTube source already pins its sample peak to full scale with
-    # inter-sample peaks up to +2.9 dBFS. Re-encoding adds its own ringing on
-    # top - the same track came back out at +4.3 dBFS with 69,921 samples stuck
-    # at full scale, and every one of those is a hard clamp in the shuffle's
-    # fixed-point decoder. Audibly, crackling over loud passages, and on the
-    # device the unlimited version was clearly the worse of the two.
-    #
-    # -4 dBFS is what it took to bring that worst case to zero clipped samples,
-    # and it still lands at -9.8 LUFS, far louder than any streaming target.
-    # The limiter only engages above its threshold, so sources that are not
-    # brickwalled pass through untouched rather than being quietened for
-    # nothing. Deliberately no oversampling around it: catching true peaks
-    # instead of sample peaks changed the result by three samples in nine
-    # million.
+    # Pin output to stereo and give the encoder 4 dB of headroom. Re-encoding
+    # brickwalled masters otherwise added clipping, and the unlimited version
+    # sounded worse on the device. README.md owns the measurements.
     #
     # level=false stops the limiter handing the gain straight back as makeup,
     # which would put the peaks back exactly where they started. latency=true
@@ -152,13 +122,9 @@ declare -a YTDLP_ARGS=(
     # attack time, 240 samples at 48kHz, even when the limiter never engages.
     # With it, a source that stays under the threshold comes out bit-identical.
     #
-    # Then 44.1kHz, which the bisect showed is not what caused the crackling -
-    # AAC failed identically at both rates. It is here because 44.1kHz is what
-    # the shuffle's DAC runs natively, it is what every CD rip and iTunes
-    # download on the device already is, and it is the exact configuration that
-    # played back clean when tested. YouTube's Opus is always 48kHz, so without
-    # this the shipped format would differ from the tested one in a way nobody
-    # had listened to.
+    # Pin 44.1kHz because it is the shuffle's native rate and the configuration
+    # verified by ear. Sample rate was explicitly ruled out as the crackle's
+    # cause, but leaving YouTube's 48kHz Opus rate would ship an untested format.
     --postprocessor-args 'ExtractAudio:-ac 2 -af alimiter=limit=0.631:level=false:latency=true,aresample=44100:resampler=soxr'
 
     # Without tags the device shows scrambled four-character filenames and

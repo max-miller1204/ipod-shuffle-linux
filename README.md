@@ -369,7 +369,8 @@ AAC is the more modern codec, the shuffle 4G is specified to decode it up to 320
 Our AAC did not.
 It crackled continuously, on every track, unrelated to how loud the music was.
 
-That was bisected by putting the same 45-second chorus on a real device seven ways and listening to each:
+That was bisected by putting the same 45-second chorus on a real device seven ways.
+The codec and sample-rate comparisons were:
 
 | Encoding | Result |
 | --- | --- |
@@ -379,6 +380,8 @@ That was bisected by putting the same 45-second chorus on a real device seven wa
 | MP3 256k, 44.1kHz | clean |
 | WAV, 44.1kHz | clean |
 | Synthetic tone as AAC 256k | clean |
+
+A seventh comparison removed the limiter; it still crackled and was audibly worse, as discussed below.
 
 That pattern rules out almost everything.
 Not the hardware or the headphones, because a synthetic tone through the same decoder at the same bitrate is clean.

@@ -503,10 +503,8 @@ def value_of(flag):
 # Opus is what YouTube serves and the one thing the shuffle cannot play, so a
 # conversion at the documented bitrate is not optional.
 #
-# Regression: MP3 rather than AAC. Bisected on a real 4G, AAC 256k crackled all
-# the way through every track while MP3 256k of the same chorus was clean. The
-# firmware's AAC decoder cannot sustain frames packed near the 1536-byte
-# AAC-LC stereo ceiling, which is what a 256k encode of dense music produces.
+# Regression: native ffmpeg AAC crackled on a real 4G, while this MP3
+# configuration played cleanly. README.md owns the hardware-bisect details.
 assert value_of("--audio-format") == "mp3", args
 assert value_of("--audio-quality") == "256k", args
 assert "--extract-audio" in args, args
