@@ -10,7 +10,6 @@ set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
 IPOD=""
-ASSUME_YES=0
 EJECT=0
 LIST=0
 

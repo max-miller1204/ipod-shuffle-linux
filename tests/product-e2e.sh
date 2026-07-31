@@ -96,6 +96,60 @@ test ! -e "$IPOD/iPod_Control/.sync-options"
 grep -Fq 'Playlists without --playlist-voiceover will be unnamed on the device.' \
     "$EVIDENCE_DIR/playlist-without-voiceover-warning.txt"
 
+# --clear is the one destructive thing sync does, so it asks first, and with no
+# terminal attached that question answers itself as no. Without --yes the only
+# way to drive it from a script was to pipe a "y" into stdin.
+#
+# stdin is closed deliberately in both halves: a regression that reinstated the
+# prompt would then abort or hang here rather than quietly reading a stray
+# newline and looking like it passed.
+# On a throwaway device, because --clear deletes what later checks still expect
+# to find on the shared one.
+YES_SOURCE="$TEST_ROOT/yes-source"
+YES_IPOD="$TEST_ROOT/clear-target"
+mkdir -p "$YES_SOURCE" \
+    "$YES_IPOD/iPod_Control/iTunes" \
+    "$YES_IPOD/iPod_Control/Music/Existing" \
+    "$YES_IPOD/iPod_Control/Speakable"
+printf 'a track\n' > "$YES_SOURCE/track.mp3"
+printf 'already there\n' > "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
+
+if "$ROOT/ipod-sync.sh" \
+    --ipod "$YES_IPOD" \
+    --clear \
+    "$YES_SOURCE" < /dev/null > "$EVIDENCE_DIR/clear-without-yes.txt" 2>&1; then
+    echo "--clear cleared the iPod without anyone confirming it" >&2
+    exit 1
+fi
+grep -Fq 'Aborted.' "$EVIDENCE_DIR/clear-without-yes.txt"
+test -s "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
+
+"$ROOT/ipod-sync.sh" \
+    --ipod "$YES_IPOD" \
+    --clear \
+    --yes \
+    "$YES_SOURCE" < /dev/null > "$EVIDENCE_DIR/clear-with-yes.txt" 2>&1
+test -f "$YES_IPOD/iPod_Control/Music/yes-source/track.mp3"
+test ! -e "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
+
+# --yes has to answer every prompt, not just the caller's own. assert_shuffle
+# asks its own question from inside lib.sh when a volume has no Speakable
+# directory, and a script that only guarded its local confirm still stopped
+# dead there - precisely when it is running unattended.
+NOT_A_SHUFFLE="$TEST_ROOT/not-a-shuffle"
+mkdir -p "$NOT_A_SHUFFLE/iPod_Control/iTunes" "$NOT_A_SHUFFLE/iPod_Control/Music"
+for script in ipod-sync.sh ipod-remove.sh ipod-wipe.sh; do
+    case "$script" in
+        ipod-sync.sh)   args=(--yes "$YES_SOURCE") ;;
+        ipod-remove.sh) args=(--yes --list) ;;
+        ipod-wipe.sh)   args=(--yes) ;;
+    esac
+    "$ROOT/$script" --ipod "$NOT_A_SHUFFLE" "${args[@]}" \
+        < /dev/null > "$EVIDENCE_DIR/no-speakable-$script.txt" 2>&1 \
+        || { echo "$script --yes stopped at the Speakable prompt" >&2; exit 1; }
+    grep -Fq 'Continue anyway?' "$EVIDENCE_DIR/no-speakable-$script.txt"
+done
+
 printf '%s\n' \
     --auto-id3-playlists \
     '{artist}' \
@@ -236,11 +290,18 @@ import json
 import sys
 from pathlib import Path
 
-records = [
-    json.loads(line)
-    for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
-]
 ipod = sys.argv[2]
+
+# Only this iPod's invocations. The builder records every run in the suite,
+# including those against throwaway devices other checks create, so indexing
+# the raw list positionally made unrelated additions elsewhere fail here.
+# The length assertion keeps that from loosening into "some subset matched".
+records = [
+    entry
+    for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+    if (entry := json.loads(line))[-1] == ipod
+]
+assert len(records) == 7, records
 assert records[0] == [
     "--auto-dir-playlists", "-1", "--playlist-voiceover", ipod
 ]
@@ -682,6 +743,8 @@ printf '%s\n' \
     "PASS: playlist flags used explicit upstream values and persisted across rebuild" \
     "PASS: GUI restored playlist and voiceover choices and mapped them to CLI flags" \
     "PASS: missing playlist voiceover produced a screenless-device warning" \
+    "PASS: sync --clear refused to delete unattended, and --yes let it through" \
+    "PASS: --yes answered the Speakable prompt too, in all three scripts" \
     "PASS: wipe backed up music/database and preserved Speakable plus Device state" \
     "PASS: JSON mount detection retained a mount path containing spaces" \
     "PASS: raw findmnt output stayed rejected, so \\x20 escaping cannot return" \

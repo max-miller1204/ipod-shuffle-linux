@@ -20,7 +20,6 @@ readonly STALE_STATE=(
 
 IPOD=""
 BACKUP_DIR=""
-ASSUME_YES=0
 
 usage() {
     cat <<'EOF'

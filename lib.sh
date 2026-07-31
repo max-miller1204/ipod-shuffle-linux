@@ -159,8 +159,23 @@ ipod_mount() {
     fi
 }
 
+# Answered automatically by the scripts that take --yes. Declared here rather
+# than in each of them because confirm() below reads it under set -u, and
+# install.sh prompts without ever having heard of the flag.
+ASSUME_YES=0
+
 confirm() {
     local prompt="$1" reply
+
+    # --yes has to mean every prompt, not just the one the caller was thinking
+    # of. assert_shuffle() asks its own question from in here, so a script that
+    # only guarded its local confirm still blocked on a device with no
+    # Speakable directory, which is exactly when nobody is watching.
+    if (( ASSUME_YES )); then
+        info "$prompt yes (--yes)"
+        return 0
+    fi
+
     read -r -p "$prompt [y/N] " reply
     [[ "$reply" =~ ^[Yy]$ ]]
 }
