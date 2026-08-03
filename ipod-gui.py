@@ -654,6 +654,30 @@ def lib_function_succeeds(name):
         return False
 
 
+def lib_function_output(name):
+    """Run a helper from lib.sh and return what it printed, or None.
+
+    lib_function_succeeds answers whether a dependency is installed; this
+    answers where it is. Searching runs yt-dlp directly rather than through one
+    of the scripts, and the virtualenv copy install.sh keeps current is not on
+    PATH, so the path has to come from the same helper the scripts use.
+    """
+    if not LIB_SCRIPT.is_file():
+        return None
+    try:
+        result = subprocess.run(
+            ["bash", "-c", f'source "$1" && {name}', "_", str(LIB_SCRIPT)],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
 def youtube_unavailable_reason():
     """Why downloading from YouTube is not possible here, or None if it is.
 
@@ -673,6 +697,21 @@ def youtube_unavailable_reason():
     return None
 
 
+def youtube_search_unavailable_reason():
+    """Why searching YouTube is not possible here, or None if it is.
+
+    Deliberately weaker than youtube_unavailable_reason, which is about the
+    download. Searching only reads metadata, and yt-dlp does that without a
+    JavaScript runtime and without ffmpeg: it is the media URL that is signed
+    and the audio that has to be converted. Gating the field on the download's
+    requirements would blank out the half of the window that still works and
+    leave the user no way to find out what they could have downloaded.
+    """
+    if not lib_function_succeeds("yt_dlp_bin"):
+        return "yt-dlp is not installed - run ./install.sh"
+    return None
+
+
 def home_relative(path):
     """~/Music/youtube rather than the full path, which reads as noise."""
     try:
@@ -688,6 +727,183 @@ def is_downloadable_url(text):
     except ValueError:
         return False
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+# Three, which is exactly what the reserved skeleton makes room for. The
+# section is a shortlist to add from rather than a browser - for a song the
+# answer is almost always the first row - and a skeleton shorter than the
+# result set would let the layout jump at the moment the results land, which
+# is the moment the user is reading it.
+YOUTUBE_SEARCH_RESULTS = 3
+
+# A flat search answers in about a second. This is the point at which waiting
+# longer is worse than saying it did not come back.
+YOUTUBE_SEARCH_TIMEOUT = 20
+
+# Below this a query matches most of a library and none of it usefully, and
+# every keystroke of a real query would spend a round trip to YouTube.
+SEARCH_MIN_QUERY = 2
+
+# Long enough that typing a phrase costs one search rather than one per
+# letter, short enough that it still reads as a response to the typing. On top
+# of the ~150ms GtkSearchEntry already waits before it reports a change at all,
+# which is why this is shorter than a debounce written from nothing would be.
+SEARCH_DEBOUNCE_MS = 300
+
+
+class SearchResult:
+    """One YouTube hit, before anything has been downloaded.
+
+    Not a Track: it has no file, no size and none of the three states, and
+    giving it one would put a thing that does not exist yet into the album
+    grid and into the storage meter.
+    """
+
+    __slots__ = ("title", "uploader", "duration", "url", "video_id")
+
+    def __init__(self, title, uploader, duration, url, video_id=""):
+        self.title = title
+        self.uploader = uploader
+        self.duration = duration
+        self.url = url
+        self.video_id = video_id
+
+
+def youtube_search_target(query, limit=YOUTUBE_SEARCH_RESULTS):
+    """What to hand yt-dlp for this query.
+
+    A pasted link is looked up as itself rather than searched for: searching
+    for a URL returns whatever YouTube makes of that text as a phrase, which
+    is never the video that was on the clipboard.
+    """
+    query = (query or "").strip()
+    if is_downloadable_url(query):
+        return query
+    return f"ytsearch{max(1, int(limit))}:{query}"
+
+
+def youtube_search_command(yt_dlp, query, limit=YOUTUBE_SEARCH_RESULTS):
+    """The argv that lists candidates without downloading any of them.
+
+    --flat-playlist is the difference between an answer in about a second and
+    one in half a minute: without it yt-dlp resolves every hit's media URLs,
+    which is the expensive half of the work and the half a list of titles does
+    not need. --playlist-items caps a linked playlist to the same shortlist the
+    search returns, so pasting an album link cannot flood the section.
+    """
+    limit = max(1, int(limit))
+    return [
+        str(yt_dlp),
+        "--flat-playlist",
+        "--dump-json",
+        "--no-warnings",
+        "--playlist-items",
+        f"1-{limit}",
+        "--",
+        youtube_search_target(query, limit),
+    ]
+
+
+def parse_search_results(lines, limit=YOUTUBE_SEARCH_RESULTS):
+    """Turn --dump-json output into results, skipping anything unusable.
+
+    yt-dlp prints one JSON object per line, and a line that is neither is a
+    notice that escaped --no-warnings rather than a reason to show nothing.
+    """
+    results = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        video_id = entry.get("id")
+        video_id = video_id if isinstance(video_id, str) else ""
+        url = entry.get("webpage_url") or entry.get("url")
+        if not isinstance(url, str) or not is_downloadable_url(url):
+            # A flat search entry sometimes carries only the id, and the watch
+            # URL built from one is what ipod-fetch.sh would be given anyway.
+            url = f"https://www.youtube.com/watch?v={video_id}" if video_id else ""
+        if not is_downloadable_url(url):
+            continue
+        try:
+            duration = float(entry.get("duration") or 0)
+        except (TypeError, ValueError):
+            duration = 0.0
+        results.append(
+            SearchResult(
+                title=str(entry.get("title") or video_id or "Untitled"),
+                uploader=str(
+                    entry.get("uploader") or entry.get("channel") or "YouTube"
+                ),
+                duration=duration,
+                url=url,
+                video_id=video_id,
+            )
+        )
+        if len(results) >= limit:
+            break
+    return results
+
+
+def search_youtube(
+    query, limit=YOUTUBE_SEARCH_RESULTS, timeout=YOUTUBE_SEARCH_TIMEOUT
+):
+    """Ask YouTube for candidates. Returns (results, reached_youtube).
+
+    A search that finds nothing exits 0 having printed nothing, and one that
+    could not reach YouTube exits non-zero, so the empty case and the offline
+    or rate-limited case are told apart by the exit code. Without that they
+    both look like no results, and the user retypes a query that was fine.
+    """
+    yt_dlp = lib_function_output("yt_dlp_bin")
+    if yt_dlp is None:
+        return [], False
+    try:
+        finished = subprocess.run(
+            youtube_search_command(yt_dlp, query, limit),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return [], False
+    if finished.returncode != 0:
+        return [], False
+    return parse_search_results(finished.stdout.splitlines(), limit), True
+
+
+def local_search_matches(tracks, query):
+    """Library tracks matching every word of the query.
+
+    Every word rather than the whole phrase, so "queen rhapsody" finds a track
+    tagged "Bohemian Rhapsody" by "Queen"; a phrase match would need the words
+    in whatever order the tagger happened to use.
+    """
+    terms = [term for term in (query or "").lower().split() if term]
+    if not terms:
+        return []
+    matched = [
+        track
+        for track in tracks
+        if all(
+            term in f"{track.title} {track.artist} {track.album}".lower()
+            for term in terms
+        )
+    ]
+    return sorted(
+        matched,
+        key=lambda t: (
+            t.artist.lower(),
+            t.album.lower(),
+            t.track_no or 999,
+            t.title.lower(),
+        ),
+    )
 
 
 def fetched_sources(list_path, library):
@@ -1271,6 +1487,20 @@ window.shuffle.light .sf-log { color: #6f6c67; }
 .sf-track-row:hover { background: alpha(#ffffff, 0.04); }
 window.shuffle.light .sf-track-row:hover { background: alpha(#000000, 0.03); }
 .sf-track-row.previewed { opacity: 0.72; }
+/* A YouTube result sits directly under a GtkColumnView of local results, and
+   that view insets its last column by 4px less than a plain row's padding
+   does. Matched here so the two lists' Add buttons share one right edge
+   rather than nearly sharing one. */
+.sf-track-row.sf-result-row { padding-right: 4px; }
+
+/* Placeholder blocks holding the shape of a YouTube result while it loads.
+   Flat rather than animated: a shimmer would be the only moving thing in a
+   window that is otherwise still, and it would read as progress that the
+   search has no way to actually report. */
+.sf-skeleton { background: alpha(#ffffff, 0.06); border-radius: 5px; }
+window.shuffle.light .sf-skeleton { background: alpha(#000000, 0.05); }
+
+.sf-search { border-radius: 8px; font-size: 12.5px; min-height: 30px; }
 
 .sf-new-tile {
   border: 1px dashed #33333a; border-radius: 10px;
@@ -1654,6 +1884,18 @@ class IpodWindow(Adw.ApplicationWindow):
             None if self.speech_engine_available else "No speech engine installed"
         )
         self.youtube_unavailable = youtube_unavailable_reason()
+        self.youtube_search_unavailable = youtube_search_unavailable_reason()
+
+        self.search_query = ""
+        self.search_generation = 0
+        self.search_results = []
+        self.search_loading = False
+        # What the YouTube half of the search is currently unable to give, said
+        # in place of the rows rather than in a toast: a toast has gone by the
+        # time the eye returns to the empty space it was explaining.
+        self.search_note = ""
+        self.search_add_buttons = []
+        self._search_timeout = None
 
         self.library = LibraryIndex()
         self.device_tracks = []
@@ -1707,8 +1949,13 @@ class IpodWindow(Adw.ApplicationWindow):
             # button that would otherwise start a second script against the
             # same device while one is still running.
             self.library_view,
+            self.search_view,
             self.album_view,
             self.playlists_view,
+            # Typing while a script runs would repaint a view that is already
+            # insensitive, which reads as the search being broken rather than
+            # as the window being busy.
+            self.search_entry,
         ]
 
         style = Adw.StyleManager.get_default()
@@ -1780,6 +2027,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self.split.set_content(content)
 
         self.views.add_named(self._build_library_view(), "library")
+        self.views.add_named(self._build_search_view(), "search")
         self.views.add_named(self._build_album_view(), "album")
         self.views.add_named(self._build_playlists_view(), "playlists")
         self.views.add_named(self._build_settings_view(), "settings")
@@ -1827,6 +2075,19 @@ class IpodWindow(Adw.ApplicationWindow):
         header.append(self.view_title)
 
         header.append(Gtk.Box(hexpand=True))
+
+        # One field over both sources. Which of them a result came from is
+        # said by the section it lands in, not by asking the user to choose a
+        # source before they have typed anything.
+        self.search_entry = Gtk.SearchEntry(
+            placeholder_text="Search your library and YouTube"
+        )
+        self.search_entry.add_css_class("sf-search")
+        self.search_entry.set_size_request(260, -1)
+        self.search_entry.set_valign(Gtk.Align.CENTER)
+        self.search_entry.connect("search-changed", self._on_search_changed)
+        self.search_entry.connect("stop-search", lambda _e: self._clear_search())
+        header.append(self.search_entry)
 
         # Only meaningful on the library, which is the only view with a grid
         # to group or to swap for a table.
@@ -1989,8 +2250,18 @@ class IpodWindow(Adw.ApplicationWindow):
         box.append(image)
         box.append(label(title))
         button.set_child(box)
-        button.connect("clicked", lambda _b, n=name: self.show_view(n))
+        button.connect("clicked", lambda _b, n=name: self._navigate(n))
         return button
+
+    def _navigate(self, name):
+        """Follow a sidebar row, ending the search that row is leaving.
+
+        Leaving the results up behind a field that still holds the query would
+        make the next keystroke reopen a view the user had just navigated out
+        of, and the sidebar would show a destination that is not on screen.
+        """
+        self._clear_search()
+        self.show_view(name)
 
     # ---------------------------------------------------------- library view
 
@@ -2106,6 +2377,327 @@ class IpodWindow(Adw.ApplicationWindow):
                 pill.remove_css_class("selected")
                 pill.set_active(False)
         self._populate_albums()
+
+    # ----------------------------------------------------------- search view
+
+    def _build_search_view(self):
+        """Both sources on one page, local first because it is instant.
+
+        Two sections rather than one merged list: a file you already have and
+        a video you would have to download are not the same offer, and sorting
+        them together would bury the free half under the expensive one.
+        """
+        scroller = Gtk.ScrolledWindow(vexpand=True)
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=22)
+        box.set_margin_start(22)
+        box.set_margin_end(22)
+        box.set_margin_top(20)
+        box.set_margin_bottom(20)
+        scroller.set_child(box)
+        self.search_view = scroller
+
+        local = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=11)
+        head = Gtk.Box(spacing=8)
+        head.append(label("In your library", "sf-section-heading"))
+        self.search_local_count = label(
+            "", "sf-caption", valign=Gtk.Align.BASELINE
+        )
+        head.append(self.search_local_count)
+        local.append(head)
+        self.search_local_note = label("", "sf-body", wrap=True)
+        local.append(self.search_local_note)
+        self.search_local_table = track_column_view(
+            self, columns=("title", "album", "state", "duration", "action")
+        )
+        local.append(self.search_local_table)
+        box.append(local)
+
+        remote = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=11)
+        head = Gtk.Box(spacing=8)
+        head.append(label("From YouTube", "sf-section-heading"))
+        self.search_youtube_count = label(
+            "", "sf-caption", valign=Gtk.Align.BASELINE
+        )
+        head.append(self.search_youtube_count)
+        remote.append(head)
+        self.search_youtube_note = label("", "sf-body", wrap=True)
+        remote.append(self.search_youtube_note)
+        self.search_youtube_rows = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, spacing=2
+        )
+        remote.append(self.search_youtube_rows)
+        box.append(remote)
+        return scroller
+
+    @staticmethod
+    def _skeleton_row():
+        """A placeholder exactly as tall as the result that replaces it.
+
+        The two lines are real labels carrying a result's own text classes with
+        the grey bar drawn over them, rather than bars of a chosen height: the
+        row has to come out the same number of pixels tall as what lands in its
+        place, and that number belongs to the font rather than to anything this
+        code could hardcode and keep correct.
+        """
+        row = Gtk.Box(spacing=12)
+        row.add_css_class("sf-track-row")
+        row.add_css_class("sf-result-row")
+        art = Gtk.Box(valign=Gtk.Align.CENTER)
+        art.add_css_class("sf-skeleton")
+        art.set_size_request(36, 36)
+        row.append(art)
+
+        text = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            valign=Gtk.Align.CENTER,
+            hexpand=True,
+        )
+        for width, style in ((210, "sf-row-title"), (120, "sf-body")):
+            line = Gtk.Overlay()
+            line.set_child(label(" ", style))
+            bar = Gtk.Box(halign=Gtk.Align.START, valign=Gtk.Align.CENTER)
+            bar.add_css_class("sf-skeleton")
+            bar.set_size_request(width, 9)
+            line.add_overlay(bar)
+            text.append(line)
+        row.append(text)
+        return row
+
+    def _youtube_row(self, result):
+        row = Gtk.Box(spacing=12)
+        row.add_css_class("sf-track-row")
+        row.add_css_class("sf-result-row")
+        # The generated placeholder rather than the video's thumbnail, which is
+        # a separate piece of work. Using the same placeholder a local track
+        # with no embedded cover gets keeps the two sections reading as one
+        # page instead of two widgets that happen to be stacked.
+        row.append(make_cover(None, 36, result.video_id or result.title, "small"))
+
+        text = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            hexpand=True,
+            valign=Gtk.Align.CENTER,
+        )
+        text.append(label(result.title, "sf-row-title", ellipsize=ELLIPSIZE_END))
+        text.append(label(result.uploader, "sf-body", ellipsize=ELLIPSIZE_END))
+        row.append(text)
+
+        row.append(
+            label(
+                human_duration(result.duration) if result.duration else "--:--",
+                "sf-caption",
+                "sf-mono",
+                width_chars=5,
+                xalign=1.0,
+                valign=Gtk.Align.CENTER,
+            )
+        )
+
+        add = Gtk.Button(label="Add")
+        add.add_css_class("sf-button")
+        add.add_css_class("accent")
+        add.set_valign(Gtk.Align.CENTER)
+        add.connect("clicked", lambda _b, r=result: self._download_result(r))
+        add.set_sensitive(self._can_download())
+        add.set_tooltip_text(self._youtube_download_tooltip())
+        row.append(add)
+        self.search_add_buttons.append(add)
+        return row
+
+    def _youtube_download_tooltip(self):
+        if self.youtube_unavailable:
+            return self.youtube_unavailable
+        if not self.mount_point:
+            return "Connect an iPod to download and queue a track"
+        return None
+
+    def _can_download(self):
+        """Whether a search result could be fetched and queued right now."""
+        return bool(
+            self.mount_point
+            and self.device_identity is not None
+            and not self.busy
+            and not self.discovering_sources
+            and not self.youtube_unavailable
+        )
+
+    def _paint_local_results(self):
+        matches = local_search_matches(
+            self.library.all_tracks(), self.search_query
+        )
+        fill_tracks(self.search_local_table, matches)
+        self.search_local_count.set_text(
+            plural(len(matches), "track") if matches else ""
+        )
+        self.search_local_table.set_visible(bool(matches))
+        self.search_local_note.set_text(
+            "" if matches else "Nothing in your music folders matches this search."
+        )
+        self.search_local_note.set_visible(not matches)
+
+    def _paint_youtube_section(self):
+        """Repaint the YouTube half from whatever state it is in.
+
+        One function for the skeleton, the results and every failure, because
+        all of them are alternatives for the same space: the section shows rows
+        or it shows the sentence saying why it cannot, and the sentence lives
+        in search_note rather than in an argument so that a repaint triggered
+        by something else - a device appearing, a sync finishing - cannot
+        quietly erase it.
+        """
+        self.search_add_buttons = []
+        child = self.search_youtube_rows.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.search_youtube_rows.remove(child)
+            child = nxt
+
+        if self.search_loading:
+            for _ in range(YOUTUBE_SEARCH_RESULTS):
+                self.search_youtube_rows.append(self._skeleton_row())
+            self.search_youtube_count.set_text("Searching…")
+            self.search_youtube_note.set_visible(False)
+            return
+
+        for result in self.search_results:
+            self.search_youtube_rows.append(self._youtube_row(result))
+        self.search_youtube_count.set_text(
+            plural(len(self.search_results), "result") if self.search_results else ""
+        )
+
+        note = self.search_note
+        # Results can be listed and still not be addable. Metadata needs no
+        # JavaScript runtime and no ffmpeg; the download needs both, and
+        # letting the user press Add and watch it fail several steps later is
+        # exactly the confusion the capability checks exist to prevent.
+        if not note and self.search_results and self.youtube_unavailable:
+            note = (
+                f"Downloads are unavailable: {self.youtube_unavailable}. "
+                "These are search results only."
+            )
+        self.search_youtube_note.set_text(note)
+        self.search_youtube_note.set_visible(bool(note))
+
+    def _set_search_note(self, text):
+        self.search_note = text
+        self._paint_youtube_section()
+
+    def _cancel_search_timeout(self):
+        if self._search_timeout is not None:
+            GLib.source_remove(self._search_timeout)
+            self._search_timeout = None
+
+    def _on_search_changed(self, entry):
+        query = entry.get_text().strip()
+        if query == self.search_query:
+            return
+        self.search_query = query
+        self._cancel_search_timeout()
+        # Bumped on every keystroke so a search still in flight for an older
+        # query cannot land on a newer one, the same guard the library scan uses.
+        self.search_generation += 1
+        if not query:
+            self._clear_search()
+            return
+
+        self.show_view("search")
+        self._paint_local_results()
+
+        self.search_results = []
+        if self.youtube_search_unavailable:
+            self.search_loading = False
+            self._set_search_note(
+                f"{self.youtube_search_unavailable}. Your music folders are "
+                "still searched."
+            )
+            return
+        if len(query) < SEARCH_MIN_QUERY:
+            self.search_loading = False
+            self._set_search_note("Type a little more to search YouTube.")
+            return
+
+        # The library filters on every keystroke because it is already in
+        # memory; YouTube costs a network round trip, so it waits for a pause.
+        self.search_loading = True
+        self._set_search_note("")
+        self._search_timeout = GLib.timeout_add(
+            SEARCH_DEBOUNCE_MS,
+            self._start_youtube_search,
+            self.search_generation,
+            query,
+        )
+
+    def _start_youtube_search(self, generation, query):
+        self._search_timeout = None
+        if generation != self.search_generation:
+            return False
+
+        def worker():
+            results, reached = search_youtube(query)
+            GLib.idle_add(
+                self._finish_youtube_search, generation, results, reached
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+        return False
+
+    def _finish_youtube_search(self, generation, results, reached):
+        if generation != self.search_generation:
+            return False
+        self.search_loading = False
+        self.search_results = results
+        if not reached:
+            self._set_search_note(
+                "Could not reach YouTube. Check the connection, or wait a "
+                "moment if several searches have just run in a row."
+            )
+        elif not results:
+            self._set_search_note("No YouTube results for this search.")
+        else:
+            self._set_search_note("")
+        return False
+
+    def _clear_search(self):
+        self._cancel_search_timeout()
+        self.search_generation += 1
+        self.search_query = ""
+        self.search_loading = False
+        self.search_results = []
+        self.search_note = ""
+        # Emptied last, so the search-changed this fires finds the state it
+        # would have set already in place and stops rather than recursing.
+        if self.search_entry.get_text():
+            self.search_entry.set_text("")
+        if self.views.get_visible_child_name() == "search":
+            self.show_view("library")
+
+    def _download_result(self, result):
+        if not self._can_download():
+            return
+        # Clears whatever an earlier attempt left behind, so a retry that works
+        # does not sit under the sentence saying the last one failed.
+        self._set_search_note("")
+        self._start_youtube_download(
+            result.url,
+            single=True,
+            busy_message=f"Downloading {result.title}",
+            on_failure=lambda: self._report_download_failure(result),
+        )
+
+    def _report_download_failure(self, result):
+        """Say in the section that this particular download did not finish.
+
+        The toast is gone by the time the eye returns to the row that was being
+        added, and that row is what the user is looking at.
+        """
+        if self.views.get_visible_child_name() != "search":
+            return
+        self._set_search_note(
+            f"Could not finish downloading {result.title}. Details has what "
+            "yt-dlp reported; ./ipod-fetch.sh --update is the usual fix when "
+            "downloads stop working."
+        )
 
     # ------------------------------------------------------------ album view
 
@@ -2470,8 +3062,9 @@ class IpodWindow(Adw.ApplicationWindow):
         inner.append(
             label(
                 "Adding a previewed track moves it into your library and out "
-                "of this cache. Nothing is cached yet - preview playback "
-                "arrives with search.",
+                "of this cache. Nothing is cached yet - a search result is "
+                "downloaded only when you add it, until preview playback "
+                "lands.",
                 "sf-caption",
                 wrap=True,
             )
@@ -2705,6 +3298,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self.views.set_visible_child_name(name)
         titles = {
             "library": "Your Library",
+            "search": "Search",
             "album": "Album",
             "playlists": "Playlists",
             "settings": "Device & Settings",
@@ -2899,6 +3493,14 @@ class IpodWindow(Adw.ApplicationWindow):
         self.youtube_button.set_sensitive(
             queue_enabled and not self.youtube_unavailable
         )
+        # Collected as they are built rather than repainted from here: a
+        # repaint would discard the skeleton mid-search, and a device
+        # appearing while YouTube is still answering is exactly when that
+        # happens.
+        downloadable = self._can_download()
+        for button in self.search_add_buttons:
+            button.set_sensitive(downloadable)
+            button.set_tooltip_text(self._youtube_download_tooltip())
         self.new_playlist_button.set_sensitive(
             queue_enabled and self.speech_engine_available
         )
@@ -3406,6 +4008,11 @@ class IpodWindow(Adw.ApplicationWindow):
                 self._show_album(album)
         elif visible == "playlists" and self.current_playlist is not None:
             self._show_playlist(self.current_playlist)
+        elif visible == "search":
+            # A rescan changes which of the results are already on the iPod, so
+            # the local half is re-derived rather than left showing the states
+            # it had when the query was typed.
+            self._paint_local_results()
         return False
 
     def _merge_states(self):
@@ -4208,7 +4815,15 @@ class IpodWindow(Adw.ApplicationWindow):
             return False
         return True
 
-    def _run(self, argv, busy_message, done_message, then=None, clear=True):
+    def _run(
+        self,
+        argv,
+        busy_message,
+        done_message,
+        then=None,
+        clear=True,
+        on_failure=None,
+    ):
         """Run a script in a worker thread, streaming output into the log.
 
         then, when given, is called on success and returns either the next
@@ -4216,6 +4831,10 @@ class IpodWindow(Adw.ApplicationWindow):
         the outcome when there is nothing further to do. The YouTube flow uses
         this callback to queue only the tracks that a successful download says
         it produced.
+
+        on_failure is its opposite, for a caller that has somewhere better to
+        report the failure than the toast: a search result reports it inline in
+        the section where the user pressed Add, which remains on screen.
         """
         if any(part is None for part in argv):
             self._toast("Connect an iPod before running this action")
@@ -4254,7 +4873,7 @@ class IpodWindow(Adw.ApplicationWindow):
             except (OSError, TypeError, ValueError) as exc:
                 GLib.idle_add(self._log, f"failed to run: {exc}\n")
             GLib.idle_add(
-                self._finish, code, done_message, then, device_command
+                self._finish, code, done_message, then, device_command, on_failure
             )
 
         threading.Thread(target=worker, daemon=True).start()
@@ -4276,7 +4895,14 @@ class IpodWindow(Adw.ApplicationWindow):
         self._populate_device_summary()
         self._update_device_controls()
 
-    def _finish(self, code, done_message, then=None, device_command=False):
+    def _finish(
+        self,
+        code,
+        done_message,
+        then=None,
+        device_command=False,
+        on_failure=None,
+    ):
         if code == 0 and device_command:
             self._invalidate_device_snapshot()
         if code == 0 and then is not None:
@@ -4292,9 +4918,12 @@ class IpodWindow(Adw.ApplicationWindow):
         if code == 0:
             self._toast(done_message)
         else:
-            self._toast(f"Failed (exit {code}) - see Details")
+            if on_failure is None:
+                self._toast(f"Failed (exit {code}) - see Details")
             self.details_toggle.set_active(True)
             self.sync_revealer.set_reveal_child(True)
+            if on_failure is not None:
+                on_failure()
         self.sync_total = 0
         self.refresh()
         self._rescan_library()
@@ -4496,7 +5125,18 @@ class IpodWindow(Adw.ApplicationWindow):
         if not is_downloadable_url(url):
             self._toast("Enter a link starting with http:// or https://")
             return
+        self._start_youtube_download(
+            url,
+            single=not whole_playlist.get_active(),
+            busy_message="Downloading from YouTube",
+        )
 
+    def _start_youtube_download(self, url, single, busy_message, on_failure=None):
+        """Fetch one link and queue whatever that run produced.
+
+        Shared by the dialog and by a search result so both queue exactly the
+        tracks the download reported rather than the folder it wrote into.
+        """
         # Written by the download and read when it completes, so only what this
         # run actually fetched enters the queue. Without it the whole library
         # would be queued every time.
@@ -4510,16 +5150,29 @@ class IpodWindow(Adw.ApplicationWindow):
             "--new-tracks",
             new_tracks,
         ]
-        if not whole_playlist.get_active():
+        if single:
             fetch.append("--single")
         fetch.append(url)
 
-        self._run(
+        def failed():
+            try:
+                os.unlink(new_tracks)
+            except OSError:
+                pass
+            if on_failure is not None:
+                on_failure()
+
+        if not self._run(
             fetch,
-            "Downloading from YouTube",
+            busy_message,
             "Downloaded",
             then=lambda: self._sync_downloaded(new_tracks),
-        )
+            on_failure=failed,
+        ):
+            # Refused before anything ran, so the list file it would have read
+            # is left behind unless it is cleaned up here.
+            failed()
+        return fetch
 
     def _sync_downloaded(self, new_tracks):
         """Queue what the download produced, or say why there is nothing to."""

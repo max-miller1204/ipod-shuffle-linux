@@ -122,14 +122,33 @@ The **Playlists** view marks which playlists the device can announce (`◉`) and
 Tracks there can be dragged into a new order, which rewrites the list on the device and rebuilds the database, so the order survives unplugging.
 That view is deliberately not sortable: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
 
-**Add from YouTube…** asks for a link, offering whatever is already on the clipboard, and downloads it as MP3 into `~/Music/youtube` before queueing it for the next sync.
+The search field at the top of the window queries two sources at once.
+Your indexed music folders answer immediately, matching every word of the query in any order across title, artist and album, so "queen rhapsody" finds a track tagged *Bohemian Rhapsody* by *Queen*.
+For queries of at least two characters, YouTube answers a second or so later with up to three matches; a reserved three-row placeholder keeps the page steady while it waits.
+Once an iPod is connected, adding one of those results downloads it as MP3 and queues it, the same as pasting its link would.
+Pasting a link into the search field looks that link up rather than searching for its text, so you can see what a URL actually is before adding it.
+
+The two halves fail independently and each explains problems inline in its own section, never as a toast that is gone by the time you look back at the empty space:
+
+| What is wrong | What happens |
+| --- | --- |
+| No `yt-dlp` | The YouTube half says so; your music folders are still searched |
+| No JavaScript runtime, or no `ffmpeg` | Results are still listed, while **Add** is disabled and explains which piece the download needs |
+| Offline, or rate-limited | The section says it could not reach YouTube, which is not the same as finding nothing |
+| Nothing matched | Each half says so on its own, since one can find something when the other does not |
+| A download stopped part-way | The section says which track, and points at **Details** for what `yt-dlp` reported |
+
+Searching needs only `yt-dlp`, because reading a title is not the part YouTube protects.
+Downloading needs `ffmpeg` and a JavaScript runtime as well, so the search field stays useful on a machine where the download would fail.
+
+**Add from YouTube…** under **Device & Settings** does the same thing from a link, offering whatever is already on the clipboard, and can take a whole playlist rather than one video.
 When `yt-dlp` can report the files it fetched, only the tracks that download produced are queued, so pasting a second link does not push a growing library back onto a 2GB device, and pasting a link you have already fetched reports that there is nothing new rather than doing it again.
 
 That button explains itself when a download could not succeed, and says which piece is missing: `yt-dlp`, `ffmpeg`, or a JavaScript runtime.
 Checking beforehand is worth the trouble because every one of those failures otherwise appears several steps later as something else, most memorably as `HTTP Error 403` on every track but the oldest.
 
 The interface follows the system light and dark preference, and folds its sidebar away below 780px.
-Search and preview playback are the next things to land; the player bar along the bottom is present but idle until then.
+Preview playback is the next thing to land; the player bar along the bottom is present but idle until then.
 
 Device-changing actions run the same scripts documented below, so their copy and database rules are shared with the command line.
 
@@ -344,7 +363,7 @@ The nano supported ALAC; the shuffle never did.
 ./ipod-fetch.sh 'https://www.youtube.com/watch?v=...'
 ```
 
-The GUI's **Add from YouTube** button runs this script, so the two share every setting below.
+The GUI's **Add from YouTube** button and the **Add** on a search result both run this script, so all three share every setting below.
 
 This wraps `yt-dlp` with the settings the shuffle needs, saving into `~/Music/youtube` with one folder per artist so the result is ready for `--dir-playlists`.
 Downloaded video IDs are recorded in `<output>/.fetched` and skipped on later runs, so re-running a playlist URL collects only what is new.
