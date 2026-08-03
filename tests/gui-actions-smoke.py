@@ -96,13 +96,19 @@ class FakeWindow:
         self.mount_point = "/media/alex/Alex's iPod"
         self.device_identity = "uuid:test-ipod"
         self.discovering_sources = False
+        self._device_scan_active = False
+        self._device_snapshot_ready = True
         self.pending_device_identity = None
         self.pending = set()
         self.pending_sources = {}
+        self.pending_records = {}
+        self._pending_track_index = {}
+        self._library_by_path = {}
         self.commands = []
         self.toasts = []
         self.track_names = {}
-        self.library = type("Library", (), {"tracks": []})()
+        self.library = type("Library", (), {"tracks": [], "device_only": []})()
+        self.device_tracks = []
         self.speech_engine_available = True
         self.playlist_voiceover = FakeSwitch()
 
@@ -129,8 +135,11 @@ class FakeWindow:
     _clear_pending = ipod_gui.IpodWindow._clear_pending
     _audio_files = ipod_gui.IpodWindow._audio_files
     _pending_track = ipod_gui.IpodWindow._pending_track
+    _pending_accounting = ipod_gui.IpodWindow._pending_accounting
     _pending_copy_tracks = ipod_gui.IpodWindow._pending_copy_tracks
     _pending_change_count = ipod_gui.IpodWindow._pending_change_count
+    _record_for_track = staticmethod(ipod_gui.IpodWindow._record_for_track)
+    _merge_states = ipod_gui.IpodWindow._merge_states
     _queue_sources = ipod_gui.IpodWindow._queue_sources
     _queue_paths = ipod_gui.IpodWindow._queue_paths
     _queue_playlist = ipod_gui.IpodWindow._queue_playlist
@@ -282,15 +291,22 @@ class FolderDiscoveryWindow:
     def _update_device_controls(self):
         pass
 
-    def _audio_files(self, path):
+    def _scan_source_tracks(self, path, _generation):
         self.worker_thread = threading.get_ident()
-        return [str(Path(path) / "song.mp3")]
-
-    def _pending_track(self, path):
-        return str(path)
+        track_path = str(Path(path) / "song.mp3")
+        return [
+            ipod_gui.Track(
+                track_path,
+                {"title": "Song", "artist": "Artist", "album": "Album"},
+                ipod_gui.STATE_LIBRARY,
+            )
+        ]
 
     def _queue_sources(self, sources):
-        self.queued = sources
+        self.queued = {
+            source: [track.path for track in tracks]
+            for source, tracks in sources.items()
+        }
 
     def _toast(self, message):
         raise AssertionError(message)
@@ -453,8 +469,11 @@ class SelectionWindow:
         self.pending_device_identity = "uuid:A"
         self.pending = {queued.path}
         self.pending_sources = {queued.path: {queued.path}}
+        self.pending_records = {}
         self.tag_generation = 0
         self._device_scan_tracks = {}
+        self._device_scan_active = False
+        self._device_snapshot_ready = True
         self.device_tracks = []
         self.track_names = {}
         self.toasts = []
@@ -605,6 +624,13 @@ queued_window.pending = {queued_track.path}
 queued_window.pending_sources = {queued_track.path: {queued_track.path}}
 ipod_gui.IpodWindow._set_busy(queued_window, False)
 assert queued_window.sync_button.sensitive, "queued changes could not be synced"
+queued_window._device_scan_active = True
+queued_window._device_snapshot_ready = False
+queued_window._update_device_controls()
+assert not queued_window.sync_button.sensitive
+queued_window._device_snapshot_ready = True
+queued_window._update_device_controls()
+assert queued_window.sync_button.sensitive
 
 # -------------------------------------------------------- playlist removal
 
@@ -767,6 +793,7 @@ queue_window.pending_sources = {
     "/home/alex/Music": set(queue_window.pending)
 }
 queue_window.pending_device_identity = queue_window.device_identity
+queue_window._merge_states()
 assert queue_window._pending_change_count() == len(queued_paths)
 assert sum(track.size for track in queue_window._pending_copy_tracks()) == 3072
 replacement = ipod_gui.Track(
@@ -775,6 +802,7 @@ replacement = ipod_gui.Track(
     ipod_gui.STATE_LIBRARY,
 )
 queue_window.library.tracks = [*queued_paths.values(), replacement]
+queue_window._merge_states()
 assert queue_window._pending_change_count() == len(queued_paths) + 1
 assert sum(track.size for track in queue_window._pending_copy_tracks()) == 7168
 original_volume_identity = ipod_gui.volume_identity
@@ -804,10 +832,42 @@ assert queue_window.pending_sources == {}, "sync sources survived a successful s
 assert queue_window.pending_device_identity is None, "queue stayed device-bound"
 assert isinstance(cleared, str), cleared
 
+outside_window = FakeWindow()
+outside_track = ipod_gui.Track(
+    "/outside/Album/Song.mp3",
+    {
+        "title": "Song",
+        "artist": "Artist",
+        "album": "Album",
+        "duration": 120,
+        "size": 8192,
+    },
+    ipod_gui.STATE_LIBRARY,
+)
+outside_window.device_tracks = [
+    ipod_gui.Track(
+        "/media/iPod/iPod_Control/Music/F00/ABCD.mp3",
+        {
+            "title": "Song",
+            "artist": "Artist",
+            "album": "Album",
+            "duration": 120,
+        },
+        ipod_gui.STATE_IPOD,
+        relpath="F00/ABCD.mp3",
+    )
+]
+outside_window._queue_sources({"/outside/Album": [outside_track]})
+assert outside_window._pending_accounting()[1:] == (0, 0)
+
 
 class RunGuardWindow:
+    _device_command_is_current = ipod_gui.IpodWindow._device_command_is_current
+
     def __init__(self):
         self.toasts = []
+        self.mount_point = "/media/iPod"
+        self.device_identity = "uuid:expected"
 
     def _toast(self, message):
         self.toasts.append(message)
@@ -828,6 +888,21 @@ started = ipod_gui.IpodWindow._run(
 )
 assert started is False
 assert run_guard.toasts == ["Connect an iPod before running this action"]
+
+run_guard = RunGuardWindow()
+original_volume_identity = ipod_gui.volume_identity
+ipod_gui.volume_identity = lambda _mount: "uuid:replacement"
+try:
+    started = ipod_gui.IpodWindow._run(
+        run_guard,
+        ["ipod-sync.sh", "--ipod", run_guard.mount_point, "--rebuild-only"],
+        "Running",
+        "Done",
+    )
+finally:
+    ipod_gui.volume_identity = original_volume_identity
+assert started is False
+assert "changed" in run_guard.toasts[-1]
 
 # An empty queue must not launch a script at all.
 idle_window = FakeWindow()
@@ -864,7 +939,15 @@ assert ipod_gui.playlist_file(reorder_root, "Nonexistent") is None
 
 parsed_order = dict(ipod_gui.list_playlists(reorder_root))["Morning Ride"]
 reordered = [parsed_order[1], parsed_order[0], parsed_order[2]]
-assert ipod_gui.write_playlist(reorder_root, m3u, reordered)
+reorder_identity = "uuid:reorder"
+original_volume_identity = ipod_gui.volume_identity
+ipod_gui.volume_identity = lambda _mount: reorder_identity
+try:
+    assert ipod_gui.write_playlist(
+        reorder_root, reorder_identity, m3u, reordered
+    )
+finally:
+    ipod_gui.volume_identity = original_volume_identity
 
 written = [
     line
@@ -876,13 +959,33 @@ assert written == [
     "iPod_Control/Music/F00/LDPX.mp3",
     str(absolute_entry),
 ], written
+original = m3u.read_text(encoding="utf-8")
+original_volume_identity = ipod_gui.volume_identity
+ipod_gui.volume_identity = lambda _mount: "uuid:replacement"
+try:
+    assert not ipod_gui.write_playlist(
+        reorder_root, reorder_identity, m3u, parsed_order
+    )
+finally:
+    ipod_gui.volume_identity = original_volume_identity
+assert m3u.read_text(encoding="utf-8") == original
 # The rewrite is atomic, so no half-written list can be left behind for the
 # firmware to choke on if the device is pulled mid-write.
 assert not list(reorder_root.glob(".*tmp")), list(reorder_root.glob(".*tmp"))
 
 pls = reorder_root / "Gym.pls"
 pls.write_text("[playlist]\nFile1=iPod_Control/Music/F00/LDPX.mp3\n", encoding="utf-8")
-assert ipod_gui.write_playlist(reorder_root, pls, ["F00/QMRT.mp3", "F00/LDPX.mp3"])
+original_volume_identity = ipod_gui.volume_identity
+ipod_gui.volume_identity = lambda _mount: reorder_identity
+try:
+    assert ipod_gui.write_playlist(
+        reorder_root,
+        reorder_identity,
+        pls,
+        ["F00/QMRT.mp3", "F00/LDPX.mp3"],
+    )
+finally:
+    ipod_gui.volume_identity = original_volume_identity
 pls_text = pls.read_text(encoding="utf-8")
 assert "NumberOfEntries=2" in pls_text, pls_text
 assert "File1=iPod_Control/Music/F00/QMRT.mp3" in pls_text, pls_text
