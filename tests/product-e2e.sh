@@ -138,6 +138,7 @@ mkdir -p "$YES_SOURCE" \
     "$YES_IPOD/iPod_Control/Speakable"
 printf 'a track\n' > "$YES_SOURCE/track.mp3"
 printf 'already there\n' > "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
+printf '%s\n' '#EXTM3U' > "$YES_IPOD/Existing.m3u"
 
 if "$ROOT/ipod-sync.sh" \
     --ipod "$YES_IPOD" \
@@ -148,14 +149,44 @@ if "$ROOT/ipod-sync.sh" \
 fi
 grep -Fq 'Aborted.' "$EVIDENCE_DIR/clear-without-yes.txt"
 test -s "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
+test -f "$YES_IPOD/Existing.m3u"
 
 "$ROOT/ipod-sync.sh" \
     --ipod "$YES_IPOD" \
     --clear \
     --yes \
     "$YES_SOURCE" < /dev/null > "$EVIDENCE_DIR/clear-with-yes.txt" 2>&1
+grep -Fq 'Delete 1 existing track(s) and 1 playlist(s) from the iPod?' \
+    "$EVIDENCE_DIR/clear-with-yes.txt"
 test -f "$YES_IPOD/iPod_Control/Music/yes-source/track.mp3"
 test ! -e "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
+test ! -e "$YES_IPOD/Existing.m3u"
+
+PLAYLIST_ONLY_IPOD="$TEST_ROOT/playlist-only-clear-target"
+mkdir -p \
+    "$PLAYLIST_ONLY_IPOD/iPod_Control/iTunes" \
+    "$PLAYLIST_ONLY_IPOD/iPod_Control/Music" \
+    "$PLAYLIST_ONLY_IPOD/iPod_Control/Speakable"
+printf '%s\n' '#EXTM3U' > "$PLAYLIST_ONLY_IPOD/Only List.m3u"
+if "$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_ONLY_IPOD" \
+    --clear \
+    "$YES_SOURCE" < /dev/null \
+    > "$EVIDENCE_DIR/clear-playlist-only-without-yes.txt" 2>&1; then
+    echo "--clear removed a playlist without confirmation" >&2
+    exit 1
+fi
+grep -Fq 'Aborted.' "$EVIDENCE_DIR/clear-playlist-only-without-yes.txt"
+test -f "$PLAYLIST_ONLY_IPOD/Only List.m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_ONLY_IPOD" \
+    --clear \
+    --yes \
+    "$YES_SOURCE" < /dev/null \
+    > "$EVIDENCE_DIR/clear-playlist-only-with-yes.txt" 2>&1
+grep -Fq 'Delete 1 playlist(s) from the iPod?' \
+    "$EVIDENCE_DIR/clear-playlist-only-with-yes.txt"
+test ! -e "$PLAYLIST_ONLY_IPOD/Only List.m3u"
 
 # --yes has to answer every prompt, not just the caller's own. assert_shuffle
 # asks its own question from inside lib.sh when a volume has no Speakable
@@ -628,6 +659,7 @@ test ! -e "$PLAYLIST_IPOD/iPod_Control/.sync-options"
     printf 'File1=Neil Young/Heart of Gold.mp3\n'
     printf 'NumberOfEntries=2\n'
 } > "$PLAYLIST_LIB/Party.pls"
+printf '%s\n' 'File1=iPod_Control/Music/Stale.mp3' > "$PLAYLIST_IPOD/Party.pls"
 
 "$ROOT/ipod-sync.sh" \
     --ipod "$PLAYLIST_IPOD" \
@@ -639,6 +671,17 @@ diff -u <(printf '%s\n' \
     'iPod_Control/Music/Neil Young/Heart of Gold.mp3' \
     'iPod_Control/Music/Beach Boys/Surfin.mp3') \
     "$PLAYLIST_IPOD/Party.m3u"
+test ! -e "$PLAYLIST_IPOD/Party.pls"
+
+printf '%s\n' 'File1=iPod_Control/Music/Stale.mp3' > "$PLAYLIST_IPOD/Retired.pls"
+: > "$PLAYLIST_LIB/Retired.pls"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/Retired.pls" > "$EVIDENCE_DIR/playlist-empty-pls-sync.txt" 2>&1
+test ! -e "$PLAYLIST_IPOD/Retired.m3u"
+test ! -e "$PLAYLIST_IPOD/Retired.pls"
+grep -Fq "Playlist 'Retired' references no playable local files; removed from the device." \
+    "$EVIDENCE_DIR/playlist-empty-pls-sync.txt"
 
 # The warning follows the effective options, not this command line alone: the
 # voiceover choice just saved covers a playlist synced without any flags.
@@ -688,6 +731,14 @@ else
         > "$EVIDENCE_DIR/real-builder.txt"
     echo "NOTICE: real-builder playlist check skipped; run ./install.sh to enable" >&2
 fi
+
+control_playlist="$PLAYLIST_LIB/Control"$'\t'"Name"$'\177'".m3u"
+printf '%s\n' "$PLAYLIST_LIB/Neil Young/Heart of Gold.mp3" > "$control_playlist"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$control_playlist" > "$EVIDENCE_DIR/playlist-control-name.txt" 2>&1
+test -f "$PLAYLIST_IPOD/Control_Name_.m3u"
+grep -Fq 'characters FAT rejects' "$EVIDENCE_DIR/playlist-control-name.txt"
 
 mkdir -p \
     "$PLAYLIST_LIB/Artist A/Greatest Hits" \
@@ -923,6 +974,18 @@ test -f "$PLAYLIST_IPOD/mix..v2.m3u"
     --playlist 'mix..v2' > "$EVIDENCE_DIR/playlist-double-dot-delete.txt" 2>&1
 test ! -e "$PLAYLIST_IPOD/mix..v2.m3u"
 
+printf '%s\n' "$PLAYLIST_LIB/Neil Young/Heart of Gold.mp3" \
+    > "$PLAYLIST_LIB/mix.m3u.m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/mix.m3u.m3u" > "$EVIDENCE_DIR/playlist-extension-stem-setup.txt" 2>&1
+test -f "$PLAYLIST_IPOD/mix.m3u.m3u"
+"$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --yes \
+    --playlist 'mix.m3u' > "$EVIDENCE_DIR/playlist-extension-stem-delete.txt" 2>&1
+test ! -e "$PLAYLIST_IPOD/mix.m3u.m3u"
+
 "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
@@ -934,13 +997,13 @@ printf '%s\n' '[playlist]' > "$PLAYLIST_IPOD/Priority.pls"
 "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
-    --playlist 'Priority' > "$EVIDENCE_DIR/playlist-format-priority.txt" 2>&1
+    --playlist 'Priority.m3u' > "$EVIDENCE_DIR/playlist-format-priority.txt" 2>&1
 test ! -e "$PLAYLIST_IPOD/Priority.m3u"
 test -f "$PLAYLIST_IPOD/Priority.pls"
 "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
-    --playlist 'Priority' >> "$EVIDENCE_DIR/playlist-format-priority.txt" 2>&1
+    --playlist 'Priority.pls' >> "$EVIDENCE_DIR/playlist-format-priority.txt" 2>&1
 test ! -e "$PLAYLIST_IPOD/Priority.pls"
 
 "$ROOT/ipod-remove.sh" \
@@ -1189,7 +1252,7 @@ printf '%s\n' \
     "PASS: GUI restored playlist and voiceover choices and mapped them to CLI flags" \
     "PASS: missing playlist voiceover produced a screenless-device warning" \
     "PASS: saved directory and tag playlist options produced the voiceover warning" \
-    "PASS: sync --clear refused to delete unattended, and --yes let it through" \
+    "PASS: sync --clear confirmed track and playlist deletion, including playlist-only devices" \
     "PASS: --yes answered the Speakable prompt too, in all three scripts" \
     "PASS: wipe backed up music/database and preserved Speakable plus Device state" \
     "PASS: JSON mount detection retained a mount path containing spaces" \
@@ -1208,8 +1271,10 @@ printf '%s\n' \
     "PASS: a playlist file synced its tracks and left a rewritten list at the volume root" \
     "PASS: playlist entries kept their order, decoded file URIs, and dropped streams and misses" \
     "PASS: a pls playlist reached the device as m3u, ordered by its numbered entries" \
+    "PASS: PLS replacement removed stale PLS spellings for valid and empty updates" \
     "PASS: the voiceover warning followed the effective options, not the command line alone" \
     "PASS: a FAT-hostile playlist name was adjusted and the change announced" \
+    "PASS: control characters in playlist names became FAT-safe underscores" \
     "PASS: the real database builder resolved every rewritten playlist entry" \
     "PASS: colliding playlist tracks kept distinct content and destinations" \
     "PASS: replacing a playlist with no playable tracks removed its stale device list" \
@@ -1219,7 +1284,7 @@ printf '%s\n' \
     "PASS: wipe backed up the playlists and cleared them from the volume root" \
     "PASS: sync --clear removed the playlists with the tracks they referenced" \
     "PASS: a playlist was deleted by name, keeping every song it listed" \
-    "PASS: double-dot M3U and root PLS playlist names listed and deleted safely" \
+    "PASS: double-dot, extension-like M3U, and root PLS names deleted safely" \
     "PASS: GUI add-playlist named the device, options and file, and switched spoken names on" \
     "PASS: GUI playlist rows parsed the device lists and removal mapped to the script" \
     "PASS: GUI removal and YouTube commands named the device, options and paths" \

@@ -431,6 +431,9 @@ class IpodWindow(Adw.ApplicationWindow):
         self.loaded_playlist_mode = 0
         self.loaded_playlist_args = []
         self.speech_engine_available = has_speech_engine()
+        self.playlist_unavailable = (
+            None if self.speech_engine_available else "No speech engine installed"
+        )
         self.youtube_unavailable = youtube_unavailable_reason()
 
         self.toasts = Adw.ToastOverlay()
@@ -518,6 +521,9 @@ class IpodWindow(Adw.ApplicationWindow):
         playlist_button.connect("clicked", self.on_add_playlist)
         self.playlist_row.add_suffix(playlist_button)
         self.playlist_row.set_activatable_widget(playlist_button)
+        if self.playlist_unavailable:
+            self.playlist_row.set_subtitle(self.playlist_unavailable)
+            self.playlist_row.set_sensitive(False)
         actions.add(self.playlist_row)
 
         self.youtube_row = Adw.ActionRow(
@@ -876,12 +882,12 @@ class IpodWindow(Adw.ApplicationWindow):
         self.busy = busy
         for row in (
             self.add_row,
-            self.playlist_row,
             self.rebuild_row,
             self.wipe_row,
             self.eject_row,
         ):
             row.set_sensitive(not busy)
+        self.playlist_row.set_sensitive(not busy and self.speech_engine_available)
         self.youtube_row.set_sensitive(not busy and not self.youtube_unavailable)
         # Also the per-track and per-playlist remove buttons, which are
         # otherwise a way to start a second script against the same device
@@ -1036,8 +1042,10 @@ class IpodWindow(Adw.ApplicationWindow):
         # A named playlist implies wanting the name read aloud, exactly as
         # choosing a grouping under Options does: with no screen, the spoken
         # name is the only way to find the playlist again.
-        if self.speech_engine_available:
-            self.playlist_voiceover.set_active(True)
+        if not self.speech_engine_available:
+            self._toast("No speech engine installed")
+            return
+        self.playlist_voiceover.set_active(True)
         self._run(
             [
                 str(SYNC_SCRIPT),

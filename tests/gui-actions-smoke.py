@@ -42,6 +42,18 @@ class FakeSwitch:
         self.active = value
 
 
+class FakeWidget:
+    def __init__(self):
+        self.sensitive = True
+        self.visible = False
+
+    def set_sensitive(self, value):
+        self.sensitive = value
+
+    def set_visible(self, value):
+        self.visible = value
+
+
 class FakeWindow:
     """Records the commands the window would have run."""
 
@@ -129,13 +141,31 @@ assert playlist_add[-2:] == ["--", playlist_path], playlist_add
 # device, so adding one switches the spoken names on rather than warning later.
 assert playlist_window.playlist_voiceover.active, "adding a playlist left voiceover off"
 
-# Without a speech engine there is no switch to flip, and the flow must not
-# flip it anyway to build a command the sync then cannot honour.
 silent_window = FakeWindow()
 silent_window.speech_engine_available = False
 ipod_gui.IpodWindow._add_playlist(silent_window, playlist_path)
 assert not silent_window.playlist_voiceover.active, "voiceover flipped without an engine"
-assert silent_window.commands, "the playlist was not synced at all"
+assert not silent_window.commands, "a playlist was synced without spoken names"
+assert silent_window.toasts == ["No speech engine installed"], silent_window.toasts
+
+busy_window = FakeWindow()
+for attr in (
+    "add_row",
+    "playlist_row",
+    "rebuild_row",
+    "wipe_row",
+    "eject_row",
+    "youtube_row",
+    "tracks_list",
+    "playlists_list",
+    "refresh_button",
+    "progress",
+):
+    setattr(busy_window, attr, FakeWidget())
+busy_window.youtube_unavailable = None
+busy_window.speech_engine_available = False
+ipod_gui.IpodWindow._set_busy(busy_window, False)
+assert not busy_window.playlist_row.sensitive, "busy reset enabled Add Playlist"
 
 # -------------------------------------------------------- playlist removal
 

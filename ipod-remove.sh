@@ -103,15 +103,35 @@ if (( PLAYLIST_MODE )); then
     # it can point somewhere else.
     for arg in "$@"; do
         [[ -n "$arg" ]] || die "Empty playlist name."
-        name="${arg%.m3u}"
-        name="${name%.pls}"
+        name="$arg"
         [[ "$name" != */* && "$name" != *\\* ]] \
             || die "Not a playlist name: $arg"
-        target="$IPOD/$name.m3u"
-        if [[ ! -f "$target" ]]; then
-            target="$IPOD/$name.pls"
+        target=""
+        for extension in m3u pls; do
+            candidate="$IPOD/$name.$extension"
+            if [[ -f "$candidate" ]]; then
+                target="$candidate"
+                break
+            fi
+        done
+        if [[ -z "$target" ]]; then
+            fallback_name="$name"
+            case "$fallback_name" in
+                *.m3u) fallback_name="${fallback_name%.m3u}" ;;
+                *.pls) fallback_name="${fallback_name%.pls}" ;;
+            esac
+            if [[ "$fallback_name" != "$name" ]]; then
+                for extension in m3u pls; do
+                    candidate="$IPOD/$fallback_name.$extension"
+                    if [[ -f "$candidate" ]]; then
+                        target="$candidate"
+                        name="$fallback_name"
+                        break
+                    fi
+                done
+            fi
         fi
-        if [[ ! -f "$target" ]]; then
+        if [[ -z "$target" ]]; then
             err "No playlist called '$name' on this iPod."
             shopt -s nullglob
             available=("$IPOD"/*.m3u "$IPOD"/*.pls)

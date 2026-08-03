@@ -155,20 +155,29 @@ mkdir -p "$MUSIC_DIR"
 
 if (( CLEAR )); then
     existing="$(find "$MUSIC_DIR" -type f | wc -l)"
+    shopt -s nullglob
+    stale_playlists=("$IPOD"/*.m3u "$IPOD"/*.pls)
+    shopt -u nullglob
+    playlist_count=${#stale_playlists[@]}
+    if (( existing > 0 || playlist_count > 0 )); then
+        if (( existing > 0 && playlist_count > 0 )); then
+            clear_prompt="Delete $existing existing track(s) and $playlist_count playlist(s) from the iPod?"
+        elif (( existing > 0 )); then
+            clear_prompt="Delete $existing existing track(s) from the iPod?"
+        else
+            clear_prompt="Delete $playlist_count playlist(s) from the iPod?"
+        fi
+        confirm "$clear_prompt" || die "Aborted."
+    fi
     if (( existing > 0 )); then
-        confirm "Delete $existing existing track(s) from the iPod?" \
-            || die "Aborted."
         rm -rf "${MUSIC_DIR:?}"/*
         info "Removed $existing track(s)"
     fi
     # The playlists at the volume root reference the tracks just deleted, so
     # leaving them behind would rebuild playlists full of dead entries.
-    shopt -s nullglob
-    stale_playlists=("$IPOD"/*.m3u "$IPOD"/*.pls)
-    shopt -u nullglob
-    if (( ${#stale_playlists[@]} > 0 )); then
+    if (( playlist_count > 0 )); then
         rm -f -- "${stale_playlists[@]}"
-        info "Removed ${#stale_playlists[@]} playlist(s)"
+        info "Removed $playlist_count playlist(s)"
     fi
 fi
 
@@ -292,8 +301,8 @@ PY
 # device mounting somewhere else next time.
 sync_playlist() {
     local list="$1"
-    local stem device_stem target entry dest entries_file
-    local added=0 unplayable=0
+    local stem device_stem target pls_target entry dest entries_file existing_target
+    local added=0 unplayable=0 removed=0
     local -a lines=() entries=()
 
     stem="$(basename "$list")"
@@ -301,7 +310,8 @@ sync_playlist() {
 
     # The filename is also the spoken playlist name, so mangle it as little
     # as possible: only the characters FAT refuses outright.
-    device_stem="${stem//[\\\/:*?\"<>|]/_}"
+    device_stem="$(printf '%s' "$stem" | LC_ALL=C tr '\001-\037\177' '_')"
+    device_stem="${device_stem//[\\\/:*?\"<>|]/_}"
     while [[ "$device_stem" == *[.\ ] ]]; do
         device_stem="${device_stem%?}"
     done
@@ -311,6 +321,7 @@ sync_playlist() {
             "it will be called '$device_stem' on the device."
     fi
     target="$IPOD/$device_stem.m3u"
+    pls_target="$IPOD/$device_stem.pls"
 
     entries_file="$(mktemp -t ipod-playlist-entries.XXXXXX)" \
         || die "Could not create temporary storage for playlist entries."
@@ -345,8 +356,13 @@ sync_playlist() {
         warn "  ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3"
     fi
     if (( added == 0 )); then
-        if [[ -f "$target" ]]; then
-            rm -f -- "$target"
+        for existing_target in "$target" "$pls_target"; do
+            if [[ -f "$existing_target" ]]; then
+                rm -f -- "$existing_target"
+                removed=1
+            fi
+        done
+        if (( removed )); then
             warn "Playlist '$device_stem' references no playable local files; removed from the device."
         else
             warn "Playlist '$stem' references no playable local files; not created."
@@ -354,6 +370,7 @@ sync_playlist() {
         return 0
     fi
     atomic_replace_lines "$target" "#EXTM3U" "${lines[@]}"
+    rm -f -- "$pls_target"
     info "Playlist '$device_stem': $added track(s)"
 }
 
