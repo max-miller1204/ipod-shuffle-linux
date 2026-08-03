@@ -1,0 +1,7 @@
+[33mwarning:[0m This yt-dlp is too old to select the installed JavaScript runtime.
+[33mwarning:[0m Run ./install.sh or ./ipod-fetch.sh --update for full YouTube support.
+[36m==>[0m Downloading as 256k MP3 into /tmp/tmp.8DzTbo3I58/old-yt-dlp
+[ExtractAudio] Destination: /tmp/tmp.8DzTbo3I58/old-yt-dlp/Test Artist/Test Track [testvideo].mp3
+[36m==>[0m Downloaded 1 track(s)
+[36m==>[0m /tmp/tmp.8DzTbo3I58/old-yt-dlp now holds 1 track(s)
+[36m==>[0m Next: ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover "/tmp/tmp.8DzTbo3I58/old-yt-dlp"/*/

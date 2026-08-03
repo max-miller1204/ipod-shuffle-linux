@@ -1,0 +1,38 @@
+$ ./ipod-sync.sh --playlist-voiceover "Road: Trip.m3u"
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+==> iPod: /tmp/no-mistakes-evidence/playlist-demo.Px7m6N/Reviewer iPod
+warning: Playlist name contains characters FAT rejects; it will be called 'Road_ Trip' on the device.
+warning: playlist entry is a stream, skipped: https://example.invalid/radio
+warning: Playlist 'Road: Trip': not found on this computer, skipped: /tmp/no-mistakes-evidence/playlist-demo.Px7m6N/Playlist Export/Missing Song.mp3
+==> Playlist 'Road_ Trip': 2 track(s)
+==> Copied 2 file(s)
+==> Rebuilding iTunesSD database
+==> iPod now holds 2 track(s)
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject
+
+$ playlist stored at volume root:
+Road_ Trip.m3u
+#EXTM3U
+iPod_Control/Music/Artist One/Track One.mp3
+iPod_Control/Music/Artist Two/Track Two.mp3
+
+$ copied tracks on device:
+Artist One/Track One.mp3
+Artist Two/Track Two.mp3
+
+$ ./ipod-remove.sh --playlist "Road_ Trip" --yes
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+==> iPod: /tmp/no-mistakes-evidence/playlist-demo.Px7m6N/Reviewer iPod
+==> Reusing saved options: --playlist-voiceover
+==> Removed 1 playlist(s); the songs they listed stay on the iPod.
+==> Rebuilding iTunesSD database
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject
+
+$ playlists remaining at volume root:
+(none)
+
+$ tracks remaining after playlist deletion:
+Artist One/Track One.mp3
+Artist Two/Track Two.mp3

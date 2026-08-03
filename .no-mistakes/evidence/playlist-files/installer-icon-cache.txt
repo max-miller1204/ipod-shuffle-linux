@@ -1,0 +1,5 @@
+Installer icon-cache behavior
+==> Desktop entry installed (look for iPod Shuffle in the app grid)
+pre-existing icon-theme.cache: refresh invoked with -f -t on the isolated hicolor theme
+cacheless hicolor theme: desktop entry and SVG icon installed; icon-theme.cache remained absent
+result: existing cache refreshed; missing cache deliberately not created

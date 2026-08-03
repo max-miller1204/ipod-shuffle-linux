@@ -1,0 +1,7 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.8DzTbo3I58/Alex's iPod
+[36m==>[0m Reusing saved options: --auto-dir-playlists 1 --playlist-voiceover
+[36m==>[0m About to remove 1 track(s):
+  Mixtape/Side A/02 - Delete.mp3
+[33mwarning:[0m The iPod holds the only copy unless you have these elsewhere.
+[31merror:[0m Aborted.

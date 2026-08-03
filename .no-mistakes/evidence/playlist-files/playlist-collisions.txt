@@ -1,0 +1,10 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.8DzTbo3I58/playlist-target
+[36m==>[0m Reusing saved options: --playlist-voiceover
+[33mwarning:[0m Destination already holds a different track; copying this one as Collision-1540637025-9/01.mp3.
+[36m==>[0m Playlist 'Collisions': 2 track(s)
+[36m==>[0m Copied 2 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 10 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Copy music onto an iPod shuffle 4G and rebuild its database.
+# Copy music or playlists onto an iPod shuffle 4G and rebuild its database.
 #
-# Usage: ./ipod-sync.sh [options] <music-dir-or-file> [more...]
+# Usage: ./ipod-sync.sh [options] <music-dir-file-or-playlist> [more...]
 #
 # See README.md for the full workflow.
 
@@ -17,13 +17,18 @@ declare -a DB_ARGS=()
 
 usage() {
     cat <<'EOF'
-Usage: ./ipod-sync.sh [options] <music-dir-or-file> [more...]
+Usage: ./ipod-sync.sh [options] <music-dir-file-or-playlist> [more...]
 
 Copies audio into iPod_Control/Music/ and rebuilds the iTunesSD database.
 
 A folder is mirrored under a folder of the same name. A single file is copied
 into a folder named after the one it came from, so syncing an album and
 syncing one track out of it put that track in the same place.
+
+A .m3u or .pls argument becomes a playlist on the device: the tracks it
+references are copied as above, and a rewritten copy of the list is stored at
+the top of the iPod, where every later rebuild picks it up automatically. The
+filename becomes the playlist's spoken name.
 
 Options:
   -i, --ipod PATH        iPod mount point (default: autodetect)
@@ -56,11 +61,11 @@ Examples:
   ./ipod-sync.sh --rebuild-only
   ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover ~/Music
   ./ipod-sync.sh --id3-playlists='{genre}' --playlist-voiceover ~/Music
+  ./ipod-sync.sh --playlist-voiceover ~/Music/mixtape.m3u
 EOF
 }
 
 PLAYLISTS=0
-PLAYLIST_VOICEOVER=0
 FORGET_OPTIONS=0
 
 while [[ $# -gt 0 ]]; do
@@ -73,8 +78,7 @@ while [[ $# -gt 0 ]]; do
         -y|--yes)          ASSUME_YES=1; shift ;;
         -t|--voiceover)    DB_ARGS+=("--track-voiceover"); shift ;;
         -p|--playlist-voiceover)
-                           DB_ARGS+=("--playlist-voiceover")
-                           PLAYLIST_VOICEOVER=1; shift ;;
+                           DB_ARGS+=("--playlist-voiceover"); shift ;;
         # These two take an optional value upstream, and argparse will happily
         # swallow the following argument when none is given. Left last on the
         # command line that means eating the iPod path itself, so a value is
@@ -101,12 +105,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# A playlist you cannot hear the name of is a playlist you cannot choose,
-# because the device has no display to show you which one you landed on.
-if (( PLAYLISTS && ! PLAYLIST_VOICEOVER )); then
-    warn "Playlists without --playlist-voiceover will be unnamed on the device."
-    warn "With no screen, there is no way to tell them apart. Consider adding -p."
-fi
+# Playlist files among the sources count as asking for playlists, for the
+# voiceover warning below.
+for arg in "$@"; do
+    if [[ "${arg,,}" =~ \.(m3u|pls)$ ]]; then
+        PLAYLISTS=1
+        break
+    fi
+done
 
 if (( REBUILD_ONLY )); then
     (( $# == 0 )) || die "--rebuild-only takes no source directories."
@@ -128,38 +134,96 @@ if (( ${#DB_ARGS[@]} == 0 && ! FORGET_OPTIONS )); then
     fi
 fi
 
+# A playlist you cannot hear the name of is a playlist you cannot choose,
+# because the device has no display to show you which one you landed on.
+# Judged against the effective options rather than this command line alone: a
+# playlist file synced while the saved options already speak playlist names
+# needs no warning.
+PLAYLIST_VOICEOVER=0
+for arg in "${DB_ARGS[@]+"${DB_ARGS[@]}"}"; do
+    case "$arg" in
+        --playlist-voiceover) PLAYLIST_VOICEOVER=1 ;;
+        --auto-dir-playlists|--auto-id3-playlists) PLAYLISTS=1 ;;
+    esac
+done
+if (( PLAYLISTS && ! PLAYLIST_VOICEOVER )); then
+    warn "Playlists without --playlist-voiceover will be unnamed on the device."
+    warn "With no screen, there is no way to tell them apart. Consider adding -p."
+fi
+
 mkdir -p "$MUSIC_DIR"
 
 if (( CLEAR )); then
     existing="$(find "$MUSIC_DIR" -type f | wc -l)"
+    mapfile -d '' -t stale_playlists < <(root_playlist_files "$IPOD")
+    playlist_count=${#stale_playlists[@]}
+    if (( existing > 0 || playlist_count > 0 )); then
+        if (( existing > 0 && playlist_count > 0 )); then
+            clear_prompt="Delete $existing existing track(s) and $playlist_count playlist(s) from the iPod?"
+        elif (( existing > 0 )); then
+            clear_prompt="Delete $existing existing track(s) from the iPod?"
+        else
+            clear_prompt="Delete $playlist_count playlist(s) from the iPod?"
+        fi
+        confirm "$clear_prompt" || die "Aborted."
+    fi
     if (( existing > 0 )); then
-        confirm "Delete $existing existing track(s) from the iPod?" \
-            || die "Aborted."
         rm -rf "${MUSIC_DIR:?}"/*
         info "Removed $existing track(s)"
+    fi
+    # The playlists at the volume root reference the tracks just deleted, so
+    # leaving them behind would rebuild playlists full of dead entries.
+    if (( playlist_count > 0 )); then
+        rm -f -- "${stale_playlists[@]}"
+        info "Removed $playlist_count playlist(s)"
     fi
 fi
 
 copied=0
 skipped=0
 duplicates=0
+COPY_TARGET=""
+declare -A PLAYLIST_TARGET_SOURCES=()
+declare -A PLAYLIST_TARGET_NAMES=()
 
 # Copy one track, unless it is a format the firmware cannot decode or is
 # already on the device. The counters belong to the enclosing script.
 copy_track() {
     local source="$1" target="$2"
+    local checksum_line checksum size candidate
+    local collision_index=2
+
+    COPY_TARGET="$target"
 
     if [[ ! "${source,,}" =~ \.(${SUPPORTED_EXT})$ ]]; then
         skipped=$((skipped + 1))
         return 0
     fi
-    if [[ -e "$target" ]]; then
+    if [[ -e "$COPY_TARGET" ]] && cmp -s -- "$source" "$COPY_TARGET"; then
         duplicates=$((duplicates + 1))
         return 0
     fi
+    if [[ -e "$COPY_TARGET" ]]; then
+        checksum_line="$(cksum -- "$source")" \
+            || die "Could not checksum track for a distinct destination: $source"
+        checksum="${checksum_line%% *}"
+        checksum_line="${checksum_line#* }"
+        size="${checksum_line%% *}"
+        candidate="$MUSIC_DIR/Collision-$checksum-$size/$(basename -- "$target")"
+        while [[ -e "$candidate" ]] && ! cmp -s -- "$source" "$candidate"; do
+            candidate="$MUSIC_DIR/Collision-$checksum-$size-$collision_index/$(basename -- "$target")"
+            collision_index=$((collision_index + 1))
+        done
+        COPY_TARGET="$candidate"
+        if [[ -e "$COPY_TARGET" ]]; then
+            duplicates=$((duplicates + 1))
+            return 0
+        fi
+        warn "Destination already holds a different track; copying this one as ${COPY_TARGET#"$MUSIC_DIR"/}."
+    fi
 
-    mkdir -p "$(dirname "$target")"
-    cp "$source" "$target"
+    mkdir -p "$(dirname "$COPY_TARGET")"
+    cp "$source" "$COPY_TARGET"
     copied=$((copied + 1))
 }
 
@@ -177,9 +241,167 @@ file_dest_dir() {
     fi
 }
 
+# Resolve a playlist file to the local files it references, NUL-separated and
+# in playlist order. Relative entries are anchored at the playlist's folder,
+# file:// URIs are decoded, stream URLs are dropped with a warning, and an
+# entry written with Windows separators is retried with slashes before being
+# passed through for the caller's missing-file warning.
+playlist_entries() {
+    command -v python3 >/dev/null || die "python3 is required but not installed."
+    python3 - "$1" <<'PY'
+import os
+import re
+import sys
+import urllib.parse
+
+playlist = sys.argv[1]
+base = os.path.dirname(os.path.abspath(playlist))
+
+with open(playlist, encoding="utf-8", errors="replace") as handle:
+    lines = handle.read().splitlines()
+
+if os.path.splitext(playlist)[1].lower() == ".pls":
+    numbered = []
+    for line in lines:
+        key, separator, value = line.partition("=")
+        match = re.fullmatch(r"[Ff]ile([0-9]+)", key.strip())
+        if separator and match:
+            numbered.append((int(match.group(1)), value.strip()))
+    entries = [value for _, value in sorted(numbered)]
+else:
+    entries = [line.strip() for line in lines
+               if line.strip() and not line.strip().startswith("#")]
+
+for entry in entries:
+    if entry.lower().startswith("file:"):
+        parts = urllib.parse.urlparse(entry)
+        if parts.netloc not in ("", "localhost"):
+            print("warning: playlist entry is on another computer, skipped:",
+                  entry, file=sys.stderr)
+            continue
+        entry = urllib.parse.unquote(parts.path)
+    elif re.match(r"[A-Za-z][A-Za-z0-9+.-]*://", entry):
+        print("warning: playlist entry is a stream, skipped:",
+              entry, file=sys.stderr)
+        continue
+    path = entry if os.path.isabs(entry) else os.path.join(base, entry)
+    if not os.path.exists(path) and "\\" in entry:
+        slashed = entry.replace("\\", "/")
+        candidate = slashed if os.path.isabs(slashed) \
+            else os.path.join(base, slashed)
+        if os.path.exists(candidate):
+            path = candidate
+    sys.stdout.write(os.path.abspath(path) + "\0")
+PY
+}
+
+# Copy a playlist's tracks and store a rewritten copy of the list at the
+# volume root, where the database builder discovers playlist files on every
+# rebuild. Entries are written relative to that root, so they survive the
+# device mounting somewhere else next time.
+sync_playlist() {
+    local list="$1"
+    local stem device_stem reservation_key trailing_underscores=""
+    local target pls_target entry dest entries_file existing_target
+    local added=0 unplayable=0 removed=0
+    local -a lines=() entries=()
+
+    stem="$(basename "$list")"
+    stem="${stem%.*}"
+
+    # The filename is also the spoken playlist name, so mangle it as little
+    # as possible: only the characters FAT refuses outright.
+    device_stem="$(printf '%s' "$stem" | LC_ALL=C tr '\001-\037\177' '_')"
+    device_stem="${device_stem//[\\\/:*?\"<>|]/_}"
+    while [[ "$device_stem" == *[.\ ] ]]; do
+        device_stem="${device_stem%?}"
+        trailing_underscores+="_"
+    done
+    device_stem+="$trailing_underscores"
+    [[ -n "$device_stem" ]] || die "Playlist file has no usable name: $list"
+    if [[ "$device_stem" != "$stem" ]]; then
+        warn "Playlist name contains characters FAT rejects;" \
+            "it will be called '$device_stem' on the device."
+    fi
+    target="$IPOD/$device_stem.m3u"
+    pls_target="$IPOD/$device_stem.pls"
+    reservation_key="$(python3 -c \
+        'import sys
+def simple_fold(char):
+    folded = char.casefold()
+    if len(folded) == 1:
+        return folded
+    lowered = char.lower()
+    return lowered if len(lowered) == 1 else char
+sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
+        "$device_stem")" \
+        || die "Could not case-fold playlist name: $device_stem"
+    if [[ -n "${PLAYLIST_TARGET_SOURCES[$reservation_key]+present}" ]]; then
+        warn "Playlist files '${PLAYLIST_TARGET_SOURCES[$reservation_key]}' and '$list' both become '${PLAYLIST_TARGET_NAMES[$reservation_key]}' on the device; skipped '$list'."
+        return 0
+    fi
+
+    entries_file="$(mktemp -t ipod-playlist-entries.XXXXXX)" \
+        || die "Could not create temporary storage for playlist entries."
+    if ! playlist_entries "$list" > "$entries_file"; then
+        rm -f -- "$entries_file"
+        die "Could not parse playlist: $list"
+    fi
+    if ! mapfile -d '' -t entries < "$entries_file"; then
+        rm -f -- "$entries_file"
+        die "Could not read parsed playlist entries: $list"
+    fi
+    rm -f -- "$entries_file"
+
+    for entry in "${entries[@]}"; do
+        if [[ ! -f "$entry" ]]; then
+            warn "Playlist '$stem': not found on this computer, skipped: $entry"
+            continue
+        fi
+        if [[ ! "${entry,,}" =~ \.(${SUPPORTED_EXT})$ ]]; then
+            unplayable=$((unplayable + 1))
+            continue
+        fi
+        dest="$(file_dest_dir "$entry")/$(basename "$entry")"
+        copy_track "$entry" "$dest"
+        dest="$COPY_TARGET"
+        lines+=("iPod_Control/Music${dest#"$MUSIC_DIR"}")
+        added=$((added + 1))
+    done
+
+    if (( unplayable > 0 )); then
+        warn "Playlist '$stem': skipped $unplayable file(s) the firmware cannot play. Convert them first, for example:"
+        warn "  ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3"
+    fi
+    if (( added == 0 )); then
+        for existing_target in "$target" "$pls_target"; do
+            if [[ -f "$existing_target" ]]; then
+                rm -f -- "$existing_target"
+                removed=1
+            fi
+        done
+        if (( removed )); then
+            warn "Playlist '$device_stem' references no playable local files; removed from the device."
+        else
+            warn "Playlist '$stem' references no playable local files; not created."
+        fi
+        return 0
+    fi
+    atomic_replace_lines "$target" "#EXTM3U" "${lines[@]}"
+    rm -f -- "$pls_target"
+    PLAYLIST_TARGET_SOURCES["$reservation_key"]="$list"
+    PLAYLIST_TARGET_NAMES["$reservation_key"]="$device_stem.m3u"
+    info "Playlist '$device_stem': $added track(s)"
+}
+
 for src in "$@"; do
     [[ -e "$src" ]] || { warn "No such path, skipping: $src"; continue; }
     src="${src%/}"
+
+    if [[ -f "$src" && "${src,,}" =~ \.(m3u|pls)$ ]]; then
+        sync_playlist "$src"
+        continue
+    fi
 
     if [[ -f "$src" ]]; then
         copy_track "$src" "$(file_dest_dir "$src")/$(basename "$src")"

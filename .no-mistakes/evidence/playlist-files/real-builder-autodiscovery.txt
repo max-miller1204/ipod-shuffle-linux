@@ -1,0 +1,21 @@
+$ upstream ipod-shuffle-4g.py --verbose <device> (no saved CLI options supplied)
+Warning: No mutagen found. Database will not contain any album nor artist information.
+Playlist voiceover requested: False
+Track voiceover requested: False
+Writing database. This may take a while...
+[*] Adding track /tmp/no-mistakes-evidence/playlist-demo.Px7m6N/Reviewer iPod/iPod_Control/Music/Artist One/Track One.mp3
+[*] Adding track /tmp/no-mistakes-evidence/playlist-demo.Px7m6N/Reviewer iPod/iPod_Control/Music/Artist Two/Track Two.mp3
+[+] Adding master playlist
+[+] Adding playlist /tmp/no-mistakes-evidence/playlist-demo.Px7m6N/Reviewer iPod/Road_ Trip.m3u
+Database written successfully:
+Tracks 2
+Albums 0
+Artists 0
+Playlists 1
+
+$ bdhs header read back from iPod_Control/iTunes/iTunesSD:
+{
+  "signature": "bdhs",
+  "tracks": 2,
+  "playlists_including_master": 2
+}

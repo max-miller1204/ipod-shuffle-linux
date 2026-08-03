@@ -1,0 +1,15 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.8DzTbo3I58/playlist-target
+[36m==>[0m Reusing saved options: --playlist-voiceover
+Traceback (most recent call last):
+  File "<stdin>", line 26, in <module>
+  File "/home/max/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/urllib/parse.py", line 397, in urlparse
+    scheme, netloc, url, params, query, fragment = _urlparse(url, scheme, allow_fragments)
+                                                   ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/max/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/urllib/parse.py", line 402, in _urlparse
+    scheme, netloc, url, query, fragment = _urlsplit(url, scheme, allow_fragments)
+                                           ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/max/.local/share/uv/python/cpython-3.14.6-linux-x86_64-gnu/lib/python3.14/urllib/parse.py", line 525, in _urlsplit
+    raise ValueError("Invalid IPv6 URL")
+ValueError: Invalid IPv6 URL
+[31merror:[0m Could not parse playlist: /tmp/tmp.8DzTbo3I58/Library/Parser.m3u

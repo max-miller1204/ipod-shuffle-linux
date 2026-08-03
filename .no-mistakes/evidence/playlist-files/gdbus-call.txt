@@ -1,0 +1,1 @@
+call --system --dest org.freedesktop.UDisks2 --object-path /org/freedesktop/UDisks2/block_devices/sdz --method org.freedesktop.UDisks2.Filesystem.Unmount {}

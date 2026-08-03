@@ -1,0 +1,73 @@
+{
+  "remove_command": [
+    "/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ399FTANAMZ999Y7AMYRFWE/ipod-remove.sh",
+    "--ipod",
+    "/media/alex/Alex's iPod",
+    "--yes",
+    "--",
+    "Road Trip/Disc 1/01 - Highway.mp3"
+  ],
+  "playlist_command": [
+    "/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ399FTANAMZ999Y7AMYRFWE/ipod-sync.sh",
+    "--ipod",
+    "/media/alex/Alex's iPod",
+    "--dir-playlists=1",
+    "--playlist-voiceover",
+    "--",
+    "/home/alex/Party Mix.m3u"
+  ],
+  "playlist_remove_command": [
+    "/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ399FTANAMZ999Y7AMYRFWE/ipod-remove.sh",
+    "--ipod",
+    "/media/alex/Alex's iPod",
+    "--yes",
+    "--playlist",
+    "--",
+    "twizzy"
+  ],
+  "parsed_playlists": [
+    [
+      "Party",
+      [
+        "Yeat/Song [x1].mp3",
+        "/kept/as/written.mp3"
+      ]
+    ],
+    [
+      "Radio",
+      [
+        "Yeat/Song [x1].mp3",
+        "/second.mp3"
+      ]
+    ],
+    [
+      "mix..v2",
+      [
+        "Yeat/Song [x1].mp3"
+      ]
+    ]
+  ],
+  "fetch_command": [
+    "/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ399FTANAMZ999Y7AMYRFWE/ipod-fetch.sh",
+    "--output",
+    "/home/max/Music/youtube",
+    "--new-tracks",
+    "/tmp/ipod-fetch-aolg15pp.list",
+    "--single",
+    "https://www.youtube.com/watch?v=abc&list=PL123"
+  ],
+  "sync_after_fetch": [
+    "/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ399FTANAMZ999Y7AMYRFWE/ipod-sync.sh",
+    "--ipod",
+    "/media/alex/Alex's iPod",
+    "--dir-playlists=1",
+    "--playlist-voiceover",
+    "--",
+    "/tmp/tmp80mydrqc/New Artist/New Song [abc].mp3"
+  ],
+  "nothing_new_outcome": "Already downloaded - nothing new to add",
+  "unreported_download_sources": [
+    "/tmp/tmp80mydrqc/New Artist",
+    "/tmp/tmp80mydrqc/Old Artist"
+  ]
+}

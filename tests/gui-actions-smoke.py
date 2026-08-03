@@ -34,6 +34,26 @@ class Value:
         return self.value
 
 
+class FakeSwitch:
+    def __init__(self):
+        self.active = False
+
+    def set_active(self, value):
+        self.active = value
+
+
+class FakeWidget:
+    def __init__(self):
+        self.sensitive = True
+        self.visible = False
+
+    def set_sensitive(self, value):
+        self.sensitive = value
+
+    def set_visible(self, value):
+        self.visible = value
+
+
 class FakeWindow:
     """Records the commands the window would have run."""
 
@@ -42,6 +62,8 @@ class FakeWindow:
         self.commands = []
         self.toasts = []
         self.track_names = {}
+        self.speech_engine_available = True
+        self.playlist_voiceover = FakeSwitch()
 
     def _run(self, argv, busy_message, done_message, then=None, clear=True):
         self.commands.append(argv)
@@ -102,6 +124,89 @@ assert {f".{e}" for e in declared.group(1).split("|")} == ipod_gui.AUDIO_EXTENSI
     declared.group(1),
     ipod_gui.AUDIO_EXTENSIONS,
 )
+
+# ----------------------------------------------------------------- playlist
+
+playlist_window = FakeWindow()
+playlist_path = "/home/alex/Party Mix.m3u"
+ipod_gui.IpodWindow._add_playlist(playlist_window, playlist_path)
+
+playlist_add = playlist_window.commands[0]
+assert playlist_add[0].endswith("ipod-sync.sh"), playlist_add
+assert playlist_add[1:3] == ["--ipod", playlist_window.mount_point], playlist_add
+# After --, because a playlist may be named after a song, and a song can be
+# called "-1".
+assert playlist_add[-2:] == ["--", playlist_path], playlist_add
+# A playlist that cannot speak its name cannot be found again on a screenless
+# device, so adding one switches the spoken names on rather than warning later.
+assert playlist_window.playlist_voiceover.active, "adding a playlist left voiceover off"
+
+silent_window = FakeWindow()
+silent_window.speech_engine_available = False
+ipod_gui.IpodWindow._add_playlist(silent_window, playlist_path)
+assert not silent_window.playlist_voiceover.active, "voiceover flipped without an engine"
+assert not silent_window.commands, "a playlist was synced without spoken names"
+assert silent_window.toasts == ["No speech engine installed"], silent_window.toasts
+
+busy_window = FakeWindow()
+for attr in (
+    "add_row",
+    "playlist_row",
+    "rebuild_row",
+    "wipe_row",
+    "eject_row",
+    "youtube_row",
+    "tracks_list",
+    "playlists_list",
+    "refresh_button",
+    "progress",
+):
+    setattr(busy_window, attr, FakeWidget())
+busy_window.youtube_unavailable = None
+busy_window.speech_engine_available = False
+ipod_gui.IpodWindow._set_busy(busy_window, False)
+assert not busy_window.playlist_row.sensitive, "busy reset enabled Add Playlist"
+
+# -------------------------------------------------------- playlist removal
+
+playlist_removal = FakeWindow()
+ipod_gui.IpodWindow._on_playlist_remove_response(playlist_removal, None, "remove", "twizzy")
+
+playlist_rm = playlist_removal.commands[0]
+assert playlist_rm[0].endswith("ipod-remove.sh"), playlist_rm
+assert playlist_rm[1:3] == ["--ipod", playlist_removal.mount_point], playlist_rm
+assert "--yes" in playlist_rm, playlist_rm
+assert "--playlist" in playlist_rm, playlist_rm
+assert playlist_rm[-2:] == ["--", "twizzy"], playlist_rm
+
+for answer in ("cancel", "close"):
+    quiet = FakeWindow()
+    ipod_gui.IpodWindow._on_playlist_remove_response(quiet, None, answer, "twizzy")
+    assert quiet.commands == [], (answer, quiet.commands)
+
+# The rows the window shows come from the m3u files at the volume root, with
+# entries under the music folder rewritten to match the track list's keys so
+# both share tag-derived titles.
+fake_volume = Path(tempfile.mkdtemp())
+(fake_volume / "Party.M3U").write_text(
+    "#EXTM3U\r\niPod_Control/Music/Yeat/Song [x1].mp3\r\n\r\n/kept/as/written.mp3\n",
+    encoding="utf-8",
+)
+(fake_volume / "mix..v2.m3u").write_text(
+    "iPod_Control/Music/Yeat/Song [x1].mp3\n",
+    encoding="utf-8",
+)
+(fake_volume / "Radio.PLS").write_text(
+    "[playlist]\nFile2=/second.mp3\nTitle2=Second\nfile1=iPod_Control/Music/Yeat/Song [x1].mp3\n",
+    encoding="utf-8",
+)
+(fake_volume / "iPod_Control").mkdir()
+parsed = ipod_gui.list_playlists(fake_volume)
+assert parsed == [
+    ("Party", ["Yeat/Song [x1].mp3", "/kept/as/written.mp3"]),
+    ("Radio", ["Yeat/Song [x1].mp3", "/second.mp3"]),
+    ("mix..v2", ["Yeat/Song [x1].mp3"]),
+], parsed
 
 # ------------------------------------------------------------------ youtube
 
@@ -170,6 +275,9 @@ print(
     json.dumps(
         {
             "remove_command": removal,
+            "playlist_command": playlist_add,
+            "playlist_remove_command": playlist_rm,
+            "parsed_playlists": parsed,
             "fetch_command": fetch,
             "sync_after_fetch": sync[0],
             "nothing_new_outcome": outcome,

@@ -1,0 +1,10 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.8DzTbo3I58/playlist-target
+[36m==>[0m Delete 3 existing track(s) and 1 playlist(s) from the iPod? yes (--yes)
+[36m==>[0m Removed 3 track(s)
+[36m==>[0m Removed 1 playlist(s)
+[36m==>[0m Copied 1 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 1 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

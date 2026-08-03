@@ -1,0 +1,14 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.8DzTbo3I58/playlist-target
+[33mwarning:[0m Playlists without --playlist-voiceover will be unnamed on the device.
+[33mwarning:[0m With no screen, there is no way to tell them apart. Consider adding -p.
+warning: playlist entry is a stream, skipped: https://example.invalid/radio
+[33mwarning:[0m Playlist 'Summer Mix': not found on this computer, skipped: /tmp/tmp.8DzTbo3I58/Library/Neil Young/Not Here.mp3
+[33mwarning:[0m Playlist 'Summer Mix': skipped 1 file(s) the firmware cannot play. Convert them first, for example:
+[33mwarning:[0m   ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3
+[36m==>[0m Playlist 'Summer Mix': 3 track(s)
+[36m==>[0m Copied 3 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 3 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

@@ -1,0 +1,5 @@
+[36m==>[0m Downloading as 256k MP3 into /tmp/tmp.8DzTbo3I58/youtube-fresh
+[ExtractAudio] Destination: /tmp/tmp.8DzTbo3I58/youtube-fresh/Test Artist/Test Track [testvideo].mp3
+[36m==>[0m Downloaded 1 track(s)
+[36m==>[0m /tmp/tmp.8DzTbo3I58/youtube-fresh now holds 2 track(s)
+[36m==>[0m Next: ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover "/tmp/tmp.8DzTbo3I58/youtube-fresh"/*/

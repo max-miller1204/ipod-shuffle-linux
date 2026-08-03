@@ -1,0 +1,16 @@
+Warning: No mutagen found. Database will not contain any album nor artist information.
+Playlist voiceover requested: False
+Track voiceover requested: False
+Writing database. This may take a while...
+[*] Adding track /tmp/tmp.8DzTbo3I58/playlist-target/iPod_Control/Music/Beach Boys/Surfin.mp3
+[*] Adding track /tmp/tmp.8DzTbo3I58/playlist-target/iPod_Control/Music/Neil Young/Harvest Moon.mp3
+[*] Adding track /tmp/tmp.8DzTbo3I58/playlist-target/iPod_Control/Music/Neil Young/Heart of Gold.mp3
+[+] Adding master playlist
+[+] Adding playlist /tmp/tmp.8DzTbo3I58/playlist-target/Best_ Hits.m3u
+[+] Adding playlist /tmp/tmp.8DzTbo3I58/playlist-target/Party.m3u
+[+] Adding playlist /tmp/tmp.8DzTbo3I58/playlist-target/Summer Mix.m3u
+Database written successfully:
+Tracks 3
+Albums 0
+Artists 0
+Playlists 3

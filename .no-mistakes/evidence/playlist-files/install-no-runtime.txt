@@ -1,0 +1,16 @@
+[36m==>[0m python3: Python 3.14.6
+[36m==>[0m GUI: GTK4 bindings present
+[33mwarning:[0m YouTube downloads need Deno >= 2.3, Node >= 22, or Bun 1.2.11-1.3.14.
+[33mwarning:[0m Distribution nodejs packages are usually older than that, so this is
+[33mwarning:[0m not installed for you. Install one of them yourself:
+[33mwarning:[0m   https://github.com/yt-dlp/yt-dlp/wiki/EJS
+
+[36m==>[0m These need the system package manager:
+  libttspico-utils
+  ffmpeg
+
+[36m==>[0m Skipping (--no-system). To install them yourself:
+  sudo apt install libttspico-utils ffmpeg
+[36m==>[0m Desktop entry installed (look for iPod Shuffle in the app grid)
+[36m==>[0m Installing database builder into /tmp/tmp.8DzTbo3I58/install-blocker
+mkdir: cannot create directory ‘/tmp/tmp.8DzTbo3I58/install-blocker’: File exists

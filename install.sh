@@ -22,8 +22,9 @@ usage() {
 Usage: ./install.sh [options]
 
 Installs the database builder and a virtualenv with its Python dependencies,
-offers compatible missing system packages, and reports a missing JavaScript
-runtime for manual installation.
+offers compatible missing system packages, installs the GUI's desktop entry
+when its dependencies are available, and reports a missing JavaScript runtime
+for manual installation.
 
 Options:
   -n, --no-system   Do not install system packages, only report them
@@ -47,6 +48,10 @@ command -v python3 >/dev/null || die "python3 is required but not installed."
 command -v git >/dev/null     || die "git is required but not installed."
 info "python3: $(python3 --version)"
 
+readonly APP_ID="io.github.max_miller1204.IpodShuffle"
+apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+desktop_file="$apps_dir/$APP_ID.desktop"
+
 # ------------------------------------------------------------------ privileged
 
 # Probe for capabilities rather than package names, so the check itself works
@@ -61,6 +66,13 @@ fi
 if find_gui_python >/dev/null 2>&1; then
     info "GUI: GTK4 bindings present"
 else
+    if [[ -e "$desktop_file" ]]; then
+        rm -f -- "$desktop_file"
+        if command -v update-desktop-database >/dev/null; then
+            update-desktop-database "$apps_dir" 2>/dev/null || true
+        fi
+        info "Desktop entry removed because the GUI dependencies are unavailable"
+    fi
     needed+=("python3-gi" "gir1.2-gtk-4.0" "gir1.2-adw-1")
 fi
 
@@ -139,6 +151,97 @@ else
             printf '  sudo apt install %s\n' "${needed[*]}"
         fi
     fi
+fi
+
+# --------------------------------------------------------------- desktop entry
+
+# The GUI's launcher in the desktop's app grid. Generated with this checkout's
+# absolute path on every install, so a moved checkout is healed by re-running
+# this script, and the fresh mtime nudges a running GNOME Shell to re-read an
+# entry it may have cached. Written with shell builtins only, so a failure
+# cannot leave a half-written file behind.
+#
+# Installed only when the GUI can actually run; a menu entry has no terminal
+# to explain a missing dependency in, so it should not exist before then.
+desktop_string_escape() {
+    local input="$1" output="" char
+    while [[ -n "$input" ]]; do
+        char="${input:0:1}"
+        input="${input:1}"
+        case "$char" in
+            \\) output+="\\\\" ;;
+            $'\n') output+='\n' ;;
+            $'\t') output+='\t' ;;
+            $'\r') output+='\r' ;;
+            *) output+="$char" ;;
+        esac
+    done
+    printf '%s' "$output"
+}
+
+desktop_exec_escape() {
+    local input="$1" output="" char
+    while [[ -n "$input" ]]; do
+        char="${input:0:1}"
+        input="${input:1}"
+        case "$char" in
+            \\) output+="\\\\\\\\" ;;
+            \"|\`|'$') output+="\\\\$char" ;;
+            '%') output+='%%' ;;
+            $'\n') output+='\n' ;;
+            $'\t') output+='\t' ;;
+            $'\r') output+='\r' ;;
+            *) output+="$char" ;;
+        esac
+    done
+    printf '"%s"' "$output"
+}
+
+REPO_DIR="$(dirname "$(readlink -f "$0")")"
+readonly REPO_DIR
+if find_gui_python >/dev/null 2>&1; then
+    icons_root="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+    mkdir -p "$apps_dir" "$icons_root/scalable/apps"
+    cp "$REPO_DIR/desktop/$APP_ID.svg" "$icons_root/scalable/apps/$APP_ID.svg"
+
+    # A cache file in the user's icon theme, left behind by some other
+    # installer, is trusted over the directory contents whenever it is newer
+    # than the top-level directory, so an icon copied in afterwards stays
+    # invisible and the app shows a generic gear. Refresh a cache that
+    # exists; never create one, since a cacheless directory is always
+    # scanned directly and cannot go stale.
+    if [[ -f "$icons_root/icon-theme.cache" ]] \
+        && command -v gtk-update-icon-cache >/dev/null; then
+        gtk-update-icon-cache -f -t "$icons_root" >/dev/null 2>&1 || true
+    fi
+    touch "$icons_root"
+    gui_path="$REPO_DIR/ipod-gui.sh"
+    desktop_exec="$(desktop_exec_escape "$gui_path")"
+    if [[ "$gui_path" == *%* ]]; then
+        desktop_runner="$(command -v env)"
+        desktop_exec="$desktop_runner $desktop_exec"
+    fi
+    desktop_tryexec="$(desktop_string_escape "$gui_path")"
+    printf '%s\n' \
+        '[Desktop Entry]' \
+        'Name=iPod Shuffle' \
+        'GenericName=iPod Manager' \
+        'Comment=Load music onto an iPod shuffle without iTunes' \
+        "Exec=$desktop_exec" \
+        "TryExec=$desktop_tryexec" \
+        "Icon=$APP_ID" \
+        'Terminal=false' \
+        'Type=Application' \
+        'Categories=AudioVideo;Audio;GTK;' \
+        'Keywords=iPod;shuffle;music;player;sync;' \
+        'StartupNotify=true' \
+        > "$desktop_file"
+    if command -v update-desktop-database >/dev/null; then
+        update-desktop-database "$apps_dir" 2>/dev/null || true
+    fi
+    info "Desktop entry installed (look for iPod Shuffle in the app grid)"
+else
+    info "Desktop entry skipped until the GUI dependencies are installed"
 fi
 
 # ---------------------------------------------------------------- unprivileged

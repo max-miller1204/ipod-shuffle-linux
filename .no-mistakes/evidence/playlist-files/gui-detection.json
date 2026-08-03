@@ -1,0 +1,12 @@
+{
+  "two_connected": {
+    "selected": null,
+    "title": "Multiple iPods Connected",
+    "mount_offered": false
+  },
+  "none_connected": {
+    "selected": null,
+    "title": "No iPod Connected",
+    "mount_offered": true
+  }
+}
