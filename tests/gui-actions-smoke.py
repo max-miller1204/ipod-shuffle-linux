@@ -104,6 +104,7 @@ class FakeWindow:
         self.pending = set()
         self.pending_sources = {}
         self.pending_records = {}
+        self.pending_skipped_symlinks = {}
         self._pending_track_index = {}
         self._library_by_path = {}
         self.commands = []
@@ -249,8 +250,9 @@ original_reader = ipod_gui._TAG_READER
 try:
     ipod_gui.TAG_PYTHON = None
     ipod_gui._tag_interpreter = lambda: None
-    fallback, complete = ipod_gui.scan_tracks(scan_root)
+    fallback, complete, skipped_symlinks = ipod_gui.scan_tracks(scan_root)
     assert complete
+    assert skipped_symlinks == 0
     assert fallback == [
         {
             "path": "Artist/Fallback.mp3",
@@ -268,17 +270,18 @@ time.sleep(10)
 """
     streamed = []
     started = time.monotonic()
-    records, complete = ipod_gui.scan_tracks(
+    records, complete, skipped_symlinks = ipod_gui.scan_tracks(
         scan_root, streamed.append, timeout=0.4
     )
     elapsed = time.monotonic() - started
     assert elapsed < 2, elapsed
     assert not complete, "a timed-out scan was reported as complete"
+    assert skipped_symlinks == 0
     assert records[0]["title"] == "Tagged", records
     assert [record["title"] for record in streamed] == ["Fallback", "Tagged"], streamed
 
     started = time.monotonic()
-    _records, complete = ipod_gui.scan_tracks(
+    _records, complete, _skipped_symlinks = ipod_gui.scan_tracks(
         scan_root,
         timeout=10,
         cancelled=lambda: time.monotonic() - started >= 0.1,
@@ -290,23 +293,52 @@ finally:
     ipod_gui.TAG_PYTHON = original_tag_python
     ipod_gui._TAG_READER = original_reader
 
-_records, complete = ipod_gui.scan_tracks(scan_root / "missing")
+_records, complete, _skipped_symlinks = ipod_gui.scan_tracks(scan_root / "missing")
 assert not complete, "a missing scan root was reported as complete"
 
-failed_stat_root = Path(tempfile.mkdtemp())
-(failed_stat_root / "vanished.mp3").symlink_to(
-    failed_stat_root / "does-not-exist.mp3"
+symlink_root = Path(tempfile.mkdtemp())
+regular_track = symlink_root / "regular.mp3"
+regular_track.write_bytes(b"regular")
+(symlink_root / "linked.mp3").symlink_to(regular_track)
+linked_directory = Path(tempfile.mkdtemp())
+(linked_directory / "nested.mp3").write_bytes(b"nested")
+(symlink_root / "linked-directory").symlink_to(linked_directory, target_is_directory=True)
+library_records, complete, skipped_symlinks = ipod_gui.scan_tracks(symlink_root)
+assert complete
+assert {record["path"] for record in library_records} == {
+    "linked.mp3",
+    "regular.mp3",
+}
+assert skipped_symlinks == 0
+symlink_records, complete, skipped_symlinks = ipod_gui.scan_tracks(
+    symlink_root, skip_symlinks=True
 )
-_records, complete = ipod_gui.scan_tracks(failed_stat_root)
-assert not complete, "a discovered file stat failure was reported as complete"
+assert complete
+assert [record["path"] for record in symlink_records] == ["regular.mp3"]
+assert skipped_symlinks == 2
+
+root_records, complete, skipped_symlinks = ipod_gui.scan_tracks(
+    symlink_root / "linked-directory", skip_symlinks=True
+)
+assert complete
+assert root_records == []
+assert skipped_symlinks == 1
 
 exact_track = scan_root / "Exact.mp3"
 exact_track.write_bytes(b"exact")
 unrelated = scan_root / "Artist" / "Unrelated.mp3"
 unrelated.write_bytes(b"unrelated")
-exact_records, complete = ipod_gui.scan_tracks(files=[exact_track])
+exact_records, complete, skipped_symlinks = ipod_gui.scan_tracks(files=[exact_track])
 assert complete
+assert skipped_symlinks == 0
 assert [record["path"] for record in exact_records] == [str(exact_track)]
+
+exact_link = scan_root / "Exact Link.mp3"
+exact_link.symlink_to(exact_track)
+exact_records, complete, skipped_symlinks = ipod_gui.scan_tracks(files=[exact_link])
+assert complete
+assert skipped_symlinks == 0
+assert [record["path"] for record in exact_records] == [str(exact_link)]
 
 
 class FolderDiscoveryWindow:
@@ -334,10 +366,13 @@ class FolderDiscoveryWindow:
                 {"title": "Song", "artist": "Artist", "album": "Album"},
                 ipod_gui.STATE_LIBRARY,
             )
-        ], True
+        ], True, 0
 
-    def _queue_sources(self, sources, metadata_complete=False):
+    def _queue_sources(
+        self, sources, metadata_complete=False, skipped_symlinks=None
+    ):
         assert metadata_complete
+        assert skipped_symlinks == {"/music": 0}
         self.queued = {
             source: [track.path for track in tracks]
             for source, tracks in sources.items()
@@ -388,6 +423,7 @@ ipod_gui.IpodWindow._finish_music_folder_discovery(
     "/music",
     [partial_track],
     False,
+    0,
 )
 assert failed_discovery.queued is None, "partial folder scan entered the queue"
 assert "nothing was queued" in failed_discovery.toasts[-1]
@@ -560,6 +596,7 @@ class SelectionWindow:
         self.pending = {queued.path}
         self.pending_sources = {queued.path: {queued.path}}
         self.pending_records = {}
+        self.pending_skipped_symlinks = {}
         self.tag_generation = 0
         self._device_scan_tracks = {}
         self._device_scan_active = False
@@ -920,6 +957,8 @@ assert queue_window._pending_change_count() == len(queued_paths) + 1
 assert sum(track.size for track in queue_window._pending_copy_tracks()) == 7168
 added_after_queue = sync_source / "03 Added Later.mp3"
 added_after_queue.write_bytes(b"x" * 512)
+skipped_during_sync = sync_source / "04 Linked.mp3"
+skipped_during_sync.symlink_to(exact_track)
 command_ready = threading.Event()
 record_command = queue_window._run
 
@@ -953,6 +992,11 @@ separator = staged.index("--")
 assert staged[separator + 1:] == [str(sync_source)], staged
 assert queue_window.sync_total == len(queued_paths) + 2, queue_window.sync_total
 assert str(added_after_queue) in queue_window.pending
+assert str(skipped_during_sync) not in queue_window.pending
+assert queue_window.pending_skipped_symlinks == {str(sync_source): 1}
+assert ipod_gui.IpodWindow._pending_symlink_note(queue_window) == (
+    " · 1 symlinked item skipped"
+)
 
 # The queue is only cleared once the copy has actually succeeded, which is
 # what the then callback is for.
@@ -964,6 +1008,7 @@ assert queue_window.pending == {
 cleared = queue_window.then()
 assert queue_window.pending == set(), "queue survived a successful sync"
 assert queue_window.pending_sources == {}, "sync sources survived a successful sync"
+assert queue_window.pending_skipped_symlinks == {}
 assert queue_window.pending_device_identity is None, "queue stayed device-bound"
 assert isinstance(cleared, str), cleared
 

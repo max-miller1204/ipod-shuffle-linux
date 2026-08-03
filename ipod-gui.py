@@ -120,7 +120,7 @@ def strip_ansi(text):
 # holding two gigabytes of music would sit behind one timeout with nothing to
 # show; per-line output lets the grid fill in as results arrive.
 _TAG_READER = r"""
-import base64, hashlib, json, os, sys
+import base64, hashlib, json, os, stat, sys
 from pathlib import Path
 try:
     import mutagen
@@ -186,8 +186,9 @@ def art_path(path):
     return str(target)
 
 
-def emit(path, key):
-    size = path.stat().st_size
+def emit(path, key, size=None):
+    if size is None:
+        size = path.stat().st_size
     fallback = {"path": key, "title": path.stem, "size": size}
     sys.stdout.write(json.dumps(fallback) + "\n")
     sys.stdout.flush()
@@ -215,6 +216,11 @@ def emit(path, key):
     sys.stdout.flush()
 
 
+def report_symlink(path):
+    sys.stdout.write(json.dumps({"event": "symlink", "path": str(path)}) + "\n")
+    sys.stdout.flush()
+
+
 def walk_error(error):
     raise error
 
@@ -232,24 +238,55 @@ try:
                 raise OSError
             emit(path, value)
     else:
+        skip_symlinks = sys.argv[4] == "recursive-no-symlinks"
+        root_info = os.lstat(root)
+        if skip_symlinks and stat.S_ISLNK(root_info.st_mode):
+            report_symlink(root)
+            sys.exit(0)
         if not root.is_dir():
             raise OSError
-        for current, dirs, files in os.walk(root, onerror=walk_error):
+        for current, dirs, files in os.walk(
+            root, onerror=walk_error, followlinks=False
+        ):
             dirs.sort()
+            if skip_symlinks:
+                for name in dirs[:]:
+                    path = Path(current, name)
+                    info = os.lstat(path)
+                    if stat.S_ISLNK(info.st_mode):
+                        report_symlink(path)
+                        dirs.remove(name)
             for name in sorted(files):
                 path = Path(current, name)
                 if path.suffix.lower() not in suffixes:
                     continue
-                emit(path, str(path.relative_to(root)))
+                if skip_symlinks:
+                    info = os.lstat(path)
+                    if stat.S_ISLNK(info.st_mode):
+                        report_symlink(path)
+                        continue
+                    if not stat.S_ISREG(info.st_mode):
+                        continue
+                    emit(path, str(path.relative_to(root)), info.st_size)
+                else:
+                    emit(path, str(path.relative_to(root)))
 except (OSError, TypeError, ValueError):
     sys.exit(2)
 """
 
 
-def scan_tracks(root=None, on_record=None, timeout=900, cancelled=None, files=None):
+def scan_tracks(
+    root=None,
+    on_record=None,
+    timeout=900,
+    cancelled=None,
+    files=None,
+    skip_symlinks=False,
+):
     """Read tags for every supported file under root.
 
-    Returns (records, complete), with each record path relative to root.
+    Returns (records, complete, skipped_symlinks), with each record path
+    relative to root.
     on_record, when given, is called with each record as it arrives so a caller
     can show progress rather than waiting for the whole tree. Partial records
     are returned with complete false after cancellation, timeout, or failure.
@@ -266,6 +303,12 @@ def scan_tracks(root=None, on_record=None, timeout=900, cancelled=None, files=No
     exact_allowed = set(exact_files or ())
     root = Path(root) if root is not None else Path(".")
     records = {}
+    skipped_symlinks = 0
+    reader_mode = (
+        "exact"
+        if exact_files is not None
+        else "recursive-no-symlinks" if skip_symlinks else "recursive"
+    )
 
     try:
         proc = subprocess.Popen(
@@ -276,7 +319,7 @@ def scan_tracks(root=None, on_record=None, timeout=900, cancelled=None, files=No
                 str(root),
                 str(ART_CACHE),
                 ",".join(sorted(AUDIO_EXTENSIONS)),
-                "exact" if exact_files is not None else "recursive",
+                reader_mode,
             ],
             stdin=(
                 subprocess.PIPE
@@ -289,7 +332,7 @@ def scan_tracks(root=None, on_record=None, timeout=900, cancelled=None, files=No
             bufsize=1,
         )
     except OSError:
-        return [], False
+        return [], False, 0
 
     output = queue.Queue()
     output_done = object()
@@ -342,8 +385,11 @@ def scan_tracks(root=None, on_record=None, timeout=900, cancelled=None, files=No
                 continue
             try:
                 record = json.loads(line)
+                if record.get("event") == "symlink":
+                    skipped_symlinks += 1
+                    continue
                 relpath = record["path"]
-            except (KeyError, TypeError, ValueError):
+            except (AttributeError, KeyError, TypeError, ValueError):
                 continue
             if not isinstance(relpath, str):
                 continue
@@ -376,7 +422,7 @@ def scan_tracks(root=None, on_record=None, timeout=900, cancelled=None, files=No
             proc.wait(timeout=1)
         except subprocess.SubprocessError:
             pass
-    return list(records.values()), complete
+    return list(records.values()), complete, skipped_symlinks
 
 
 def read_tags(mount_point):
@@ -386,7 +432,7 @@ def read_tags(mount_point):
     case the interface falls back to showing filenames.
     """
     music = Path(mount_point, "iPod_Control", "Music")
-    records, complete = scan_tracks(music)
+    records, complete, _skipped_symlinks = scan_tracks(music)
     if not complete:
         return {}
     return {record["path"]: record for record in records}
@@ -1619,6 +1665,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self.pending = set()
         self.pending_sources = {}
         self.pending_records = {}
+        self.pending_skipped_symlinks = {}
         self._pending_track_index = {}
         self.pending_device_identity = None
         self.sync_files = []
@@ -2734,6 +2781,7 @@ class IpodWindow(Adw.ApplicationWindow):
             self.pending.clear()
             self.pending_sources.clear()
             self.pending_records.clear()
+            self.pending_skipped_symlinks.clear()
             self.pending_device_identity = None
             self._toast(
                 "Queued changes were discarded because a different iPod was connected"
@@ -2779,7 +2827,8 @@ class IpodWindow(Adw.ApplicationWindow):
         if self.pending_sources:
             self.queued_row.set_visible(True)
             self.queued_label.set_text(
-                f"{human_size(queued_bytes)} queued — reconnect the same iPod"
+                f"{human_size(queued_bytes)} queued{self._pending_symlink_note()} "
+                "— reconnect the same iPod"
             )
             self.sync_button.set_label(
                 f"Sync {plural(changes, 'change')}"
@@ -2825,6 +2874,7 @@ class IpodWindow(Adw.ApplicationWindow):
             self.queued_row.set_visible(True)
             self.queued_label.set_text(
                 f"+{human_size(queued_bytes)} queued to sync"
+                f"{self._pending_symlink_note()}"
             )
             self.sync_button.set_label(f"Sync {plural(changes, 'change')}")
             self.sync_button.set_sensitive(not self.busy)
@@ -3141,7 +3191,7 @@ class IpodWindow(Adw.ApplicationWindow):
                     GLib.idle_add(self._apply_library_batch, generation, ready)
 
             for root in roots:
-                _records, complete = scan_tracks(
+                _records, complete, _skipped_symlinks = scan_tracks(
                     root,
                     on_record=lambda record, r=root: publish(r, record),
                     cancelled=lambda: generation != self.scan_generation,
@@ -3230,7 +3280,7 @@ class IpodWindow(Adw.ApplicationWindow):
                         ready,
                     )
 
-            _records, complete = scan_tracks(
+            _records, complete, _skipped_symlinks = scan_tracks(
                 music,
                 on_record=publish,
                 cancelled=lambda: generation != self.tag_generation,
@@ -3623,13 +3673,23 @@ class IpodWindow(Adw.ApplicationWindow):
         )
         return tracks, len(tracks) + playlist_changes, queued_bytes
 
+    def _pending_symlink_note(self):
+        skipped = sum(getattr(self, "pending_skipped_symlinks", {}).values())
+        return f" · {plural(skipped, 'symlinked item')} skipped" if skipped else ""
+
     def _pending_copy_tracks(self):
         return self._pending_accounting()[0]
 
     def _pending_change_count(self):
         return self._pending_accounting()[1]
 
-    def _queue_sources(self, sources, show_toast=True, metadata_complete=False):
+    def _queue_sources(
+        self,
+        sources,
+        show_toast=True,
+        metadata_complete=False,
+        skipped_symlinks=None,
+    ):
         sources = {str(source): list(tracks) for source, tracks in sources.items()}
         pending_only = {
             track.path
@@ -3657,16 +3717,21 @@ class IpodWindow(Adw.ApplicationWindow):
                     enriched,
                     complete,
                     show_toast,
+                    skipped_symlinks,
                 )
 
             threading.Thread(target=worker, daemon=True).start()
             return None
-        return self._commit_queue_sources(sources, show_toast=show_toast)
+        return self._commit_queue_sources(
+            sources,
+            show_toast=show_toast,
+            skipped_symlinks=skipped_symlinks,
+        )
 
     def _scan_pending_tracks(self, paths, generation):
         paths = set(str(path) for path in paths)
         enriched = {}
-        records, complete = scan_tracks(
+        records, complete, _skipped_symlinks = scan_tracks(
             files=paths,
             cancelled=lambda: generation != self.source_generation,
         )
@@ -3687,6 +3752,7 @@ class IpodWindow(Adw.ApplicationWindow):
         enriched,
         complete,
         show_toast,
+        skipped_symlinks,
     ):
         if generation != self.source_generation:
             return False
@@ -3702,10 +3768,20 @@ class IpodWindow(Adw.ApplicationWindow):
             source: [enriched.get(track.path, track) for track in tracks]
             for source, tracks in sources.items()
         }
-        self._commit_queue_sources(resolved, show_toast=show_toast)
+        self._commit_queue_sources(
+            resolved,
+            show_toast=show_toast,
+            skipped_symlinks=skipped_symlinks,
+        )
         return False
 
-    def _commit_queue_sources(self, sources, show_toast=True, replace=False):
+    def _commit_queue_sources(
+        self,
+        sources,
+        show_toast=True,
+        replace=False,
+        skipped_symlinks=None,
+    ):
         if not self.mount_point:
             self._toast("Connect an iPod to queue tracks")
             return 0
@@ -3717,12 +3793,14 @@ class IpodWindow(Adw.ApplicationWindow):
             self.pending.clear()
             self.pending_sources.clear()
             self.pending_records.clear()
+            self.pending_skipped_symlinks.clear()
         if not self.pending_sources:
             self.pending_device_identity = self.device_identity
         elif self.pending_device_identity != self.device_identity:
             self.pending.clear()
             self.pending_sources.clear()
             self.pending_records.clear()
+            self.pending_skipped_symlinks.clear()
             self.pending_device_identity = self.device_identity
 
         for source, tracks in sources.items():
@@ -3733,6 +3811,11 @@ class IpodWindow(Adw.ApplicationWindow):
                 self.pending_records[track.path] = self._record_for_track(track)
             if members:
                 self.pending_sources[str(source)] = members
+                count = (skipped_symlinks or {}).get(str(source), 0)
+                if count:
+                    self.pending_skipped_symlinks[str(source)] = count
+                else:
+                    self.pending_skipped_symlinks.pop(str(source), None)
         owned = (
             set().union(*self.pending_sources.values())
             if self.pending_sources
@@ -3743,6 +3826,11 @@ class IpodWindow(Adw.ApplicationWindow):
             path: record
             for path, record in self.pending_records.items()
             if path in self.pending
+        }
+        self.pending_skipped_symlinks = {
+            source: count
+            for source, count in self.pending_skipped_symlinks.items()
+            if source in self.pending_sources
         }
         if not self.pending_sources:
             self.pending_device_identity = None
@@ -3786,6 +3874,7 @@ class IpodWindow(Adw.ApplicationWindow):
         removed_directory = False
         for source in affected:
             members = self.pending_sources.pop(source)
+            self.pending_skipped_symlinks.pop(source, None)
             removed_directory = removed_directory or source not in members
         owned = (
             set().union(*self.pending_sources.values())
@@ -3822,26 +3911,32 @@ class IpodWindow(Adw.ApplicationWindow):
         self._set_busy(True, "Checking queued sources")
 
         def worker():
-            sources, complete = self._scan_queued_sources(paths, generation)
+            sources, complete, skipped_symlinks = self._scan_queued_sources(
+                paths, generation
+            )
             GLib.idle_add(
                 self._finish_pending_source_scan,
                 generation,
                 device_identity,
                 sources,
                 complete,
+                skipped_symlinks,
             )
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _scan_queued_sources(self, sources, generation):
         refreshed = {}
+        skipped_symlinks = {}
         for source in sources:
             path = Path(source)
             if path.is_dir():
-                records, complete = scan_tracks(
+                records, complete, skipped = scan_tracks(
                     path,
                     cancelled=lambda: generation != self.source_generation,
+                    skip_symlinks=True,
                 )
+                skipped_symlinks[source] = skipped
                 tracks = [
                     Track(path / record["path"], record, STATE_LIBRARY)
                     for record in records
@@ -3849,7 +3944,7 @@ class IpodWindow(Adw.ApplicationWindow):
             elif path.suffix.lower() in PLAYLIST_EXTENSIONS:
                 members, complete = read_local_playlist_tracks(path)
                 if complete:
-                    records, complete = scan_tracks(
+                    records, complete, _skipped = scan_tracks(
                         files=members,
                         cancelled=lambda: generation != self.source_generation,
                     )
@@ -3875,7 +3970,7 @@ class IpodWindow(Adw.ApplicationWindow):
                             )
                         )
             elif path.suffix.lower() in AUDIO_EXTENSIONS:
-                records, complete = scan_tracks(
+                records, complete, _skipped = scan_tracks(
                     files=[path],
                     cancelled=lambda: generation != self.source_generation,
                 )
@@ -3886,13 +3981,18 @@ class IpodWindow(Adw.ApplicationWindow):
             else:
                 tracks, complete = [], False
             if not complete:
-                return {}, False
+                return {}, False, {}
             if tracks:
                 refreshed[source] = tracks
-        return refreshed, True
+        return refreshed, True, skipped_symlinks
 
     def _finish_pending_source_scan(
-        self, generation, device_identity, sources, complete
+        self,
+        generation,
+        device_identity,
+        sources,
+        complete,
+        skipped_symlinks,
     ):
         if generation != self.source_generation:
             self._set_busy(False)
@@ -3905,10 +4005,19 @@ class IpodWindow(Adw.ApplicationWindow):
         if not self._confirmed_device(device_identity):
             self._set_busy(False)
             return False
-        self._commit_queue_sources(sources, show_toast=False, replace=True)
+        self._commit_queue_sources(
+            sources,
+            show_toast=False,
+            replace=True,
+            skipped_symlinks=skipped_symlinks,
+        )
         if not self.pending_sources:
             self._set_busy(False)
-            self._toast("Nothing remains in the queued sources")
+            message = "Nothing remains in the queued sources"
+            skipped = sum(skipped_symlinks.values())
+            if skipped:
+                message += f"; {plural(skipped, 'symlinked item')} skipped"
+            self._toast(message)
             return False
         self._set_busy(False)
         self._launch_pending_sync()
@@ -3939,6 +4048,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self.pending.clear()
         self.pending_sources.clear()
         self.pending_records.clear()
+        self.pending_skipped_symlinks.clear()
         self._pending_track_index = dict(self._library_by_path)
         self.pending_device_identity = None
         return "Sync complete"
@@ -4202,7 +4312,9 @@ class IpodWindow(Adw.ApplicationWindow):
         self._update_device_controls()
 
         def worker():
-            tracks, complete = self._scan_source_tracks(path, generation)
+            tracks, complete, skipped_symlinks = self._scan_source_tracks(
+                path, generation
+            )
             GLib.idle_add(
                 self._finish_music_folder_discovery,
                 generation,
@@ -4210,23 +4322,31 @@ class IpodWindow(Adw.ApplicationWindow):
                 path,
                 tracks,
                 complete,
+                skipped_symlinks,
             )
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _scan_source_tracks(self, path, generation):
-        records, complete = scan_tracks(
+        records, complete, skipped_symlinks = scan_tracks(
             path,
             cancelled=lambda: generation != self.source_generation,
+            skip_symlinks=True,
         )
         tracks = [
             Track(Path(path, record["path"]), record, STATE_LIBRARY)
             for record in records
         ]
-        return tracks, complete
+        return tracks, complete, skipped_symlinks
 
     def _finish_music_folder_discovery(
-        self, generation, device_identity, path, tracks, complete
+        self,
+        generation,
+        device_identity,
+        path,
+        tracks,
+        complete,
+        skipped_symlinks,
     ):
         if generation != self.source_generation:
             return False
@@ -4239,9 +4359,16 @@ class IpodWindow(Adw.ApplicationWindow):
             self._toast("Could not finish reading that folder; nothing was queued")
             return False
         if not tracks:
-            self._toast("No supported audio found in that folder")
+            message = "No supported audio found in that folder"
+            if skipped_symlinks:
+                message += f"; {plural(skipped_symlinks, 'symlinked item')} skipped"
+            self._toast(message)
             return False
-        self._queue_sources({str(path): tracks}, metadata_complete=True)
+        self._queue_sources(
+            {str(path): tracks},
+            metadata_complete=True,
+            skipped_symlinks={str(path): skipped_symlinks},
+        )
         return False
 
     def on_add_folder(self, _button):
