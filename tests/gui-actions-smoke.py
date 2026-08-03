@@ -16,6 +16,7 @@ import json
 import re
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -94,6 +95,7 @@ class FakeWindow:
     def __init__(self):
         self.mount_point = "/media/alex/Alex's iPod"
         self.device_identity = "uuid:test-ipod"
+        self.discovering_sources = False
         self.pending_device_identity = None
         self.pending = {}
         self.pending_sources = {}
@@ -225,6 +227,60 @@ finally:
     ipod_gui._TAG_READER = original_reader
 
 
+class FolderDiscoveryWindow:
+    _finish_music_folder_discovery = (
+        ipod_gui.IpodWindow._finish_music_folder_discovery
+    )
+
+    def __init__(self):
+        self.source_generation = 0
+        self.device_identity = "uuid:test-ipod"
+        self.mount_point = "/media/iPod"
+        self.discovering_sources = False
+        self.worker_thread = None
+        self.queued = None
+
+    def _update_device_controls(self):
+        pass
+
+    def _audio_files(self, path):
+        self.worker_thread = threading.get_ident()
+        return [str(Path(path) / "song.mp3")]
+
+    def _queue_paths(self, paths):
+        self.queued = list(paths)
+
+    def _toast(self, message):
+        raise AssertionError(message)
+
+
+discovery_window = FolderDiscoveryWindow()
+scheduled = []
+scheduled_event = threading.Event()
+original_glib = ipod_gui.GLib
+
+
+def record_idle(callback, *args):
+    scheduled.append((callback, args))
+    scheduled_event.set()
+    return 1
+
+
+ipod_gui.GLib = type("ImmediateGLib", (), {"idle_add": staticmethod(record_idle)})
+try:
+    main_thread = threading.get_ident()
+    ipod_gui.IpodWindow._discover_music_folder(discovery_window, "/music")
+    assert scheduled_event.wait(2), "folder discovery did not reach GLib"
+finally:
+    ipod_gui.GLib = original_glib
+assert discovery_window.worker_thread != main_thread, "folder walked on GTK thread"
+assert discovery_window.queued is None, "folder queued before the GLib boundary"
+callback, callback_args = scheduled[0]
+callback(*callback_args)
+assert discovery_window.queued == ["/music/song.mp3"], discovery_window.queued
+assert not discovery_window.discovering_sources, "folder discovery stayed active"
+
+
 class Selected:
     def __init__(self, value):
         self.value = value
@@ -348,6 +404,8 @@ class SelectionWindow:
         queued = ipod_gui.Track("/music/queued.mp3", common, ipod_gui.STATE_LIBRARY)
         self.mount_point = "/media/A"
         self.device_identity = "uuid:A"
+        self.discovering_sources = False
+        self.source_generation = 0
         self.pending_device_identity = "uuid:A"
         self.pending = {queued.path: queued}
         self.pending_sources = {queued.path: {queued.path}}

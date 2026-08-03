@@ -1510,6 +1510,8 @@ class IpodWindow(Adw.ApplicationWindow):
         self.track_names = {}
         self.tag_generation = 0
         self.scan_generation = 0
+        self.source_generation = 0
+        self.discovering_sources = False
         self.loading_options = False
         self.loaded_playlist_mode = 0
         self.loaded_playlist_args = []
@@ -2620,6 +2622,9 @@ class IpodWindow(Adw.ApplicationWindow):
         identity = volume_identity(mount_point) if mount_point is not None else None
         if mount_point == self.mount_point and identity == self.device_identity:
             return
+        if self.discovering_sources and identity != self.device_identity:
+            self.source_generation += 1
+            self.discovering_sources = False
         self.tag_generation += 1
         self.mount_point = mount_point
         self.device_identity = identity
@@ -2736,7 +2741,11 @@ class IpodWindow(Adw.ApplicationWindow):
     def _update_device_controls(self):
         connected = bool(self.mount_point)
         enabled = connected and not self.busy
-        queue_enabled = enabled and self.device_identity is not None
+        queue_enabled = (
+            enabled
+            and self.device_identity is not None
+            and not self.discovering_sources
+        )
         self.add_button.set_sensitive(queue_enabled)
         self.playlist_button.set_sensitive(
             queue_enabled and self.speech_engine_available
@@ -2928,6 +2937,7 @@ class IpodWindow(Adw.ApplicationWindow):
             and self.device_identity is not None
             and self.speech_engine_available
             and not self.busy
+            and not self.discovering_sources
         )
         self.playlist_shelf.append(new_tile)
 
@@ -3673,12 +3683,41 @@ class IpodWindow(Adw.ApplicationWindow):
             if not path:
                 self._toast("That location is not a local folder")
                 return
-            if not self._has_audio(path):
-                self._toast("No supported audio found in that folder")
-                return
-            self._queue_paths(self._audio_files(path))
+            self._discover_music_folder(path)
 
         dialog.select_folder(self, None, chosen)
+
+    def _discover_music_folder(self, path):
+        self.source_generation += 1
+        generation = self.source_generation
+        device_identity = self.device_identity
+        self.discovering_sources = True
+        self._update_device_controls()
+
+        def worker():
+            files = self._audio_files(path)
+            GLib.idle_add(
+                self._finish_music_folder_discovery,
+                generation,
+                device_identity,
+                files,
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_music_folder_discovery(self, generation, device_identity, files):
+        if generation != self.source_generation:
+            return False
+        self.discovering_sources = False
+        self._update_device_controls()
+        if device_identity != self.device_identity or not self.mount_point:
+            self._toast("The connected iPod changed, so the folder was not queued")
+            return False
+        if not files:
+            self._toast("No supported audio found in that folder")
+            return False
+        self._queue_paths(files)
+        return False
 
     def on_add_folder(self, _button):
         dialog = Gtk.FileDialog(title="Add a folder to search")
@@ -3915,10 +3954,6 @@ class IpodWindow(Adw.ApplicationWindow):
                 if candidate.suffix.lower() in AUDIO_EXTENSIONS:
                     found.append(str(candidate))
         return found
-
-    @staticmethod
-    def _has_audio(path):
-        return bool(IpodWindow._audio_files(path))
 
     def on_rebuild(self, _button):
         # --rebuild-only rather than passing the Music directory as a source,
