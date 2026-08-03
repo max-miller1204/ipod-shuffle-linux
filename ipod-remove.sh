@@ -16,6 +16,7 @@ LIST=0
 usage() {
     cat <<'EOF'
 Usage: ./ipod-remove.sh [options] <track> [more-tracks...]
+       ./ipod-remove.sh --playlist <name> [more-names...]
 
 Deletes tracks from iPod_Control/Music/ and rebuilds the iTunesSD database, so
 the player forgets them rather than listing songs it can no longer play.
@@ -23,9 +24,14 @@ the player forgets them rather than listing songs it can no longer play.
 Tracks are named by their path under iPod_Control/Music, which --list prints.
 A folder may be given instead of a file, which removes everything in it.
 
+With --playlist the arguments are playlist names instead: the named playlist
+files are deleted from the top of the iPod and the database is rebuilt. The
+songs they listed stay on the device.
+
 Options:
   -i, --ipod PATH   iPod mount point (default: autodetect)
   -l, --list        Print what is on the iPod and exit
+  -P, --playlist    Treat the arguments as playlist names, not tracks
   -y, --yes         Answer yes to every prompt
   -e, --eject       Unmount the iPod when finished
   -h, --help        Show this message
@@ -34,19 +40,25 @@ Examples:
   ./ipod-remove.sh --list
   ./ipod-remove.sh 'Road Trip/Disc 1/01 - Highway.mp3'
   ./ipod-remove.sh --eject 'Road Trip'
+  ./ipod-remove.sh --playlist twizzy
 
 The playlist and voiceover options saved by the last sync are reused, so the
-rebuild keeps the playlists already on the device.
+rebuild keeps the playlists already on the device. Playlist files stored at
+the top of the iPod are updated to drop the removed tracks, and one that
+loses every track is removed with them.
 
 To empty the iPod completely, use ./ipod-wipe.sh instead: it clears the stale
 iTunes state as well, and can back the music up first.
 EOF
 }
 
+PLAYLIST_MODE=0
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -i|--ipod) IPOD="$2"; shift 2 ;;
         -l|--list) LIST=1; shift ;;
+        -P|--playlist) PLAYLIST_MODE=1; shift ;;
         -y|--yes)  ASSUME_YES=1; shift ;;
         -e|--eject) EJECT=1; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -72,6 +84,7 @@ readonly MUSIC_REAL
 # Nothing but the track paths on stdout, so the output can be fed straight
 # back in as arguments.
 if (( LIST )); then
+    (( PLAYLIST_MODE == 0 )) || die "--list and --playlist cannot be combined."
     (( $# == 0 )) || die "--list takes no track paths."
     find "$MUSIC_REAL" -type f -printf '%P\n' | sort
     exit 0
@@ -84,33 +97,64 @@ info "iPod: $IPOD"
 # Resolve every argument before deleting anything, so a typo in the last one
 # does not leave the first half of the request already carried out.
 declare -a TARGETS=()
-for arg in "$@"; do
-    [[ -n "$arg" ]] || die "Empty track path."
+if (( PLAYLIST_MODE )); then
+    # Playlists live at the volume root as <name>.m3u, so a name is a bare
+    # filename by construction; anything with a separator is refused before
+    # it can point somewhere else.
+    for arg in "$@"; do
+        [[ -n "$arg" ]] || die "Empty playlist name."
+        name="${arg%.m3u}"
+        [[ "$name" != */* && "$name" != *..* ]] \
+            || die "Not a playlist name: $arg"
+        target="$IPOD/$name.m3u"
+        if [[ ! -f "$target" ]]; then
+            err "No playlist called '$name' on this iPod."
+            shopt -s nullglob
+            available=("$IPOD"/*.m3u)
+            shopt -u nullglob
+            if (( ${#available[@]} > 0 )); then
+                err "It has:"
+                for list in "${available[@]}"; do
+                    printf '  %s\n' "$(basename -- "${list%.m3u}")" >&2
+                done
+            else
+                err "It has no playlists."
+            fi
+            exit 1
+        fi
+        TARGETS+=("$target")
+    done
+else
+    for arg in "$@"; do
+        [[ -n "$arg" ]] || die "Empty track path."
 
-    if [[ "$arg" == /* ]]; then
-        target="$arg"
-    else
-        target="$MUSIC_REAL/$arg"
-    fi
-    # -m rather than -e: a path that does not exist has to be normalised too,
-    # or "../../../etc" would be rejected only by luck.
-    target="$(readlink -m -- "$target")"
+        if [[ "$arg" == /* ]]; then
+            target="$arg"
+        else
+            target="$MUSIC_REAL/$arg"
+        fi
+        # -m rather than -e: a path that does not exist has to be normalised
+        # too, or "../../../etc" would be rejected only by luck.
+        target="$(readlink -m -- "$target")"
 
-    if [[ "$target" == "$MUSIC_REAL" ]]; then
-        die "That is the whole library. Use ./ipod-wipe.sh to empty the iPod."
-    fi
-    [[ "$target" == "$MUSIC_REAL"/* ]] \
-        || die "Not a path on this iPod: $arg"
-    [[ -e "$target" ]] \
-        || die "No such track on the iPod: $arg (try --list)"
+        if [[ "$target" == "$MUSIC_REAL" ]]; then
+            die "That is the whole library. Use ./ipod-wipe.sh to empty the iPod."
+        fi
+        [[ "$target" == "$MUSIC_REAL"/* ]] \
+            || die "Not a path on this iPod: $arg"
+        [[ -e "$target" ]] \
+            || die "No such track on the iPod: $arg (try --list)"
 
-    TARGETS+=("$target")
-done
+        TARGETS+=("$target")
+    done
+fi
 
 removing=0
-for target in "${TARGETS[@]}"; do
-    removing=$(( removing + $(find "$target" -type f | wc -l) ))
-done
+if (( ! PLAYLIST_MODE )); then
+    for target in "${TARGETS[@]}"; do
+        removing=$(( removing + $(find "$target" -type f | wc -l) ))
+    done
+fi
 
 require_db_tool
 db_python >/dev/null
@@ -122,9 +166,17 @@ if (( ${#DB_ARGS[@]} > 0 )); then
 fi
 
 if (( ! ASSUME_YES )); then
-    info "About to remove $removing track(s):"
-    printf '  %s\n' "${TARGETS[@]#"$MUSIC_REAL"/}"
-    warn "The iPod holds the only copy unless you have these elsewhere."
+    if (( PLAYLIST_MODE )); then
+        info "About to remove ${#TARGETS[@]} playlist(s):"
+        for target in "${TARGETS[@]}"; do
+            printf '  %s\n' "$(basename -- "${target%.m3u}")"
+        done
+        info "The songs they list stay on the iPod."
+    else
+        info "About to remove $removing track(s):"
+        printf '  %s\n' "${TARGETS[@]#"$MUSIC_REAL"/}"
+        warn "The iPod holds the only copy unless you have these elsewhere."
+    fi
     confirm "Remove them?" || die "Aborted."
 fi
 
@@ -140,18 +192,69 @@ prune_empty_dirs() {
     done
 }
 
-for target in "${TARGETS[@]}"; do
-    rm -rf -- "$target"
-    prune_empty_dirs "$(dirname -- "$target")"
-done
-info "Removed $removing track(s)"
+if (( PLAYLIST_MODE )); then
+    rm -f -- "${TARGETS[@]}"
+    info "Removed ${#TARGETS[@]} playlist(s); the songs they listed stay on the iPod."
+else
+    for target in "${TARGETS[@]}"; do
+        rm -rf -- "$target"
+        prune_empty_dirs "$(dirname -- "$target")"
+    done
+    info "Removed $removing track(s)"
+fi
 
-# The device only forgets a track once the database no longer lists it. Until
-# then the player still offers it and stops dead when it tries to play it.
+# A removed track must also leave the playlists that name it, or they keep
+# offering a song the player can no longer find. Only the playlist files at
+# the volume root are rewritten, and within them only the entries ipod-sync.sh
+# writes; lines kept by hand in some other form pass through untouched.
+prune_playlists() {
+    local list line dropped kept_tracks
+    local -a lists=() kept=()
+
+    shopt -s nullglob
+    lists=("$IPOD"/*.m3u)
+    shopt -u nullglob
+
+    for list in "${lists[@]}"; do
+        kept=()
+        kept_tracks=0
+        dropped=0
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            line="${line%$'\r'}"
+            if [[ "$line" != iPod_Control/Music/* ]]; then
+                kept+=("$line")
+                [[ -z "$line" || "$line" == \#* ]] || kept_tracks=$((kept_tracks + 1))
+                continue
+            fi
+            if [[ -e "$IPOD/$line" ]]; then
+                kept+=("$line")
+                kept_tracks=$((kept_tracks + 1))
+            else
+                dropped=$((dropped + 1))
+            fi
+        done < "$list"
+
+        (( dropped > 0 )) || continue
+        if (( kept_tracks == 0 )); then
+            rm -f -- "$list"
+            info "Removed playlist '$(basename -- "${list%.m3u}")': every track it listed is gone"
+        else
+            printf '%s\n' "${kept[@]}" > "$list"
+            info "Playlist '$(basename -- "${list%.m3u}")': dropped $dropped removed track(s)"
+        fi
+    done
+}
+(( PLAYLIST_MODE )) || prune_playlists
+
+# The device only forgets a track or playlist once the database no longer
+# lists it. Until then the player still offers it and stops dead when it
+# tries to play it.
 rebuild_database "$IPOD" "${DB_ARGS[@]+"${DB_ARGS[@]}"}"
 
-total="$(find "$MUSIC_REAL" -type f | wc -l)"
-info "iPod now holds $total track(s)"
+if (( ! PLAYLIST_MODE )); then
+    total="$(find "$MUSIC_REAL" -type f | wc -l)"
+    info "iPod now holds $total track(s)"
+fi
 
 if (( EJECT )); then
     dev="$(ipod_device "$IPOD")"

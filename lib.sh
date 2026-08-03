@@ -9,9 +9,8 @@ readonly SHUFFLE_USB_ID="05ac:1303"
 
 # Upstream database builder, installed by install.sh.
 #
-# All three paths are overridable so the same scripts work unmodified inside
-# a Flatpak, where the builder is baked into /app and mutagen belongs to the
-# runtime interpreter rather than a virtualenv.
+# All three paths are overridable so the test suite can substitute its own
+# builder and interpreter without touching a real installation.
 readonly TOOLS_DIR="${IPOD_TOOLS_DIR:-${HOME}/ipod-tools}"
 readonly DB_TOOL="${IPOD_DB_TOOL:-${TOOLS_DIR}/IPod-Shuffle-4g/ipod-shuffle-4g.py}"
 
@@ -126,10 +125,10 @@ udisks_path() {
 
 # Mount and unmount through UDisks2.
 #
-# udisksctl is the friendlier front end and is used when present, but the
-# Flatpak runtime ships gdbus without it, so both paths have to work. Either
-# way the request reaches the same daemon and the same polkit check, which
-# grants removable media to the logged-in user without a password.
+# udisksctl is the friendlier front end and is used when present, but minimal
+# systems ship gdbus without it, so both paths have to work. Either way the
+# request reaches the same daemon and the same polkit check, which grants
+# removable media to the logged-in user without a password.
 udisks_method() {
     local dev="$1" method="$2"
     gdbus call --system --dest org.freedesktop.UDisks2 \

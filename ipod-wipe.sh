@@ -25,8 +25,8 @@ usage() {
     cat <<'EOF'
 Usage: ./ipod-wipe.sh [options]
 
-Removes all tracks and stale iTunes state, then writes a fresh empty database.
-Preserves Apple's Speakable system prompts and the Device directory.
+Removes all tracks, playlists, and stale iTunes state, then writes a fresh
+empty database. Preserves Apple's Speakable prompts and the Device directory.
 
 Options:
   -i, --ipod PATH     iPod mount point (default: autodetect)
@@ -55,6 +55,13 @@ assert_shuffle "$IPOD"
 MUSIC_DIR="$IPOD/iPod_Control/Music"
 ITUNES_DIR="$IPOD/iPod_Control/iTunes"
 
+# The playlist files ipod-sync.sh stores at the volume root. They are cleared
+# with the tracks they reference, and backed up alongside them: each one is
+# the only record of which songs made up that playlist.
+shopt -s nullglob
+ROOT_PLAYLISTS=("$IPOD"/*.m3u "$IPOD"/*.pls)
+shopt -u nullglob
+
 track_count="$(find "$MUSIC_DIR" -type f 2>/dev/null | wc -l)"
 info "iPod: $IPOD"
 info "Tracks currently on device: $track_count"
@@ -64,6 +71,10 @@ if [[ -n "$BACKUP_DIR" ]]; then
     mkdir -p "$BACKUP_DIR"
     [[ -d "$MUSIC_DIR" ]]  && cp -a "$MUSIC_DIR"  "$BACKUP_DIR/"
     [[ -d "$ITUNES_DIR" ]] && cp -a "$ITUNES_DIR" "$BACKUP_DIR/"
+    if (( ${#ROOT_PLAYLISTS[@]} > 0 )); then
+        mkdir -p "$BACKUP_DIR/Playlists"
+        cp -a -- "${ROOT_PLAYLISTS[@]}" "$BACKUP_DIR/Playlists/"
+    fi
 
     # Verify before anything irreversible happens. The iTunesDB copy matters as
     # much as the audio: iPod filenames are scrambled four-character codes, and
@@ -86,6 +97,11 @@ if [[ -d "$MUSIC_DIR" ]]; then
     info "Removed $track_count track(s)"
 fi
 mkdir -p "$MUSIC_DIR"
+
+if (( ${#ROOT_PLAYLISTS[@]} > 0 )); then
+    rm -f -- "${ROOT_PLAYLISTS[@]}"
+    info "Removed ${#ROOT_PLAYLISTS[@]} playlist(s)"
+fi
 
 for f in "${STALE_STATE[@]}"; do
     rm -f "$ITUNES_DIR/$f"

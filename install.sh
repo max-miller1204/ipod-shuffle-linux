@@ -141,6 +141,58 @@ else
     fi
 fi
 
+# --------------------------------------------------------------- desktop entry
+
+# The GUI's launcher in the desktop's app grid. Generated with this checkout's
+# absolute path on every install, so a moved checkout is healed by re-running
+# this script, and the fresh mtime nudges a running GNOME Shell to re-read an
+# entry it may have cached. Written with shell builtins only, so a failure
+# cannot leave a half-written file behind.
+#
+# Installed only when the GUI can actually run; a menu entry has no terminal
+# to explain a missing dependency in, so it should not exist before then.
+readonly APP_ID="io.github.max_miller1204.IpodShuffle"
+REPO_DIR="$(dirname "$(readlink -f "$0")")"
+readonly REPO_DIR
+if find_gui_python >/dev/null 2>&1; then
+    apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    icons_root="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+    mkdir -p "$apps_dir" "$icons_root/scalable/apps"
+    cp "$REPO_DIR/desktop/$APP_ID.svg" "$icons_root/scalable/apps/$APP_ID.svg"
+
+    # A cache file in the user's icon theme, left behind by some other
+    # installer, is trusted over the directory contents whenever it is newer
+    # than the top-level directory, so an icon copied in afterwards stays
+    # invisible and the app shows a generic gear. Refresh a cache that
+    # exists; never create one, since a cacheless directory is always
+    # scanned directly and cannot go stale.
+    if [[ -f "$icons_root/icon-theme.cache" ]] \
+        && command -v gtk-update-icon-cache >/dev/null; then
+        gtk-update-icon-cache -f -t "$icons_root" >/dev/null 2>&1 || true
+    fi
+    touch "$icons_root"
+    printf '%s\n' \
+        '[Desktop Entry]' \
+        'Name=iPod Shuffle' \
+        'GenericName=iPod Manager' \
+        'Comment=Load music onto an iPod shuffle without iTunes' \
+        "Exec=\"$REPO_DIR/ipod-gui.sh\"" \
+        "TryExec=$REPO_DIR/ipod-gui.sh" \
+        "Icon=$APP_ID" \
+        'Terminal=false' \
+        'Type=Application' \
+        'Categories=AudioVideo;Audio;GTK;' \
+        'Keywords=iPod;shuffle;music;player;sync;' \
+        'StartupNotify=true' \
+        > "$apps_dir/$APP_ID.desktop"
+    if command -v update-desktop-database >/dev/null; then
+        update-desktop-database "$apps_dir" 2>/dev/null || true
+    fi
+    info "Desktop entry installed (look for iPod Shuffle in the app grid)"
+else
+    info "Desktop entry skipped until the GUI dependencies are installed"
+fi
+
 # ---------------------------------------------------------------- unprivileged
 
 info "Installing database builder into $TOOLS_DIR"

@@ -42,7 +42,7 @@ cd ipod-shuffle-linux
 ```
 
 That handles the core installation.
-It fetches the database builder into `~/ipod-tools/`, creates a virtualenv for the Python dependencies, and offers to install compatible missing system packages.
+It fetches the database builder into `~/ipod-tools/`, creates a virtualenv for the Python dependencies, installs an app-grid entry for the GUI, and offers to install compatible missing system packages.
 A missing JavaScript runtime is reported with a link to its manual setup guide instead; see [Downloading from YouTube](#downloading-from-youtube).
 
 The only hard requirements are Python 3 and git.
@@ -53,7 +53,7 @@ Everything else is installed or reported for you:
 | `mutagen` | virtualenv | Artist and album metadata, including tag-based playlists |
 | `yt-dlp` | virtualenv | Downloading music from YouTube via `ipod-fetch.sh` |
 | `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | system | The graphical interface |
-| `libttspico-utils` | system | Spoken track and playlist names via VoiceOver (the Flatpak bundles espeak-ng instead, see below) |
+| `libttspico-utils` | system | Spoken track and playlist names via VoiceOver |
 | `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats, including YouTube's Opus |
 | [Supported JavaScript runtime](#downloading-from-youtube) | system | Solving YouTube's signature challenge |
 
@@ -90,12 +90,17 @@ Owning a virtualenv sidesteps both that and PEP 668's externally-managed-environ
 ./ipod-gui.sh
 ```
 
+Or launch **iPod Shuffle** from the desktop's app grid; `install.sh` puts the entry there.
+The entry embeds the checkout's location, so if you move the repository, re-run `./install.sh` to update it.
+
 ![The iPod Shuffle app showing device information, actions, and the track list](docs/screenshot.png)
 
 The window detects the iPod automatically, and appears and updates as the device is plugged in or unmounted.
 It shows real song titles and artists rather than the scrambled filenames stored on the device, and every operation streams its output into the Output pane so nothing happens invisibly.
 
 Each track in the list has a delete button, which removes that one song and rebuilds the database.
+**Add Playlist** picks an M3U or PLS file, copies the tracks it references, and keeps them grouped under the playlist's name, switching spoken playlist names on so the result can be found again on a device with no screen.
+A **Playlists** section lists each playlist on the device; expand one to see its songs with their real titles, or use its delete button to remove the playlist while leaving the songs in place.
 **Add from YouTube** asks for a link, offering whatever is already on the clipboard, and downloads it as MP3 into `~/Music/youtube` before copying it onto the device.
 When `yt-dlp` can report the files it fetched, only the tracks that download produced are copied, so pasting a second link does not push a growing library back onto a 2GB device, and pasting a link you have already fetched reports that there is nothing new rather than doing it again.
 
@@ -103,66 +108,6 @@ That button is insensitive when a download could not succeed, and says which pie
 Checking beforehand is worth the trouble because every one of those failures otherwise appears several steps later as something else, most memorably as `HTTP Error 403` on every track but the oldest.
 
 The buttons map onto the same scripts documented below, so the two interfaces cannot drift apart.
-
-## Flatpak
-
-There is a Flatpak manifest under `flatpak/`, for distributing the application rather than the scripts.
-
-```bash
-./flatpak/build.sh
-flatpak run io.github.max_miller1204.IpodShuffle
-```
-
-It needs `org.flatpak.Builder` and the GNOME SDK, both from Flathub.
-Install the GNOME 50 build dependencies together:
-
-```bash
-flatpak install --user flathub org.flatpak.Builder org.gnome.Sdk//50
-```
-
-The build takes the repository root as a source directory, so the build tree is kept in the cache directory rather than inside the checkout.
-
-Flatpak is a better fit here than an AppImage.
-GTK4 and libadwaita come from the GNOME runtime, so the application itself stays small instead of carrying a hundred megabytes of bundled libraries that most systems already have.
-
-### How it works inside the sandbox
-
-Managing a removable device from a sandbox sounds like it should be the hard part, and it turns out not to be.
-
-Every privileged operation goes through UDisks2 over the system bus, so the sandbox needs no elevated rights of its own:
-
-```yaml
-- --system-talk-name=org.freedesktop.UDisks2
-- --filesystem=/media
-- --filesystem=/run/media
-- --filesystem=home
-```
-
-Polkit still arbitrates each request and grants mount, unmount, and relabel on removable media to the logged-in user without a password, exactly as it does outside the sandbox.
-Mounting, unmounting, renaming, and reading tags were all verified working from inside the sandbox against a real device.
-
-One thing does change.
-The GNOME runtime ships `gdbus` but not `udisksctl`, so `lib.sh` prefers `udisksctl` when it exists and falls back to raw D-Bus calls when it does not, and the GUI talks to UDisks2 through `Gio` directly.
-Both routes reach the same daemon and the same polkit check.
-
-The three `IPOD_TOOLS_DIR`, `IPOD_DB_TOOL`, and `IPOD_VENV_PYTHON` variables exist for the same reason.
-Inside the Flatpak the database builder is baked into `/app` and mutagen belongs to the runtime interpreter, so there is no virtualenv and no `~/ipod-tools`.
-
-### Why the Flatpak speaks with a different voice
-
-The native install uses `pico2wave`, which sounds more natural.
-The Flatpak bundles espeak-ng instead, which is more robotic.
-
-This is not a preference.
-SVOX Pico is unmaintained code from 2013, and built against the GNOME runtime it produces non-deterministic output: the same text yields different audio on every run, which is the signature of reading uninitialised memory.
-Eight synthesis runs of one unchanging string produced seven different files.
-That reaches the device as playlists whose spoken names are garbage or silence, and because the database builder ignores the exit status while Pico reports success either way, nothing detects it.
-
-Building with `-O0 -fno-strict-aliasing -fwrapv` did not help, and Debian's working package is built from a different patch set than the fork available to package here.
-espeak-ng is maintained, builds cleanly, and the database builder already supports it.
-
-The build asserts the property that failed rather than assuming it, synthesising the same text twice and comparing the results, so a regression fails the build instead of reaching a device.
-The builder hardcodes `-v english_rp`, a voice name espeak-ng renamed to `en-gb-x-rp` and now rejects, so the old name is installed as an alias of the same voice definition rather than forking the builder to change one string.
 
 ## Usage
 
@@ -202,6 +147,8 @@ A single file works as well as a folder, and lands in a folder named after the o
 
 That puts it in `iPod_Control/Music/roadtrip/`, exactly where syncing the whole folder would have put it, so adding one track later does not create a second copy of the album or leave a stray file that `--dir-playlists` cannot group.
 
+A `.m3u` or `.pls` file works too, and becomes a playlist on the device; see [Playlists](#playlists).
+
 The iPod is found automatically.
 Pass `--ipod /path/to/mount` if autodetection picks the wrong volume, and note that the script refuses to guess when several iPods are connected.
 
@@ -221,6 +168,13 @@ The firmware plays what `iTunesSD` lists, so a track deleted without a rebuild i
 
 Folders left empty are removed too.
 With `--dir-playlists` an empty folder becomes a playlist that plays nothing, and on a device with no screen there is no way to tell that is what happened.
+For the same reason, the playlist files the sync keeps at the top of the iPod are rewritten to drop the removed tracks, and one that loses every track is removed with them.
+
+`--playlist` switches the arguments to playlist names, deleting the named playlists while leaving every song in place:
+
+```bash
+./ipod-remove.sh --playlist twizzy 'alt stuff'
+```
 
 The script refuses any path that resolves outside the music folder, and points at `ipod-wipe.sh` if you aim it at the whole library.
 
@@ -230,7 +184,7 @@ The script refuses any path that resolves outside the music folder, and points a
 ./ipod-wipe.sh --backup ~/ipod-backup
 ```
 
-This removes every track and clears stale iTunes state, then writes a fresh empty database.
+This removes every track and playlist and clears stale iTunes state, then writes a fresh empty database.
 
 Always pass `--backup` on a secondhand device.
 Filenames on an iPod are scrambled four-character codes such as `AXKU.m4a`, and the only thing mapping them back to real artist and title metadata is `iTunesDB`.
@@ -250,7 +204,30 @@ The sync script warns if you ask for playlists without it.
 
 On the device, hold the VoiceOver button to enter the playlist menu, use next and previous to move between playlists, and click to choose one.
 
-There are four ways to create them.
+There are five ways to create them.
+
+**From a playlist file,** by passing a `.m3u` or `.pls` file to the sync:
+
+```bash
+./ipod-sync.sh --playlist-voiceover ~/Music/mixtape.m3u
+```
+
+The tracks the file references are copied onto the device, and a rewritten copy of the list is stored at the top of the iPod, which is where the database builder looks for playlist files on this and every later rebuild.
+The filename becomes the playlist's spoken name, so `mixtape.m3u` is announced as "mixtape".
+
+This is the compatibility path: export a playlist from Rhythmbox, Strawberry, Quod Libet, or anything else that writes M3U, and hand it over unchanged.
+Comments, blank lines, `file://` URIs, entries relative to the playlist file, and Windows path separators are all understood.
+A stream URL is skipped with a warning, since there is nothing to copy, and so is a track the file names but this computer does not have.
+
+Syncing a file with the same name again replaces that playlist, which is how a playlist gets updated.
+To delete one, keeping its songs:
+
+```bash
+./ipod-remove.sh --playlist mixtape
+```
+
+Removing tracks with `ipod-remove.sh` rewrites these lists to drop what is gone, and a playlist that loses every track is removed with them.
+`--clear` and `ipod-wipe.sh` remove them along with the tracks they reference, and a wipe with `--backup` saves them under `Playlists/` first.
 
 **One playlist per folder:**
 
@@ -272,7 +249,8 @@ Add a depth limit if your library nests deeply, where `1` is the artist level an
 ./ipod-sync.sh --id3-playlists='{artist} - {album}' --playlist-voiceover ~/Music
 ```
 
-**By hand,** by putting a `.m3u` or `.pls` file anywhere on the device.
+**By hand,** by putting a `.m3u` or `.pls` file anywhere on the device yourself.
+This is exactly what the playlist-file sync automates, and it remains available for lists that reference the device's own files.
 Paths inside it are relative to the playlist file, and the filename becomes the playlist name:
 
 ```
@@ -287,8 +265,10 @@ Then rebuild:
 ./ipod-sync.sh --rebuild-only --playlist-voiceover
 ```
 
-**From the GUI,** using the Playlists dropdown under Options.
-Choosing any grouping switches spoken playlist names on automatically, for the reason above.
+Hand-placed files like this are left alone by the automatic upkeep above, except that a rebuild simply skips entries it can no longer resolve.
+
+**From the GUI,** using the Playlists dropdown under Options for the folder and tag groupings, or **Add Playlist** to pick an M3U or PLS file.
+Either choice switches spoken playlist names on automatically, for the reason above.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
 
@@ -338,10 +318,6 @@ The nano supported ALAC; the shuffle never did.
 ```
 
 The GUI's **Add from YouTube** button runs this script, so the two share every setting below.
-
-The Flatpak is the exception: it ships the GUI, the sync, the removal, and the wipe, but neither this script nor `yt-dlp`.
-Downloading inside the sandbox would mean granting it network access and bundling a JavaScript runtime, which is a large addition for a feature that works perfectly well from a native install.
-The button is therefore insensitive there and says so rather than failing when pressed.
 
 This wraps `yt-dlp` with the settings the shuffle needs, saving into `~/Music/youtube` with one folder per artist so the result is ready for `--dir-playlists`.
 Downloaded video IDs are recorded in `<output>/.fetched` and skipped on later runs, so re-running a playlist URL collects only what is new.
@@ -479,6 +455,7 @@ Useful when deciding what is safe to delete.
 | Path | What it is | Safe to delete |
 | --- | --- | --- |
 | `iPod_Control/Music/` | The audio files | Yes, this is the music |
+| `*.m3u` at the volume root | The playlists the sync manages | Yes, that deletes the playlist |
 | `iPod_Control/iTunes/iTunesSD` | The database the firmware reads | Yes, rebuilt by the tool |
 | `iPod_Control/iTunes/iTunesDB` | iTunes' own metadata copy | Yes, but back it up first |
 | `iPod_Control/iTunes/iTunesPrefs` | Previous owner's library binding | Yes, and worth clearing |
@@ -527,6 +504,8 @@ bash tests/product-e2e.sh
 ```
 
 The suite runs against a synthetic iPod directory tree with a stand-in for the database builder, so it needs no hardware, no audio, and a few seconds.
+The playlist checks are the exception: they also run the real upstream builder against the rewritten lists a sync produces, because only it can vouch that every entry resolves.
+That part uses the copy `install.sh` keeps, or `IPOD_REAL_DB_TOOL`; CI fetches the builder itself so the check always runs there, and a local run without it says so rather than passing silently.
 Set `EVIDENCE_DIR` to keep the artefacts it writes; otherwise they go to a temporary directory.
 
 It covers the failures that actually happened rather than the code that was easiest to assert against.

@@ -18,9 +18,8 @@ jobs:
 
       # The GUI smoke tests import ipod-gui.py, which imports PyGObject at
       # module level, so the bindings are needed even though no window is ever
-      # opened. They come from the distribution for the same reason the Flatpak
-      # takes them from its runtime: building PyGObject from pip would need the
-      # gobject-introspection and cairo development headers.
+      # opened. They come from the distribution because building PyGObject from
+      # pip would need the gobject-introspection and cairo development headers.
       - name: Install test dependencies
         run: |
           sudo apt-get update
@@ -28,10 +27,18 @@ jobs:
             python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck
 
       - name: Shell lint
-        run: shellcheck -x ./*.sh flatpak/build.sh tests/product-e2e.sh
+        run: shellcheck -x ./*.sh tests/product-e2e.sh
 
       - name: Python syntax
         run: python3 -m py_compile ipod-gui.py tests/*.py
+
+      # The suite's playlist check runs the real upstream builder against the
+      # rewritten list a sync produces, which the fake builder cannot vouch
+      # for. Cloned directly because install.sh does more than this needs.
+      - name: Fetch upstream database builder
+        run: |
+          git clone --depth 1 https://github.com/nims11/IPod-Shuffle-4g.git \
+            "${RUNNER_TEMP}/IPod-Shuffle-4g"
 
       # Never run as root. The suite checks that a volume it cannot write to
       # produces a loud failure, and root ignores the permission bits that
@@ -39,7 +46,9 @@ jobs:
       - name: End-to-end suite
         run: |
           test "$(id -u)" -ne 0 || { echo "must not run as root" >&2; exit 1; }
-          EVIDENCE_DIR="${RUNNER_TEMP}/evidence" bash tests/product-e2e.sh
+          EVIDENCE_DIR="${RUNNER_TEMP}/evidence" \
+            IPOD_REAL_DB_TOOL="${RUNNER_TEMP}/IPod-Shuffle-4g/ipod-shuffle-4g.py" \
+            bash tests/product-e2e.sh
 
       - name: Upload evidence
         if: always()

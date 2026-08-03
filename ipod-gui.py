@@ -40,10 +40,9 @@ YOUTUBE_LIBRARY = Path.home() / "Music" / "youtube"
 def _tag_interpreter():
     """Pick an interpreter that can import mutagen, or None.
 
-    Inside a Flatpak everything shares one environment, so this interpreter
-    will do. On a normal install PyGObject belongs to the system Python while
-    mutagen lives in install.sh's virtualenv, and tag reading has to cross
-    over to it.
+    PyGObject belongs to the system Python while mutagen lives in
+    install.sh's virtualenv, so tag reading has to cross over to it unless
+    this interpreter happens to have mutagen itself.
     """
     try:
         import mutagen  # noqa: F401
@@ -209,8 +208,8 @@ def device_for(mount_point):
 def udisks_filesystem_call(device, method):
     """Invoke a UDisks2 Filesystem method on a block device.
 
-    Speaks D-Bus directly rather than shelling out to udisksctl, which the
-    Flatpak runtime does not ship. Both reach the same daemon and the same
+    Speaks D-Bus directly rather than shelling out to udisksctl, which
+    minimal systems do not ship. Both reach the same daemon and the same
     polkit check, which grants removable media to the logged-in user.
 
     Returns (ok, detail), where detail is the mount path for Mount and the
@@ -367,6 +366,35 @@ def list_tracks(mount_point, limit=500):
     return [str(p.relative_to(music)) for p in files[:limit]]
 
 
+MUSIC_PREFIX = "iPod_Control/Music/"
+
+
+def list_playlists(mount_point):
+    """The playlists the sync keeps at the volume root, as (name, entries).
+
+    Entries are stored relative to the volume root; the ones under the music
+    folder come back relative to it instead, matching list_tracks, so playlist
+    rows can share the tag-derived titles. Hand-written lines that point
+    elsewhere are kept as written.
+    """
+    playlists = []
+    for path in sorted(Path(mount_point).glob("*.m3u")):
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        entries = []
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith(MUSIC_PREFIX):
+                line = line[len(MUSIC_PREFIX):]
+            entries.append(line)
+        playlists.append((path.stem, entries))
+    return playlists
+
+
 def human_size(num_bytes):
     for unit in ("B", "KB", "MB", "GB"):
         if abs(num_bytes) < 1024:
@@ -387,6 +415,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self.busy = False
         self.track_rows = {}
         self.track_names = {}
+        self.playlist_track_rows = []
         self.tag_generation = 0
         self.loading_options = False
         self.loaded_playlist_mode = 0
@@ -470,6 +499,16 @@ class IpodWindow(Adw.ApplicationWindow):
         self.add_row.add_suffix(add_button)
         self.add_row.set_activatable_widget(add_button)
         actions.add(self.add_row)
+
+        self.playlist_row = Adw.ActionRow(
+            title="Add Playlist",
+            subtitle="Copy the tracks an M3U or PLS file lists, grouped under its name",
+        )
+        playlist_button = Gtk.Button(label="Choose File…", valign=Gtk.Align.CENTER)
+        playlist_button.connect("clicked", self.on_add_playlist)
+        self.playlist_row.add_suffix(playlist_button)
+        self.playlist_row.set_activatable_widget(playlist_button)
+        actions.add(self.playlist_row)
 
         self.youtube_row = Adw.ActionRow(
             title="Add from YouTube",
@@ -563,6 +602,12 @@ class IpodWindow(Adw.ApplicationWindow):
         self.progress = Gtk.ProgressBar(visible=False, show_text=True)
         box.append(self.progress)
 
+        self.playlists_group = Adw.PreferencesGroup(title="Playlists")
+        self.playlists_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.playlists_list.add_css_class("boxed-list")
+        self.playlists_group.add(self.playlists_list)
+        box.append(self.playlists_group)
+
         self.tracks_group = Adw.PreferencesGroup(title="On the iPod")
         self.tracks_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.tracks_list.add_css_class("boxed-list")
@@ -641,7 +686,51 @@ class IpodWindow(Adw.ApplicationWindow):
             self.space_row.set_subtitle("unknown")
 
         self._populate_tracks()
+        self._populate_playlists()
         return False
+
+    def _populate_playlists(self):
+        child = self.playlists_list.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.playlists_list.remove(child)
+            child = nxt
+
+        self.playlist_track_rows = []
+        playlists = list_playlists(self.mount_point)
+        # An empty group would just say playlists exist and name none, so the
+        # section only appears once there is something to show.
+        self.playlists_group.set_visible(bool(playlists))
+
+        for name, entries in playlists:
+            row = Adw.ExpanderRow(title=GLib.markup_escape_text(name))
+            row.set_subtitle(f"{len(entries)} song(s)")
+            remove_button = Gtk.Button(
+                icon_name="user-trash-symbolic", valign=Gtk.Align.CENTER
+            )
+            remove_button.add_css_class("flat")
+            remove_button.set_tooltip_text(
+                "Remove this playlist; its songs stay on the iPod"
+            )
+            remove_button.connect("clicked", self.on_remove_playlist, name)
+            row.add_suffix(remove_button)
+
+            for relpath in entries:
+                track = Path(relpath)
+                track_row = Adw.ActionRow(
+                    title=GLib.markup_escape_text(
+                        self.track_names.get(relpath, track.name)
+                    )
+                )
+                folder = str(track.parent)
+                if folder and folder != ".":
+                    track_row.set_subtitle(GLib.markup_escape_text(folder))
+                row.add_row(track_row)
+                # Remembered so the async tag scan upgrades these rows to real
+                # titles exactly as it does the main track list.
+                self.playlist_track_rows.append((relpath, track_row))
+
+            self.playlists_list.append(row)
 
     def _populate_tracks(self):
         child = self.tracks_list.get_first_child()
@@ -720,6 +809,15 @@ class IpodWindow(Adw.ApplicationWindow):
                 self.track_names[relpath] = title
             if artist:
                 row.set_subtitle(GLib.markup_escape_text(artist))
+        for relpath, row in self.playlist_track_rows:
+            entry = tags.get(relpath)
+            if not entry:
+                continue
+            title, artist = entry
+            if title:
+                row.set_title(GLib.markup_escape_text(title))
+            if artist:
+                row.set_subtitle(GLib.markup_escape_text(artist))
         return False
 
     def _on_playlist_mode_changed(self, *_args):
@@ -766,12 +864,20 @@ class IpodWindow(Adw.ApplicationWindow):
 
     def _set_busy(self, busy, message=""):
         self.busy = busy
-        for row in (self.add_row, self.rebuild_row, self.wipe_row, self.eject_row):
+        for row in (
+            self.add_row,
+            self.playlist_row,
+            self.rebuild_row,
+            self.wipe_row,
+            self.eject_row,
+        ):
             row.set_sensitive(not busy)
         self.youtube_row.set_sensitive(not busy and not self.youtube_unavailable)
-        # Also the per-track remove buttons, which are otherwise a way to start
-        # a second script against the same device while one is still running.
+        # Also the per-track and per-playlist remove buttons, which are
+        # otherwise a way to start a second script against the same device
+        # while one is still running.
         self.tracks_list.set_sensitive(not busy)
+        self.playlists_list.set_sensitive(not busy)
         self.refresh_button.set_sensitive(not busy)
         self.progress.set_visible(busy)
 
@@ -894,6 +1000,46 @@ class IpodWindow(Adw.ApplicationWindow):
             )
 
         dialog.select_folder(self, None, chosen)
+
+    def on_add_playlist(self, _button):
+        dialog = Gtk.FileDialog(title="Choose a playlist file")
+        playlist_filter = Gtk.FileFilter()
+        playlist_filter.set_name("Playlists (M3U, PLS)")
+        playlist_filter.add_suffix("m3u")
+        playlist_filter.add_suffix("pls")
+        dialog.set_default_filter(playlist_filter)
+
+        def chosen(dlg, result):
+            try:
+                chosen_file = dlg.open_finish(result)
+            except GLib.Error:
+                return
+            path = chosen_file.get_path()
+            if not path:
+                self._toast("That location is not a local file")
+                return
+            self._add_playlist(path)
+
+        dialog.open(self, None, chosen)
+
+    def _add_playlist(self, path):
+        # A named playlist implies wanting the name read aloud, exactly as
+        # choosing a grouping under Options does: with no screen, the spoken
+        # name is the only way to find the playlist again.
+        if self.speech_engine_available:
+            self.playlist_voiceover.set_active(True)
+        self._run(
+            [
+                str(SYNC_SCRIPT),
+                "--ipod",
+                self.mount_point,
+                *self._sync_options(),
+                "--",
+                path,
+            ],
+            "Copying playlist…",
+            "Playlist added",
+        )
 
     def on_add_youtube(self, _button):
         url_entry = Adw.EntryRow(title="YouTube link")
@@ -1036,6 +1182,41 @@ class IpodWindow(Adw.ApplicationWindow):
             ],
             "Removing track…",
             "Track removed",
+        )
+
+    def on_remove_playlist(self, _button, name):
+        dialog = Adw.AlertDialog(
+            heading="Remove this playlist?",
+            body=(
+                f"{name}\n\n"
+                "Only the playlist is removed and the database is rebuilt. "
+                "The songs it lists stay on the iPod."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_playlist_remove_response, name)
+        dialog.present(self)
+
+    def _on_playlist_remove_response(self, _dialog, response, name):
+        if response != "remove":
+            return
+        self._run(
+            [
+                str(REMOVE_SCRIPT),
+                "--ipod",
+                self.mount_point,
+                "--yes",
+                "--playlist",
+                # A playlist named after a song can start with a dash too.
+                "--",
+                name,
+            ],
+            "Removing playlist…",
+            "Playlist removed",
         )
 
     @staticmethod

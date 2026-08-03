@@ -205,8 +205,8 @@ test ! -s "$EVIDENCE_DIR/findmnt-space-path.txt" -o \
 (
     source "$ROOT/lib.sh"
     mkdir -p "$TEST_ROOT/no-udisks"
-    # Emptying the search path is the point: it reproduces the Flatpak runtime,
-    # which ships gdbus but not udisksctl, so the D-Bus fallback is exercised.
+    # Emptying the search path is the point: it reproduces a system that ships
+    # gdbus but not udisksctl, so the D-Bus fallback is exercised.
     # Confined to this subshell.
     # shellcheck disable=SC2123,SC2030
     PATH="$TEST_ROOT/no-udisks"
@@ -247,12 +247,15 @@ grep -Fxq "absent" "$EVIDENCE_DIR/js-runtime-absent.txt"
 # cannot install or download anything.
 INSTALLER_PATH="$TEST_ROOT/installer-path"
 mkdir -p "$INSTALLER_PATH"
-for command in bash dirname git mkdir python3 readlink; do
+for command in bash cp dirname git mkdir python3 readlink touch; do
     ln -s "$(command -v "$command")" "$INSTALLER_PATH/$command"
 done
 INSTALL_BLOCKER="$TEST_ROOT/install-blocker"
 : > "$INSTALL_BLOCKER"
+# XDG_DATA_HOME is redirected in every installer run here: the desktop-entry
+# step writes into it, and a test must never touch the real one.
 if PATH="$INSTALLER_PATH" IPOD_TOOLS_DIR="$INSTALL_BLOCKER" \
+    XDG_DATA_HOME="$TEST_ROOT/xdg-data-blocked" \
     "$ROOT/install.sh" --no-system \
     > "$EVIDENCE_DIR/install-no-runtime.txt" 2>&1; then
     echo "installer unexpectedly continued past the dependency report" >&2
@@ -266,6 +269,26 @@ grep -Fq 'https://github.com/yt-dlp/yt-dlp/wiki/EJS' \
     "$EVIDENCE_DIR/install-no-runtime.txt"
 grep -Fq 'YouTube downloads need Deno' \
     "$EVIDENCE_DIR/install-no-runtime.txt"
+
+# The app-grid entry is generated before anything that needs the network and
+# carries this checkout's absolute path, which is what heals a stale entry
+# after the repository moves. Blocking the tools dir stops the run right
+# after the entry is written.
+DESKTOP_DATA="$TEST_ROOT/xdg-data"
+ROOT_REAL="$(readlink -f "$ROOT")"
+if XDG_DATA_HOME="$DESKTOP_DATA" IPOD_TOOLS_DIR="$INSTALL_BLOCKER" \
+    "$ROOT/install.sh" --no-system \
+    > "$EVIDENCE_DIR/install-desktop-entry.txt" 2>&1; then
+    echo "installer unexpectedly continued past the blocked tools dir" >&2
+    exit 1
+fi
+DESKTOP_FILE="$DESKTOP_DATA/applications/io.github.max_miller1204.IpodShuffle.desktop"
+test -f "$DESKTOP_FILE"
+grep -Fxq "Exec=\"$ROOT_REAL/ipod-gui.sh\"" "$DESKTOP_FILE"
+grep -Fxq 'Icon=io.github.max_miller1204.IpodShuffle' "$DESKTOP_FILE"
+grep -Fxq 'Terminal=false' "$DESKTOP_FILE"
+test -s "$DESKTOP_DATA/icons/hicolor/scalable/apps/io.github.max_miller1204.IpodShuffle.svg"
+grep -Fq 'Desktop entry installed' "$EVIDENCE_DIR/install-desktop-entry.txt"
 
 # js_runtime invokes these test doubles indirectly by candidate name.
 # shellcheck disable=SC2317,SC2329
@@ -514,6 +537,223 @@ test -s "$IPOD/iPod_Control/Music/Dashes/-1 Countdown.mp3"
     --yes \
     -- 'Dashes/-1 Countdown.mp3' >> "$EVIDENCE_DIR/dash-name.txt" 2>&1
 test ! -e "$IPOD/iPod_Control/Music/Dashes"
+
+# Playlist files are the fourth kind of source argument, and everything below
+# happens on a dedicated device so the invocation record of the shared one
+# stays exactly as the assertions above expect it.
+PLAYLIST_IPOD="$TEST_ROOT/playlist-target"
+PLAYLIST_LIB="$TEST_ROOT/Library"
+mkdir -p \
+    "$PLAYLIST_IPOD/iPod_Control/iTunes" \
+    "$PLAYLIST_IPOD/iPod_Control/Music" \
+    "$PLAYLIST_IPOD/iPod_Control/Speakable" \
+    "$PLAYLIST_LIB/Beach Boys" \
+    "$PLAYLIST_LIB/Neil Young"
+printf 'surf\n'     > "$PLAYLIST_LIB/Beach Boys/Surfin.mp3"
+printf 'harvest\n'  > "$PLAYLIST_LIB/Neil Young/Harvest Moon.mp3"
+printf 'gold\n'     > "$PLAYLIST_LIB/Neil Young/Heart of Gold.mp3"
+printf 'lossless\n' > "$PLAYLIST_LIB/Neil Young/On the Beach.flac"
+
+# Everything a playlist exported by another program may contain: CRLF line
+# endings, comments, blank lines, entries relative to the playlist file,
+# absolute paths, percent-encoded file:// URIs, a track that is not there, a
+# format the firmware cannot play, and a stream URL.
+{
+    printf '#EXTM3U\r\n'
+    printf '#EXTINF:180,Beach Boys - Surfin\r\n'
+    printf 'Beach Boys/Surfin.mp3\r\n'
+    printf '\r\n'
+    printf '%s\r\n' "$PLAYLIST_LIB/Neil Young/Harvest Moon.mp3"
+    printf 'file://%s/Neil%%20Young/Heart%%20of%%20Gold.mp3\r\n' "$PLAYLIST_LIB"
+    printf 'Neil Young/Not Here.mp3\r\n'
+    printf 'Neil Young/On the Beach.flac\r\n'
+    printf 'https://example.invalid/radio\r\n'
+} > "$PLAYLIST_LIB/Summer Mix.m3u"
+
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/Summer Mix.m3u" > "$EVIDENCE_DIR/playlist-m3u-sync.txt" 2>&1
+
+# The rewritten list lives at the volume root with entries relative to it, in
+# playlist order, with everything unplayable dropped.
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Beach Boys/Surfin.mp3' \
+    'iPod_Control/Music/Neil Young/Harvest Moon.mp3' \
+    'iPod_Control/Music/Neil Young/Heart of Gold.mp3') \
+    "$PLAYLIST_IPOD/Summer Mix.m3u"
+test -s "$PLAYLIST_IPOD/iPod_Control/Music/Beach Boys/Surfin.mp3"
+test -s "$PLAYLIST_IPOD/iPod_Control/Music/Neil Young/Harvest Moon.mp3"
+test -s "$PLAYLIST_IPOD/iPod_Control/Music/Neil Young/Heart of Gold.mp3"
+test ! -e "$PLAYLIST_IPOD/iPod_Control/Music/Neil Young/On the Beach.flac"
+grep -Fq 'playlist entry is a stream, skipped' "$EVIDENCE_DIR/playlist-m3u-sync.txt"
+grep -Fq 'not found on this computer' "$EVIDENCE_DIR/playlist-m3u-sync.txt"
+grep -Fq 'cannot play' "$EVIDENCE_DIR/playlist-m3u-sync.txt"
+# No voiceover flag anywhere yet, so the screenless-device warning applies.
+grep -Fq 'Playlists without --playlist-voiceover will be unnamed on the device.' \
+    "$EVIDENCE_DIR/playlist-m3u-sync.txt"
+test ! -e "$PLAYLIST_IPOD/iPod_Control/.sync-options"
+
+# A pls playlist is ordered by its numbered entries, not by line order, and
+# reaches the device converted to m3u.
+{
+    printf '[playlist]\n'
+    printf 'File2=Beach Boys/Surfin.mp3\n'
+    printf 'Title2=Surfin\n'
+    printf 'File1=Neil Young/Heart of Gold.mp3\n'
+    printf 'NumberOfEntries=2\n'
+} > "$PLAYLIST_LIB/Party.pls"
+
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --playlist-voiceover \
+    "$PLAYLIST_LIB/Party.pls" > "$EVIDENCE_DIR/playlist-pls-sync.txt" 2>&1
+
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Neil Young/Heart of Gold.mp3' \
+    'iPod_Control/Music/Beach Boys/Surfin.mp3') \
+    "$PLAYLIST_IPOD/Party.m3u"
+
+# The warning follows the effective options, not this command line alone: the
+# voiceover choice just saved covers a playlist synced without any flags.
+printf '%s\n' "$PLAYLIST_LIB/Beach Boys/Surfin.mp3" > "$TEST_ROOT/Best: Hits.m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$TEST_ROOT/Best: Hits.m3u" > "$EVIDENCE_DIR/playlist-saved-voiceover.txt" 2>&1
+if grep -Fq 'will be unnamed on the device' \
+    "$EVIDENCE_DIR/playlist-saved-voiceover.txt"; then
+    echo "sync warned about missing voiceover the saved options provide" >&2
+    exit 1
+fi
+
+# The filename is the spoken playlist name, and FAT rejects a colon, so the
+# device copy is renamed as little as possible and the change is announced.
+test -f "$PLAYLIST_IPOD/Best_ Hits.m3u"
+grep -Fq 'characters FAT rejects' "$EVIDENCE_DIR/playlist-saved-voiceover.txt"
+
+# The property everything above exists for: the real upstream builder must
+# discover the rewritten lists and resolve every entry to a track it knows.
+# The fake builder cannot vouch for that. CI clones the builder and passes it
+# in; locally the copy install.sh keeps is used when present.
+REAL_DB_TOOL="${IPOD_REAL_DB_TOOL:-$HOME/ipod-tools/IPod-Shuffle-4g/ipod-shuffle-4g.py}"
+if [[ -f "$REAL_DB_TOOL" ]]; then
+    /usr/bin/python3 "$REAL_DB_TOOL" --verbose "$PLAYLIST_IPOD" \
+        > "$EVIDENCE_DIR/real-builder.txt" 2>&1
+    grep -Fq 'Adding playlist' "$EVIDENCE_DIR/real-builder.txt"
+    if grep -Fq 'Could not find track' "$EVIDENCE_DIR/real-builder.txt"; then
+        echo "the real builder could not resolve a rewritten playlist entry" >&2
+        exit 1
+    fi
+    # One master playlist plus the three synced above, over three tracks,
+    # read back from the bdhs header the firmware reads.
+    /usr/bin/python3 - "$PLAYLIST_IPOD/iPod_Control/iTunes/iTunesSD" <<'PY'
+import struct
+import sys
+
+data = open(sys.argv[1], "rb").read()
+assert data[0:4] == b"bdhs", data[0:4]
+tracks = struct.unpack_from("<I", data, 12)[0]
+playlists = struct.unpack_from("<I", data, 16)[0]
+assert tracks == 3, tracks
+assert playlists == 4, playlists
+PY
+else
+    printf 'skipped: real database builder not installed at %s\n' "$REAL_DB_TOOL" \
+        > "$EVIDENCE_DIR/real-builder.txt"
+    echo "NOTICE: real-builder playlist check skipped; run ./install.sh to enable" >&2
+fi
+
+# A removed track leaves every list that names it, and a list that loses its
+# last track disappears rather than survive as a playlist that plays nothing.
+"$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --yes \
+    'Neil Young/Harvest Moon.mp3' > "$EVIDENCE_DIR/playlist-prune.txt" 2>&1
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Beach Boys/Surfin.mp3' \
+    'iPod_Control/Music/Neil Young/Heart of Gold.mp3') \
+    "$PLAYLIST_IPOD/Summer Mix.m3u"
+grep -Fq "Playlist 'Summer Mix': dropped 1 removed track(s)" \
+    "$EVIDENCE_DIR/playlist-prune.txt"
+
+"$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --yes \
+    'Beach Boys' > "$EVIDENCE_DIR/playlist-prune-empty.txt" 2>&1
+test ! -e "$PLAYLIST_IPOD/Best_ Hits.m3u"
+grep -Fq "Removed playlist 'Best_ Hits': every track it listed is gone" \
+    "$EVIDENCE_DIR/playlist-prune-empty.txt"
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Neil Young/Heart of Gold.mp3') \
+    "$PLAYLIST_IPOD/Party.m3u"
+
+# Wiping clears the playlists with the tracks, and the backup keeps them: each
+# list is the only record of which songs made up that playlist.
+"$ROOT/ipod-wipe.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --backup "$TEST_ROOT/playlist-backup" \
+    --yes > "$EVIDENCE_DIR/playlist-wipe.txt" 2>&1
+test -s "$TEST_ROOT/playlist-backup/Playlists/Summer Mix.m3u"
+test -s "$TEST_ROOT/playlist-backup/Playlists/Party.m3u"
+test -z "$(find "$PLAYLIST_IPOD" -maxdepth 1 -name '*.m3u' -print -quit)"
+
+# --clear starts the device over, so the playlists referencing the deleted
+# tracks go too.
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/Summer Mix.m3u" > "$EVIDENCE_DIR/playlist-clear-setup.txt" 2>&1
+test -f "$PLAYLIST_IPOD/Summer Mix.m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --clear \
+    --yes \
+    "$PLAYLIST_LIB/Beach Boys" < /dev/null \
+    > "$EVIDENCE_DIR/playlist-clear.txt" 2>&1
+test ! -e "$PLAYLIST_IPOD/Summer Mix.m3u"
+grep -Fq 'Removed 1 playlist(s)' "$EVIDENCE_DIR/playlist-clear.txt"
+
+# A playlist can be deleted by name, which removes only the list itself. The
+# GUI's per-playlist trash button drives exactly this.
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/Summer Mix.m3u" > "$EVIDENCE_DIR/playlist-byname-setup.txt" 2>&1
+test -f "$PLAYLIST_IPOD/Summer Mix.m3u"
+
+# An unknown name must not delete anything, and says what the device has,
+# since with no screen the names are otherwise only spoken audio.
+if "$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --yes \
+    --playlist 'No Such List' > "$EVIDENCE_DIR/playlist-byname-unknown.txt" 2>&1; then
+    echo "ipod-remove.sh deleted a playlist that does not exist" >&2
+    exit 1
+fi
+grep -Fq 'Summer Mix' "$EVIDENCE_DIR/playlist-byname-unknown.txt"
+test -f "$PLAYLIST_IPOD/Summer Mix.m3u"
+
+# A separator in a playlist name is refused before it can point anywhere.
+if "$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --yes \
+    --playlist '../iPod_Control/iTunes/iTunesSD' \
+    > "$EVIDENCE_DIR/playlist-byname-escape.txt" 2>&1; then
+    echo "ipod-remove.sh accepted a playlist name with separators" >&2
+    exit 1
+fi
+test -s "$PLAYLIST_IPOD/iPod_Control/iTunes/iTunesSD"
+
+"$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --yes \
+    --playlist 'Summer Mix' > "$EVIDENCE_DIR/playlist-byname-delete.txt" 2>&1
+test ! -e "$PLAYLIST_IPOD/Summer Mix.m3u"
+test -s "$PLAYLIST_IPOD/iPod_Control/Music/Beach Boys/Surfin.mp3"
+test -s "$PLAYLIST_IPOD/iPod_Control/Music/Neil Young/Heart of Gold.mp3"
+grep -Fq 'the songs they listed stay' "$EVIDENCE_DIR/playlist-byname-delete.txt"
+grep -Fq 'Rebuilding iTunesSD database' "$EVIDENCE_DIR/playlist-byname-delete.txt"
 
 /usr/bin/python3 "$ROOT/tests/gui-actions-smoke.py" \
     > "$EVIDENCE_DIR/gui-actions.json"
@@ -766,6 +1006,18 @@ printf '%s\n' \
     "PASS: removal refused paths outside the music folder and the folder itself" \
     "PASS: a single file synced into a folder named after the one it came from" \
     "PASS: a track name starting with a dash stayed a path rather than a flag" \
+    "PASS: a playlist file synced its tracks and left a rewritten list at the volume root" \
+    "PASS: playlist entries kept their order, decoded file URIs, and dropped streams and misses" \
+    "PASS: a pls playlist reached the device as m3u, ordered by its numbered entries" \
+    "PASS: the voiceover warning followed the effective options, not the command line alone" \
+    "PASS: a FAT-hostile playlist name was adjusted and the change announced" \
+    "PASS: the real database builder resolved every rewritten playlist entry" \
+    "PASS: removal pruned playlists and deleted one that lost every track" \
+    "PASS: wipe backed up the playlists and cleared them from the volume root" \
+    "PASS: sync --clear removed the playlists with the tracks they referenced" \
+    "PASS: a playlist was deleted by name, keeping every song it listed" \
+    "PASS: GUI add-playlist named the device, options and file, and switched spoken names on" \
+    "PASS: GUI playlist rows parsed the device lists and removal mapped to the script" \
     "PASS: GUI removal and YouTube commands named the device, options and paths" \
     "PASS: fetch requested playable MP3 with tags and vfat-safe filenames" \
     "PASS: fetch copied only this run's downloads, not the whole output folder" \
@@ -774,6 +1026,7 @@ printf '%s\n' \
     "PASS: fetch passed a JavaScript runtime, without which downloads 403" \
     "PASS: runtime probe reported absence instead of naming an uninstalled one" \
     "PASS: installer reported a missing runtime instead of offering a stale nodejs" \
+    "PASS: installer generated the app-grid entry pointing at this checkout" \
     "PASS: runtime probe rejected unsupported versions and accepted supported boundaries" \
     "PASS: old PATH yt-dlp fallback omitted its unsupported runtime option" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
