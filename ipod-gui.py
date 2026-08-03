@@ -4458,8 +4458,8 @@ class IpodWindow(Adw.ApplicationWindow):
             heading="Add from YouTube",
             body=(
                 "The audio is converted to MP3, tagged with its artist and "
-                f"title, kept in {home_relative(YOUTUBE_LIBRARY)}, and copied "
-                "onto the iPod."
+                f"title, kept in {home_relative(YOUTUBE_LIBRARY)}, and queued "
+                "for the next sync."
             ),
         )
         dialog.set_extra_child(fields)
