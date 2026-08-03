@@ -98,24 +98,29 @@ info "iPod: $IPOD"
 # does not leave the first half of the request already carried out.
 declare -a TARGETS=()
 if (( PLAYLIST_MODE )); then
-    # Playlists live at the volume root as <name>.m3u, so a name is a bare
+    # Playlists live at the volume root, so a name is a bare
     # filename by construction; anything with a separator is refused before
     # it can point somewhere else.
     for arg in "$@"; do
         [[ -n "$arg" ]] || die "Empty playlist name."
         name="${arg%.m3u}"
-        [[ "$name" != */* && "$name" != *..* ]] \
+        name="${name%.pls}"
+        [[ "$name" != */* && "$name" != *\\* ]] \
             || die "Not a playlist name: $arg"
         target="$IPOD/$name.m3u"
         if [[ ! -f "$target" ]]; then
+            target="$IPOD/$name.pls"
+        fi
+        if [[ ! -f "$target" ]]; then
             err "No playlist called '$name' on this iPod."
             shopt -s nullglob
-            available=("$IPOD"/*.m3u)
+            available=("$IPOD"/*.m3u "$IPOD"/*.pls)
             shopt -u nullglob
             if (( ${#available[@]} > 0 )); then
                 err "It has:"
                 for list in "${available[@]}"; do
-                    printf '  %s\n' "$(basename -- "${list%.m3u}")" >&2
+                    available_name="$(basename -- "$list")"
+                    printf '  %s\n' "${available_name%.*}" >&2
                 done
             else
                 err "It has no playlists."
@@ -169,7 +174,8 @@ if (( ! ASSUME_YES )); then
     if (( PLAYLIST_MODE )); then
         info "About to remove ${#TARGETS[@]} playlist(s):"
         for target in "${TARGETS[@]}"; do
-            printf '  %s\n' "$(basename -- "${target%.m3u}")"
+            playlist_name="$(basename -- "$target")"
+            printf '  %s\n' "${playlist_name%.*}"
         done
         info "The songs they list stay on the iPod."
     else

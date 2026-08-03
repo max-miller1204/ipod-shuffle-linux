@@ -96,6 +96,30 @@ test ! -e "$IPOD/iPod_Control/.sync-options"
 grep -Fq 'Playlists without --playlist-voiceover will be unnamed on the device.' \
     "$EVIDENCE_DIR/playlist-without-voiceover-warning.txt"
 
+EFFECTIVE_OPTIONS_IPOD="$TEST_ROOT/effective-options-target"
+mkdir -p \
+    "$EFFECTIVE_OPTIONS_IPOD/iPod_Control/iTunes" \
+    "$EFFECTIVE_OPTIONS_IPOD/iPod_Control/Music" \
+    "$EFFECTIVE_OPTIONS_IPOD/iPod_Control/Speakable"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$EFFECTIVE_OPTIONS_IPOD" \
+    --dir-playlists \
+    "$SOURCE" > "$EVIDENCE_DIR/saved-dir-playlists-setup.txt" 2>&1
+"$ROOT/ipod-sync.sh" \
+    --ipod "$EFFECTIVE_OPTIONS_IPOD" \
+    --rebuild-only > "$EVIDENCE_DIR/saved-dir-playlists-warning.txt" 2>&1
+grep -Fq 'Playlists without --playlist-voiceover will be unnamed on the device.' \
+    "$EVIDENCE_DIR/saved-dir-playlists-warning.txt"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$EFFECTIVE_OPTIONS_IPOD" \
+    --id3-playlists \
+    --rebuild-only > "$EVIDENCE_DIR/saved-id3-playlists-setup.txt" 2>&1
+"$ROOT/ipod-sync.sh" \
+    --ipod "$EFFECTIVE_OPTIONS_IPOD" \
+    --rebuild-only > "$EVIDENCE_DIR/saved-id3-playlists-warning.txt" 2>&1
+grep -Fq 'Playlists without --playlist-voiceover will be unnamed on the device.' \
+    "$EVIDENCE_DIR/saved-id3-playlists-warning.txt"
+
 # --clear is the one destructive thing sync does, so it asks first, and with no
 # terminal attached that question answers itself as no. Without --yes the only
 # way to drive it from a script was to pipe a "y" into stdin.
@@ -664,6 +688,47 @@ else
     echo "NOTICE: real-builder playlist check skipped; run ./install.sh to enable" >&2
 fi
 
+mkdir -p \
+    "$PLAYLIST_LIB/Artist A/Greatest Hits" \
+    "$PLAYLIST_LIB/Artist B/Greatest Hits"
+printf 'artist a\n' > "$PLAYLIST_LIB/Artist A/Greatest Hits/01.mp3"
+printf 'artist b\n' > "$PLAYLIST_LIB/Artist B/Greatest Hits/01.mp3"
+printf '%s\n' \
+    "$PLAYLIST_LIB/Artist A/Greatest Hits/01.mp3" \
+    "$PLAYLIST_LIB/Artist B/Greatest Hits/01.mp3" \
+    > "$PLAYLIST_LIB/Collisions.m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/Collisions.m3u" > "$EVIDENCE_DIR/playlist-collisions.txt" 2>&1
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Greatest Hits/01.mp3' \
+    'iPod_Control/Music/Artist B - Greatest Hits/01.mp3') \
+    "$PLAYLIST_IPOD/Collisions.m3u"
+cmp -s \
+    "$PLAYLIST_LIB/Artist A/Greatest Hits/01.mp3" \
+    "$PLAYLIST_IPOD/iPod_Control/Music/Greatest Hits/01.mp3"
+cmp -s \
+    "$PLAYLIST_LIB/Artist B/Greatest Hits/01.mp3" \
+    "$PLAYLIST_IPOD/iPod_Control/Music/Artist B - Greatest Hits/01.mp3"
+grep -Fq 'Destination already holds a different track' \
+    "$EVIDENCE_DIR/playlist-collisions.txt"
+
+printf '%s\n' "$PLAYLIST_LIB/Beach Boys/Surfin.mp3" \
+    > "$PLAYLIST_LIB/Changing.m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/Changing.m3u" > "$EVIDENCE_DIR/playlist-changing-setup.txt" 2>&1
+test -f "$PLAYLIST_IPOD/Changing.m3u"
+printf '%s\n' "$PLAYLIST_LIB/Beach Boys/No Longer Here.mp3" \
+    > "$PLAYLIST_LIB/Changing.m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/Changing.m3u" > "$EVIDENCE_DIR/playlist-changing-empty.txt" 2>&1
+test ! -e "$PLAYLIST_IPOD/Changing.m3u"
+grep -Fq "Playlist 'Changing' references no playable local files; removed from the device." \
+    "$EVIDENCE_DIR/playlist-changing-empty.txt"
+
 # A removed track leaves every list that names it, and a list that loses its
 # last track disappears rather than survive as a playlist that plays nothing.
 "$ROOT/ipod-remove.sh" \
@@ -721,6 +786,8 @@ grep -Fq 'Removed 1 playlist(s)' "$EVIDENCE_DIR/playlist-clear.txt"
     --ipod "$PLAYLIST_IPOD" \
     "$PLAYLIST_LIB/Summer Mix.m3u" > "$EVIDENCE_DIR/playlist-byname-setup.txt" 2>&1
 test -f "$PLAYLIST_IPOD/Summer Mix.m3u"
+printf '%s\n' 'File1=iPod_Control/Music/Beach Boys/Surfin.mp3' \
+    > "$PLAYLIST_IPOD/Legacy.pls"
 
 # An unknown name must not delete anything, and says what the device has,
 # since with no screen the names are otherwise only spoken audio.
@@ -732,6 +799,7 @@ if "$ROOT/ipod-remove.sh" \
     exit 1
 fi
 grep -Fq 'Summer Mix' "$EVIDENCE_DIR/playlist-byname-unknown.txt"
+grep -Fq 'Legacy' "$EVIDENCE_DIR/playlist-byname-unknown.txt"
 test -f "$PLAYLIST_IPOD/Summer Mix.m3u"
 
 # A separator in a playlist name is refused before it can point anywhere.
@@ -744,6 +812,48 @@ if "$ROOT/ipod-remove.sh" \
     exit 1
 fi
 test -s "$PLAYLIST_IPOD/iPod_Control/iTunes/iTunesSD"
+
+if "$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --yes \
+    --playlist '..\\iPod_Control\\iTunes\\iTunesSD' \
+    > "$EVIDENCE_DIR/playlist-byname-windows-escape.txt" 2>&1; then
+    echo "ipod-remove.sh accepted a playlist name with backslash separators" >&2
+    exit 1
+fi
+test -s "$PLAYLIST_IPOD/iPod_Control/iTunes/iTunesSD"
+
+printf '%s\n' "$PLAYLIST_LIB/Neil Young/Heart of Gold.mp3" \
+    > "$PLAYLIST_LIB/mix..v2.m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/mix..v2.m3u" > "$EVIDENCE_DIR/playlist-double-dot-setup.txt" 2>&1
+test -f "$PLAYLIST_IPOD/mix..v2.m3u"
+"$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --yes \
+    --playlist 'mix..v2' > "$EVIDENCE_DIR/playlist-double-dot-delete.txt" 2>&1
+test ! -e "$PLAYLIST_IPOD/mix..v2.m3u"
+
+"$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --yes \
+    --playlist 'Legacy' > "$EVIDENCE_DIR/playlist-pls-delete.txt" 2>&1
+test ! -e "$PLAYLIST_IPOD/Legacy.pls"
+
+printf '%s\n' '#EXTM3U' > "$PLAYLIST_IPOD/Priority.m3u"
+printf '%s\n' '[playlist]' > "$PLAYLIST_IPOD/Priority.pls"
+"$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --yes \
+    --playlist 'Priority' > "$EVIDENCE_DIR/playlist-format-priority.txt" 2>&1
+test ! -e "$PLAYLIST_IPOD/Priority.m3u"
+test -f "$PLAYLIST_IPOD/Priority.pls"
+"$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --yes \
+    --playlist 'Priority' >> "$EVIDENCE_DIR/playlist-format-priority.txt" 2>&1
+test ! -e "$PLAYLIST_IPOD/Priority.pls"
 
 "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
@@ -990,6 +1100,7 @@ printf '%s\n' \
     "PASS: playlist flags used explicit upstream values and persisted across rebuild" \
     "PASS: GUI restored playlist and voiceover choices and mapped them to CLI flags" \
     "PASS: missing playlist voiceover produced a screenless-device warning" \
+    "PASS: saved directory and tag playlist options produced the voiceover warning" \
     "PASS: sync --clear refused to delete unattended, and --yes let it through" \
     "PASS: --yes answered the Speakable prompt too, in all three scripts" \
     "PASS: wipe backed up music/database and preserved Speakable plus Device state" \
@@ -1012,10 +1123,13 @@ printf '%s\n' \
     "PASS: the voiceover warning followed the effective options, not the command line alone" \
     "PASS: a FAT-hostile playlist name was adjusted and the change announced" \
     "PASS: the real database builder resolved every rewritten playlist entry" \
+    "PASS: colliding playlist tracks kept distinct content and destinations" \
+    "PASS: replacing a playlist with no playable tracks removed its stale device list" \
     "PASS: removal pruned playlists and deleted one that lost every track" \
     "PASS: wipe backed up the playlists and cleared them from the volume root" \
     "PASS: sync --clear removed the playlists with the tracks they referenced" \
     "PASS: a playlist was deleted by name, keeping every song it listed" \
+    "PASS: double-dot M3U and root PLS playlist names listed and deleted safely" \
     "PASS: GUI add-playlist named the device, options and file, and switched spoken names on" \
     "PASS: GUI playlist rows parsed the device lists and removal mapped to the script" \
     "PASS: GUI removal and YouTube commands named the device, options and paths" \

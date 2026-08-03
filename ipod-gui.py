@@ -378,11 +378,21 @@ def list_playlists(mount_point):
     elsewhere are kept as written.
     """
     playlists = []
-    for path in sorted(Path(mount_point).glob("*.m3u")):
+    root = Path(mount_point)
+    paths = sorted((*root.glob("*.m3u"), *root.glob("*.pls")))
+    for path in paths:
         try:
             lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         except OSError:
             continue
+        if path.suffix.lower() == ".pls":
+            numbered = []
+            for line in lines:
+                key, separator, value = line.partition("=")
+                match = re.fullmatch(r"File([0-9]+)", key.strip(), re.IGNORECASE)
+                if separator and match:
+                    numbered.append((int(match.group(1)), value.strip()))
+            lines = [value for _index, value in sorted(numbered)]
         entries = []
         for line in lines:
             line = line.strip()

@@ -176,6 +176,8 @@ For the same reason, the playlist files the sync keeps at the top of the iPod ar
 ./ipod-remove.sh --playlist twizzy 'alt stuff'
 ```
 
+Root M3U and PLS playlists are both supported, with M3U chosen first if both formats have the same name.
+
 The script refuses any path that resolves outside the music folder, and points at `ipod-wipe.sh` if you aim it at the whole library.
 
 ### Wipe the device
@@ -455,7 +457,7 @@ Useful when deciding what is safe to delete.
 | Path | What it is | Safe to delete |
 | --- | --- | --- |
 | `iPod_Control/Music/` | The audio files | Yes, this is the music |
-| `*.m3u` at the volume root | The playlists the sync manages | Yes, that deletes the playlist |
+| `*.m3u` or `*.pls` at the volume root | Device playlists | Yes, that deletes the playlist |
 | `iPod_Control/iTunes/iTunesSD` | The database the firmware reads | Yes, rebuilt by the tool |
 | `iPod_Control/iTunes/iTunesDB` | iTunes' own metadata copy | Yes, but back it up first |
 | `iPod_Control/iTunes/iTunesPrefs` | Previous owner's library binding | Yes, and worth clearing |

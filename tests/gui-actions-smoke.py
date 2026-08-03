@@ -162,10 +162,20 @@ fake_volume = Path(tempfile.mkdtemp())
     "#EXTM3U\r\niPod_Control/Music/Yeat/Song [x1].mp3\r\n\r\n/kept/as/written.mp3\n",
     encoding="utf-8",
 )
+(fake_volume / "mix..v2.m3u").write_text(
+    "iPod_Control/Music/Yeat/Song [x1].mp3\n",
+    encoding="utf-8",
+)
+(fake_volume / "Radio.pls").write_text(
+    "[playlist]\nFile2=/second.mp3\nTitle2=Second\nfile1=iPod_Control/Music/Yeat/Song [x1].mp3\n",
+    encoding="utf-8",
+)
 (fake_volume / "iPod_Control").mkdir()
 parsed = ipod_gui.list_playlists(fake_volume)
 assert parsed == [
-    ("Party", ["Yeat/Song [x1].mp3", "/kept/as/written.mp3"])
+    ("Party", ["Yeat/Song [x1].mp3", "/kept/as/written.mp3"]),
+    ("Radio", ["Yeat/Song [x1].mp3", "/second.mp3"]),
+    ("mix..v2", ["Yeat/Song [x1].mp3"]),
 ], parsed
 
 # ------------------------------------------------------------------ youtube

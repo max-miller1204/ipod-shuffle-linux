@@ -141,9 +141,10 @@ fi
 # needs no warning.
 PLAYLIST_VOICEOVER=0
 for arg in "${DB_ARGS[@]+"${DB_ARGS[@]}"}"; do
-    if [[ "$arg" == "--playlist-voiceover" ]]; then
-        PLAYLIST_VOICEOVER=1
-    fi
+    case "$arg" in
+        --playlist-voiceover) PLAYLIST_VOICEOVER=1 ;;
+        --auto-dir-playlists|--auto-id3-playlists) PLAYLISTS=1 ;;
+    esac
 done
 if (( PLAYLISTS && ! PLAYLIST_VOICEOVER )); then
     warn "Playlists without --playlist-voiceover will be unnamed on the device."
@@ -174,23 +175,44 @@ fi
 copied=0
 skipped=0
 duplicates=0
+COPY_TARGET=""
 
 # Copy one track, unless it is a format the firmware cannot decode or is
 # already on the device. The counters belong to the enclosing script.
 copy_track() {
     local source="$1" target="$2"
+    local source_parent source_grandparent candidate
+    local collision_index=2
+
+    COPY_TARGET="$target"
 
     if [[ ! "${source,,}" =~ \.(${SUPPORTED_EXT})$ ]]; then
         skipped=$((skipped + 1))
         return 0
     fi
-    if [[ -e "$target" ]]; then
+    if [[ -e "$COPY_TARGET" ]] && cmp -s -- "$source" "$COPY_TARGET"; then
         duplicates=$((duplicates + 1))
         return 0
     fi
+    if [[ -e "$COPY_TARGET" ]]; then
+        source_parent="$(basename -- "$(dirname -- "$source")")"
+        source_grandparent="$(basename -- "$(dirname -- "$(dirname -- "$source")")")"
+        [[ "$source_grandparent" != "/" ]] || source_grandparent="Root"
+        candidate="$MUSIC_DIR/$source_grandparent - $source_parent/$(basename -- "$target")"
+        while [[ -e "$candidate" ]] && ! cmp -s -- "$source" "$candidate"; do
+            candidate="$MUSIC_DIR/$source_grandparent - $source_parent ($collision_index)/$(basename -- "$target")"
+            collision_index=$((collision_index + 1))
+        done
+        COPY_TARGET="$candidate"
+        if [[ -e "$COPY_TARGET" ]]; then
+            duplicates=$((duplicates + 1))
+            return 0
+        fi
+        warn "Destination already holds a different track; copying this one as ${COPY_TARGET#"$MUSIC_DIR"/}."
+    fi
 
-    mkdir -p "$(dirname "$target")"
-    cp "$source" "$target"
+    mkdir -p "$(dirname "$COPY_TARGET")"
+    cp "$source" "$COPY_TARGET"
     copied=$((copied + 1))
 }
 
@@ -299,6 +321,7 @@ sync_playlist() {
         fi
         dest="$(file_dest_dir "$entry")/$(basename "$entry")"
         copy_track "$entry" "$dest"
+        dest="$COPY_TARGET"
         lines+=("iPod_Control/Music${dest#"$MUSIC_DIR"}")
         added=$((added + 1))
     done < <(playlist_entries "$list")
@@ -308,7 +331,12 @@ sync_playlist() {
         warn "  ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3"
     fi
     if (( added == 0 )); then
-        warn "Playlist '$stem' references no playable local files; not created."
+        if [[ -f "$target" ]]; then
+            rm -f -- "$target"
+            warn "Playlist '$device_stem' references no playable local files; removed from the device."
+        else
+            warn "Playlist '$stem' references no playable local files; not created."
+        fi
         return 0
     fi
     printf '%s\n' "#EXTM3U" "${lines[@]}" > "$target"
