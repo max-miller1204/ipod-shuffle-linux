@@ -179,6 +179,7 @@ try:
     ipod_gui.TAG_PYTHON = sys.executable
     ipod_gui._TAG_READER = """
 import json, sys, time
+print(json.dumps({"path": "Artist/Fallback.mp3", "title": "Fallback"}), flush=True)
 print(json.dumps({"path": "Artist/Fallback.mp3", "title": "Tagged"}), flush=True)
 time.sleep(10)
 """
@@ -189,6 +190,14 @@ time.sleep(10)
     assert elapsed < 2, elapsed
     assert records[0]["title"] == "Tagged", records
     assert [record["title"] for record in streamed] == ["Fallback", "Tagged"], streamed
+
+    started = time.monotonic()
+    ipod_gui.scan_tracks(
+        scan_root,
+        timeout=10,
+        cancelled=lambda: time.monotonic() - started >= 0.1,
+    )
+    assert time.monotonic() - started < 2, "cancelled scan left its reader running"
 finally:
     ipod_gui._tag_interpreter = original_interpreter
     ipod_gui.TAG_PYTHON = original_tag_python

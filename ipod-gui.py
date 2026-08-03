@@ -119,12 +119,12 @@ def strip_ansi(text):
 # holding two gigabytes of music would sit behind one timeout with nothing to
 # show; per-line output lets the grid fill in as results arrive.
 _TAG_READER = r"""
-import base64, hashlib, json, sys
+import base64, hashlib, json, os, sys
 from pathlib import Path
 try:
     import mutagen
 except ImportError:
-    sys.exit(0)
+    mutagen = None
 
 root = Path(sys.argv[1])
 art_dir = Path(sys.argv[2])
@@ -185,61 +185,46 @@ def art_path(path):
     return str(target)
 
 
-for path in sorted(root.rglob("*")):
-    if not path.is_file() or path.suffix.lower() not in suffixes:
-        continue
-    try:
-        audio = mutagen.File(path, easy=True)
-    except Exception:
-        continue
-    if audio is None:
-        continue
-    try:
-        size = path.stat().st_size
-    except OSError:
-        size = 0
-    record = {
-        "path": str(path.relative_to(root)),
-        "title": first(audio, "title"),
-        "artist": first(audio, "artist"),
-        "album": first(audio, "album"),
-        "albumartist": first(audio, "albumartist"),
-        "genre": first(audio, "genre"),
-        "track": first(audio, "tracknumber"),
-        # Duration is not metadata, so easy=True never exposes it. It is on
-        # the file object either way, and costs nothing extra here.
-        "duration": float(getattr(getattr(audio, "info", None), "length", 0) or 0),
-        "size": size,
-        "art": art_path(path),
-    }
-    sys.stdout.write(json.dumps(record) + "\n")
-    sys.stdout.flush()
+for current, dirs, files in os.walk(root):
+    dirs.sort()
+    for name in sorted(files):
+        path = Path(current, name)
+        if path.suffix.lower() not in suffixes:
+            continue
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        relpath = str(path.relative_to(root))
+        fallback = {"path": relpath, "title": path.stem, "size": size}
+        sys.stdout.write(json.dumps(fallback) + "\n")
+        sys.stdout.flush()
+        if mutagen is None:
+            continue
+        try:
+            audio = mutagen.File(path, easy=True)
+        except Exception:
+            continue
+        if audio is None:
+            continue
+        record = {
+            "path": relpath,
+            "title": first(audio, "title"),
+            "artist": first(audio, "artist"),
+            "album": first(audio, "album"),
+            "albumartist": first(audio, "albumartist"),
+            "genre": first(audio, "genre"),
+            "track": first(audio, "tracknumber"),
+            "duration": float(getattr(getattr(audio, "info", None), "length", 0) or 0),
+            "size": size,
+            "art": art_path(path),
+        }
+        sys.stdout.write(json.dumps(record) + "\n")
+        sys.stdout.flush()
 """
 
 
-def _fallback_track_records(root):
-    records = []
-    for current, dirs, files in os.walk(root):
-        dirs.sort()
-        for name in sorted(files):
-            path = Path(current, name)
-            if path.suffix.lower() not in AUDIO_EXTENSIONS:
-                continue
-            try:
-                size = path.stat().st_size
-            except OSError:
-                size = 0
-            records.append(
-                {
-                    "path": str(path.relative_to(root)),
-                    "title": path.stem,
-                    "size": size,
-                }
-            )
-    return records
-
-
-def scan_tracks(root, on_record=None, timeout=900):
+def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
     """Read tags for every supported file under root.
 
     Returns a list of record dicts keyed by a path relative to root. on_record,
@@ -251,22 +236,12 @@ def scan_tracks(root, on_record=None, timeout=900):
         TAG_PYTHON = _tag_interpreter()
 
     root = Path(root)
-    if not root.is_dir():
-        return []
-
-    records = {
-        record["path"]: record for record in _fallback_track_records(root)
-    }
-    if on_record is not None:
-        for record in records.values():
-            on_record(record)
-    if TAG_PYTHON is None or not records:
-        return list(records.values())
+    records = {}
 
     try:
         proc = subprocess.Popen(
             [
-                TAG_PYTHON,
+                TAG_PYTHON or sys.executable,
                 "-c",
                 _TAG_READER,
                 str(root),
@@ -279,7 +254,7 @@ def scan_tracks(root, on_record=None, timeout=900):
             bufsize=1,
         )
     except OSError:
-        return list(records.values())
+        return []
 
     output = queue.Queue()
     output_done = object()
@@ -296,13 +271,18 @@ def scan_tracks(root, on_record=None, timeout=900):
     deadline = time.monotonic() + timeout
     try:
         while True:
+            if cancelled is not None and cancelled():
+                raise subprocess.SubprocessError
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise subprocess.TimeoutExpired(proc.args, timeout)
             try:
-                line = output.get(timeout=remaining)
+                wait = min(remaining, 0.1) if cancelled is not None else remaining
+                line = output.get(timeout=wait)
             except queue.Empty as exc:
-                raise subprocess.TimeoutExpired(proc.args, timeout) from exc
+                if time.monotonic() >= deadline:
+                    raise subprocess.TimeoutExpired(proc.args, timeout) from exc
+                continue
             if line is output_done:
                 break
             line = line.strip()
@@ -313,7 +293,14 @@ def scan_tracks(root, on_record=None, timeout=900):
                 relpath = record["path"]
             except (KeyError, TypeError, ValueError):
                 continue
-            if relpath not in records:
+            if not isinstance(relpath, str):
+                continue
+            relative = Path(relpath)
+            if (
+                relative.is_absolute()
+                or ".." in relative.parts
+                or relative.suffix.lower() not in AUDIO_EXTENSIONS
+            ):
                 continue
             records[relpath] = record
             if on_record is not None:
@@ -2842,7 +2829,13 @@ class IpodWindow(Adw.ApplicationWindow):
                     GLib.idle_add(self._apply_library_batch, generation, ready)
 
             for root in roots:
-                scan_tracks(root, on_record=lambda record, r=root: publish(r, record))
+                scan_tracks(
+                    root,
+                    on_record=lambda record, r=root: publish(r, record),
+                    cancelled=lambda: generation != self.scan_generation,
+                )
+                if generation != self.scan_generation:
+                    return
             if batch:
                 GLib.idle_add(self._apply_library_batch, generation, batch[:])
             GLib.idle_add(self._finish_library_scan, generation)
@@ -2895,7 +2888,11 @@ class IpodWindow(Adw.ApplicationWindow):
                         ready,
                     )
 
-            scan_tracks(music, on_record=publish)
+            scan_tracks(
+                music,
+                on_record=publish,
+                cancelled=lambda: generation != self.tag_generation,
+            )
             if batch:
                 GLib.idle_add(
                     self._apply_device_track_batch,

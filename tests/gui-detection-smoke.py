@@ -50,6 +50,9 @@ class FakeWindow:
         self.mount_button = Recorder()
         self.stack = Recorder()
 
+    def _select_mount(self, mount_point):
+        self.mount_point = mount_point
+
 
 def refresh_with(mounts):
     """Run the detection path with find_ipods returning the given mounts."""
