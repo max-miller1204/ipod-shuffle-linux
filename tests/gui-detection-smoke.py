@@ -49,9 +49,18 @@ class FakeWindow:
         self.empty_page = Recorder()
         self.mount_button = Recorder()
         self.stack = Recorder()
+        self.disconnected_message = None
+        self.mount_offered = None
 
     def _select_mount(self, mount_point):
         self.mount_point = mount_point
+
+    def _populate_disconnected_summary(self, message, offer_mount):
+        self.disconnected_message = message
+        self.mount_offered = offer_mount
+
+    def _populate_playlist_rail(self):
+        pass
 
 
 def refresh_with(mounts):
@@ -72,33 +81,33 @@ two = refresh_with(
     ["/media/alex/Alex's iPod", "/media/alex/MAX_SHUFFLE"]
 )
 assert two.mount_point is None, two.mount_point
-assert two.stack.child == "empty", two.stack.child
-assert two.empty_page.title == "Multiple iPods Connected", two.empty_page.title
-assert "Disconnect" in (two.empty_page.description or ""), two.empty_page.description
+assert two.stack.child == "device", two.stack.child
+assert "Disconnect" in (two.disconnected_message or ""), two.disconnected_message
 
 # Offering to mount would be meaningless here, and acting on it would have to
 # pick one of the two, which is the behaviour being prevented.
-assert two.mount_button.visible is False, two.mount_button.visible
+assert two.mount_offered is False, two.mount_offered
 
 # None connected stays distinguishable from the ambiguous case, so the user is
 # not told to disconnect devices they do not have.
 none = refresh_with([])
 assert none.mount_point is None, none.mount_point
-assert none.empty_page.title == "No iPod Connected", none.empty_page.title
-assert none.mount_button.visible is True, none.mount_button.visible
+assert none.stack.child == "device", none.stack.child
+assert "No iPod" in (none.disconnected_message or ""), none.disconnected_message
+assert none.mount_offered is True, none.mount_offered
 
 print(
     json.dumps(
         {
             "two_connected": {
                 "selected": two.mount_point,
-                "title": two.empty_page.title,
-                "mount_offered": two.mount_button.visible,
+                "message": two.disconnected_message,
+                "mount_offered": two.mount_offered,
             },
             "none_connected": {
                 "selected": none.mount_point,
-                "title": none.empty_page.title,
-                "mount_offered": none.mount_button.visible,
+                "message": none.disconnected_message,
+                "mount_offered": none.mount_offered,
             },
         },
         indent=2,

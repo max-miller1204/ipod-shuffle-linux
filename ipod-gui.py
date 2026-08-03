@@ -410,6 +410,30 @@ def device_for(mount_point):
         return None
 
 
+def volume_identity(mount_point):
+    try:
+        uuid = subprocess.run(
+            ["findmnt", "-rno", "UUID", "--target", mount_point],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        uuid = ""
+    if uuid and uuid != "-":
+        return f"uuid:{uuid}"
+
+    try:
+        sysinfo = Path(
+            mount_point, "iPod_Control", "Device", "SysInfo"
+        ).read_bytes()
+    except OSError:
+        return None
+    if not sysinfo:
+        return None
+    return f"sysinfo:{hashlib.sha256(sysinfo).hexdigest()}"
+
+
 def udisks_filesystem_call(device, method):
     """Invoke a UDisks2 Filesystem method on a block device.
 
@@ -555,6 +579,49 @@ def fetched_sources(list_path, library):
     return [line.strip() for line in lines if line.strip()]
 
 
+def local_playlist_tracks(list_path):
+    path = Path(list_path)
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    if path.suffix.lower() == ".pls":
+        numbered = []
+        for line in lines:
+            key, separator, value = line.partition("=")
+            match = re.fullmatch(r"File([0-9]+)", key.strip(), re.IGNORECASE)
+            if separator and match:
+                numbered.append((int(match.group(1)), value.strip()))
+        entries = [value for _index, value in sorted(numbered)]
+    else:
+        entries = [
+            line.strip()
+            for line in lines
+            if line.strip() and not line.strip().startswith("#")
+        ]
+
+    tracks = []
+    for entry in entries:
+        if entry.lower().startswith("file:"):
+            parsed = urllib.parse.urlparse(entry)
+            if parsed.netloc not in ("", "localhost"):
+                continue
+            entry = urllib.parse.unquote(parsed.path)
+        elif re.match(r"[A-Za-z][A-Za-z0-9+.-]*://", entry):
+            continue
+        track = Path(entry) if Path(entry).is_absolute() else path.parent / entry
+        if not track.exists() and "\\" in entry:
+            slashed = entry.replace("\\", "/")
+            candidate = (
+                Path(slashed) if Path(slashed).is_absolute() else path.parent / slashed
+            )
+            if candidate.exists():
+                track = candidate
+        if track.is_file() and track.suffix.lower() in AUDIO_EXTENSIONS:
+            tracks.append(str(track.absolute()))
+    return tracks
+
+
 def count_tracks(mount_point):
     music = Path(mount_point, "iPod_Control", "Music")
     if not music.is_dir():
@@ -642,7 +709,7 @@ def write_playlist(mount_point, path, entries):
     music = Path(mount_point, "iPod_Control", "Music")
     lines = []
     for entry in entries:
-        if (music / entry).exists():
+        if not Path(entry).is_absolute() and (music / entry).exists():
             entry = MUSIC_PREFIX + entry
         lines.append(entry)
 
@@ -770,6 +837,7 @@ class Track:
         return (
             (self.title or "").strip().lower(),
             (self.artist or "").strip().lower(),
+            (self.album or "").strip().lower(),
             round(self.duration),
         )
 
@@ -1437,6 +1505,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self.add_css_class("shuffle")
 
         self.mount_point = None
+        self.device_identity = None
         self.busy = False
         self.track_names = {}
         self.tag_generation = 0
@@ -1455,6 +1524,8 @@ class IpodWindow(Adw.ApplicationWindow):
         self._device_scan_tracks = {}
         self._library_scan_tracks = {}
         self.pending = {}
+        self.pending_sources = {}
+        self.pending_device_identity = None
         self.sync_files = []
         self.sync_total = 0
         # Setting a filter pill active while the view is still being built
@@ -2516,20 +2587,23 @@ class IpodWindow(Adw.ApplicationWindow):
         candidates = find_ipods()
         if len(candidates) != 1:
             self._select_mount(None)
+            self.playlists = []
+            self.spoken = set()
+            self.current_playlist = None
             if len(candidates) > 1:
-                self.empty_page.set_title("Multiple iPods Connected")
-                self.empty_page.set_description(
-                    "Disconnect all but the iPod you want to manage."
+                self._populate_disconnected_summary(
+                    "Multiple iPods connected. Disconnect all but the one you "
+                    "want to manage.",
+                    False,
                 )
-                self.mount_button.set_visible(False)
             else:
-                self.empty_page.set_title("No iPod Connected")
-                self.empty_page.set_description(
-                    "Plug in an iPod shuffle and it will appear here.\n"
-                    "If it is already connected, it may need mounting."
+                self._populate_disconnected_summary(
+                    "No iPod connected. Plug one in, or mount it if it is "
+                    "already attached.",
+                    True,
                 )
-                self.mount_button.set_visible(True)
-            self.stack.set_visible_child_name("empty")
+            self._populate_playlist_rail()
+            self.stack.set_visible_child_name("device")
             return False
 
         self._select_mount(candidates[0])
@@ -2543,15 +2617,76 @@ class IpodWindow(Adw.ApplicationWindow):
         return False
 
     def _select_mount(self, mount_point):
-        if mount_point == self.mount_point:
+        identity = volume_identity(mount_point) if mount_point is not None else None
+        if mount_point == self.mount_point and identity == self.device_identity:
             return
         self.tag_generation += 1
         self.mount_point = mount_point
+        self.device_identity = identity
         self._device_scan_tracks = {}
         self.device_tracks = []
         self.track_names = {}
+        if (
+            mount_point is not None
+            and self.pending
+            and self.pending_device_identity != identity
+        ):
+            self.pending.clear()
+            self.pending_sources.clear()
+            self.pending_device_identity = None
+            self._toast(
+                "Queued changes were discarded because a different iPod was connected"
+            )
         self._merge_states()
         self._refresh_current_view()
+
+    def _populate_disconnected_summary(self, message, offer_mount):
+        self.device_name.set_text("No iPod")
+        self.settings_name.set_text("No iPod connected")
+        self.settings_path.set_text(message)
+        self.device_dot.remove_css_class("ipod")
+        self.device_dot.add_css_class("library")
+        self.settings_dot.remove_css_class("ipod")
+        self.settings_dot.add_css_class("library")
+        self.device_free.set_text("Not connected")
+        self.device_count.set_text("")
+        self.wipe_note.set_text("Connect an iPod before using device controls.")
+        for meter in (self.sidebar_meter, self.settings_meter):
+            meter.set_fractions(0, 0, False)
+        self._set_settings_figures(None, 0, 0, False)
+
+        child = self.device_banner.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.device_banner.remove(child)
+            child = nxt
+        warning = label(message, "sf-caption", wrap=True, hexpand=True)
+        warning.set_margin_start(11)
+        warning.set_margin_top(10)
+        warning.set_margin_bottom(10)
+        self.device_banner.append(warning)
+        if offer_mount:
+            mount = Gtk.Button(label="Mount Connected iPod")
+            mount.add_css_class("sf-button")
+            mount.set_margin_end(10)
+            mount.set_valign(Gtk.Align.CENTER)
+            mount.connect("clicked", self.on_mount_clicked)
+            self.device_banner.append(mount)
+        self.device_banner.set_visible(True)
+
+        queued_bytes = sum(track.size for track in self.pending.values())
+        if self.pending:
+            self.queued_row.set_visible(True)
+            self.queued_label.set_text(
+                f"{human_size(queued_bytes)} queued — reconnect the same iPod"
+            )
+            self.sync_button.set_label(
+                f"Sync {plural(len(self.pending), 'change')}"
+            )
+        else:
+            self.queued_row.set_visible(False)
+            self.sync_button.set_label("Nothing queued")
+        self._update_device_controls()
 
     def _populate_device_summary(self):
         name = Path(self.mount_point).name
@@ -2562,6 +2697,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self.device_dot.add_css_class("ipod")
         self.settings_dot.remove_css_class("library")
         self.settings_dot.add_css_class("ipod")
+        self.device_banner.set_visible(False)
 
         total_tracks = count_tracks(self.mount_point)
         self.device_count.set_text(plural(total_tracks, "track"))
@@ -2595,6 +2731,32 @@ class IpodWindow(Adw.ApplicationWindow):
             self.queued_row.set_visible(False)
             self.sync_button.set_label("Nothing queued")
             self.sync_button.set_sensitive(False)
+        self._update_device_controls()
+
+    def _update_device_controls(self):
+        connected = bool(self.mount_point)
+        enabled = connected and not self.busy
+        queue_enabled = enabled and self.device_identity is not None
+        self.add_button.set_sensitive(queue_enabled)
+        self.playlist_button.set_sensitive(
+            queue_enabled and self.speech_engine_available
+        )
+        self.youtube_button.set_sensitive(
+            queue_enabled and not self.youtube_unavailable
+        )
+        self.new_playlist_button.set_sensitive(
+            queue_enabled and self.speech_engine_available
+        )
+        self.rebuild_button.set_sensitive(enabled)
+        self.wipe_button.set_sensitive(enabled)
+        self.eject_button.set_sensitive(enabled)
+        self.sidebar_eject.set_sensitive(enabled)
+        self.playlist_mode.set_sensitive(enabled)
+        self.track_voiceover.set_sensitive(enabled and self.speech_engine_available)
+        self.playlist_voiceover.set_sensitive(
+            enabled and self.speech_engine_available
+        )
+        self.sync_button.set_sensitive(queue_enabled and bool(self.pending))
 
     def _set_settings_figures(self, usage, queued_bytes, total_tracks, over):
         child = self.settings_figures.get_first_child()
@@ -2761,6 +2923,12 @@ class IpodWindow(Adw.ApplicationWindow):
         inner.append(label("New playlist", "sf-row-title", xalign=0.5))
         new_tile.set_child(inner)
         new_tile.connect("clicked", self.on_add_playlist)
+        new_tile.set_sensitive(
+            bool(self.mount_point)
+            and self.device_identity is not None
+            and self.speech_engine_available
+            and not self.busy
+        )
         self.playlist_shelf.append(new_tile)
 
     def _show_playlist(self, name):
@@ -2849,7 +3017,7 @@ class IpodWindow(Adw.ApplicationWindow):
             self._library_scan_tracks[track.path] = track
         self.library.tracks = list(self._library_scan_tracks.values())
         self._merge_states()
-        self._refresh_current_view()
+        self._refresh_current_view(scan_complete=False)
         return False
 
     def _finish_library_scan(self, generation):
@@ -2904,7 +3072,9 @@ class IpodWindow(Adw.ApplicationWindow):
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _apply_device_track_batch(self, generation, mount_point, records):
+    def _apply_device_track_batch(
+        self, generation, mount_point, records, scan_complete=False
+    ):
         if (
             generation != self.tag_generation
             or mount_point is None
@@ -2924,18 +3094,22 @@ class IpodWindow(Adw.ApplicationWindow):
             track.relpath: track.title for track in self.device_tracks
         }
         self._merge_states()
-        self._refresh_current_view()
+        self._refresh_current_view(scan_complete=scan_complete)
         return False
 
     def _finish_device_scan(self, generation, mount_point):
-        return self._apply_device_track_batch(generation, mount_point, [])
+        return self._apply_device_track_batch(
+            generation, mount_point, [], scan_complete=True
+        )
 
     def _apply_device_tracks(self, generation, records, mount_point=None):
         captured_mount = self.mount_point if mount_point is None else mount_point
         if captured_mount is None:
             return False
         self._device_scan_tracks = {}
-        return self._apply_device_track_batch(generation, captured_mount, records)
+        return self._apply_device_track_batch(
+            generation, captured_mount, records, scan_complete=True
+        )
 
     def _resolve_current_album(self):
         if self.current_album is None:
@@ -2956,15 +3130,15 @@ class IpodWindow(Adw.ApplicationWindow):
                 return collection
         return None
 
-    def _refresh_current_view(self):
+    def _refresh_current_view(self, scan_complete=True):
         self._populate_albums()
         visible = self.views.get_visible_child_name()
         if visible == "album":
             album = self._resolve_current_album()
-            if album is None:
+            if album is None and scan_complete:
                 self.current_album = None
                 self.show_view("library")
-            else:
+            elif album is not None:
                 self._show_album(album)
         elif visible == "playlists" and self.current_playlist is not None:
             self._show_playlist(self.current_playlist)
@@ -2976,11 +3150,19 @@ class IpodWindow(Adw.ApplicationWindow):
         Matched on tags rather than path: the device stores every track under a
         scrambled four-letter name, so nothing about its location survives.
         """
-        on_device = {track.identity() for track in self.device_tracks}
+        on_device = {}
+        for track in self.device_tracks:
+            on_device.setdefault(track.identity(), []).append(track)
+        matched = set()
         for track in self.library.tracks:
-            if track.identity() in on_device:
+            track.relpath = track.path
+            matches = on_device.get(track.identity(), [])
+            if matches:
+                device_track = matches.pop(0)
                 track.state = STATE_IPOD
                 track.on_ipod = True
+                track.relpath = device_track.relpath
+                matched.add(id(device_track))
             elif track.state == STATE_IPOD:
                 track.state = STATE_LIBRARY
                 track.on_ipod = False
@@ -2989,9 +3171,8 @@ class IpodWindow(Adw.ApplicationWindow):
         # music copied from another machine would simply not appear. Held
         # separately from the scan results rather than appended to them, which
         # would re-add the same tracks on every refresh.
-        known = {track.identity() for track in self.library.tracks}
         self.library.device_only = [
-            track for track in self.device_tracks if track.identity() not in known
+            track for track in self.device_tracks if id(track) not in matched
         ]
 
     # -------------------------------------------------------------- painting
@@ -3160,27 +3341,122 @@ class IpodWindow(Adw.ApplicationWindow):
 
     # --------------------------------------------------------- staged syncing
 
-    def _queue_tracks(self, tracks):
+    def _pending_track(self, path):
+        path = str(path)
+        for track in self.library.tracks:
+            if track.path == path:
+                return track
+        try:
+            size = Path(path).stat().st_size
+        except OSError:
+            size = 0
+        return Track(path, {"title": Path(path).stem, "size": size}, STATE_LIBRARY)
+
+    def _queue_sources(self, sources, show_toast=True):
         if not self.mount_point:
             self._toast("Connect an iPod to queue tracks")
-            return
-        for track in tracks:
-            self.pending[track.path] = track
+            return 0
+        if self.device_identity is None:
+            self._toast("Could not identify this iPod, so nothing was queued")
+            return 0
+        if not self.pending:
+            self.pending_device_identity = self.device_identity
+        elif self.pending_device_identity != self.device_identity:
+            self.pending.clear()
+            self.pending_sources.clear()
+            self.pending_device_identity = self.device_identity
+
+        before = set(self.pending)
+        for source, tracks in sources.items():
+            members = set()
+            for track in tracks:
+                self.pending[track.path] = track
+                members.add(track.path)
+            if members:
+                self.pending_sources[str(source)] = members
+        owned = (
+            set().union(*self.pending_sources.values())
+            if self.pending_sources
+            else set()
+        )
+        self.pending = {
+            path: pending for path, pending in self.pending.items() if path in owned
+        }
+        if not self.pending:
+            self.pending_device_identity = None
         self._populate_device_summary()
         self._refresh_current_view()
-        self._toast(f"{plural(len(tracks), 'track')} queued")
+        added = len(set(self.pending) - before)
+        if show_toast:
+            self._toast(
+                f"{plural(added, 'change')} queued" if added else "Already queued"
+            )
+        return added
+
+    def _queue_paths(self, paths, show_toast=True):
+        sources = {}
+        expanded = []
+        for path in dict.fromkeys(str(path) for path in paths):
+            expanded.extend(self._audio_files(path) if Path(path).is_dir() else [path])
+        for path in dict.fromkeys(expanded):
+            if Path(path).is_file():
+                sources[path] = [self._pending_track(path)]
+        return self._queue_sources(sources, show_toast=show_toast)
+
+    def _queue_tracks(self, tracks):
+        return self._queue_sources(
+            {track.path: [track] for track in tracks}, show_toast=True
+        )
+
+    def _queue_playlist(self, path):
+        tracks = [self._pending_track(item) for item in local_playlist_tracks(path)]
+        tracks.append(self._pending_track(path))
+        return self._queue_sources({str(path): tracks}, show_toast=True)
 
     def _unqueue_track(self, track):
-        self.pending.pop(track.path, None)
+        key = track.path
+        affected = [
+            source
+            for source, members in self.pending_sources.items()
+            if key in members
+        ]
+        converted = set()
+        for source in affected:
+            members = self.pending_sources.pop(source)
+            if source != key:
+                converted.update(
+                    member
+                    for member in members
+                    if member != key
+                    and Path(member).suffix.lower() in AUDIO_EXTENSIONS
+                )
+        for member in converted:
+            self.pending_sources.setdefault(member, {member})
+        owned = (
+            set().union(*self.pending_sources.values())
+            if self.pending_sources
+            else set()
+        )
+        self.pending = {
+            path: pending for path, pending in self.pending.items() if path in owned
+        }
+        if not self.pending:
+            self.pending_device_identity = None
         self._populate_device_summary()
         self._refresh_current_view()
 
     def on_sync_pending(self, _button):
-        if not self.pending or not self.mount_point:
+        if not self.pending_sources or not self.mount_point:
             return
-        paths = sorted(self.pending)
+        if self.pending_device_identity != self.device_identity:
+            self._toast("Queued changes belong to a different iPod")
+            return
+        paths = sorted(self.pending_sources)
+        changes = len(self.pending)
         self.sync_files = [Path(p).name for p in paths]
-        self.sync_total = len(paths)
+        self.sync_total = sum(
+            Path(path).suffix.lower() in AUDIO_EXTENSIONS for path in self.pending
+        )
         self._run(
             [
                 str(SYNC_SCRIPT),
@@ -3193,12 +3469,14 @@ class IpodWindow(Adw.ApplicationWindow):
                 *paths,
             ],
             "Copying to iPod",
-            f"{plural(len(paths), 'track')} added",
+            f"{plural(changes, 'change')} synced",
             then=self._clear_pending,
         )
 
     def _clear_pending(self):
         self.pending.clear()
+        self.pending_sources.clear()
+        self.pending_device_identity = None
         return "Sync complete"
 
     # ------------------------------------------------------- options plumbing
@@ -3252,11 +3530,7 @@ class IpodWindow(Adw.ApplicationWindow):
         for widget in self._busy_widgets:
             widget.set_sensitive(not busy)
         if not busy:
-            # Re-applying capability gating on the way out, so a run can never
-            # leave a control enabled that this machine cannot support.
-            self.playlist_button.set_sensitive(self.speech_engine_available)
-            self.youtube_button.set_sensitive(not self.youtube_unavailable)
-            self.sync_button.set_sensitive(bool(self.pending))
+            self._update_device_controls()
 
         self.sync_revealer.set_reveal_child(busy)
         self.progress.set_visible(busy)
@@ -3402,17 +3676,7 @@ class IpodWindow(Adw.ApplicationWindow):
             if not self._has_audio(path):
                 self._toast("No supported audio found in that folder")
                 return
-            self._run(
-                [
-                    str(SYNC_SCRIPT),
-                    "--ipod",
-                    self.mount_point,
-                    *self._sync_options(),
-                    path,
-                ],
-                "Copying music",
-                "Music added",
-            )
+            self._queue_paths(self._audio_files(path))
 
         dialog.select_folder(self, None, chosen)
 
@@ -3473,18 +3737,7 @@ class IpodWindow(Adw.ApplicationWindow):
             self._toast("No speech engine installed")
             return
         self.playlist_voiceover.set_active(True)
-        self._run(
-            [
-                str(SYNC_SCRIPT),
-                "--ipod",
-                self.mount_point,
-                *self._sync_options(),
-                "--",
-                path,
-            ],
-            "Copying playlist",
-            "Playlist added",
-        )
+        self._queue_playlist(path)
 
     def on_add_youtube(self, _button):
         url_entry = Adw.EntryRow(title="YouTube link")
@@ -3558,19 +3811,15 @@ class IpodWindow(Adw.ApplicationWindow):
             fetch.append("--single")
         fetch.append(url)
 
-        # Read here rather than in the callback below, which runs after the
-        # download and must not touch widgets from outside the main loop.
-        options = self._sync_options()
-
         self._run(
             fetch,
             "Downloading from YouTube",
             "Downloaded",
-            then=lambda: self._sync_downloaded(new_tracks, options),
+            then=lambda: self._sync_downloaded(new_tracks),
         )
 
-    def _sync_downloaded(self, new_tracks, options):
-        """Copy what the download produced, or say why there is nothing to."""
+    def _sync_downloaded(self, new_tracks):
+        """Queue what the download produced, or say why there is nothing to."""
         sources = fetched_sources(new_tracks, YOUTUBE_LIBRARY)
         try:
             os.unlink(new_tracks)
@@ -3579,19 +3828,11 @@ class IpodWindow(Adw.ApplicationWindow):
 
         if not sources:
             return "Already downloaded - nothing new to add"
+        queued = self._queue_paths(sources, show_toast=False)
         return (
-            [
-                str(SYNC_SCRIPT),
-                "--ipod",
-                self.mount_point,
-                *options,
-                # A YouTube title can start with a dash, and the shell script
-                # would read that as a flag rather than a path.
-                "--",
-                *sources,
-            ],
-            "Copying onto the iPod",
-            "Music added",
+            f"{plural(queued, 'track')} queued for sync"
+            if queued
+            else "Downloaded, but nothing was queued"
         )
 
     def on_remove_track(self, _button, relpath):
@@ -3665,12 +3906,19 @@ class IpodWindow(Adw.ApplicationWindow):
         )
 
     @staticmethod
+    def _audio_files(path):
+        found = []
+        for root, dirs, files in os.walk(path):
+            dirs.sort()
+            for name in sorted(files):
+                candidate = Path(root, name)
+                if candidate.suffix.lower() in AUDIO_EXTENSIONS:
+                    found.append(str(candidate))
+        return found
+
+    @staticmethod
     def _has_audio(path):
-        for _root, _dirs, files in os.walk(path):
-            for name in files:
-                if Path(name).suffix.lower() in AUDIO_EXTENSIONS:
-                    return True
-        return False
+        return bool(IpodWindow._audio_files(path))
 
     def on_rebuild(self, _button):
         # --rebuild-only rather than passing the Music directory as a source,

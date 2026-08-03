@@ -39,9 +39,13 @@ class Value:
 class FakeSwitch:
     def __init__(self):
         self.active = False
+        self.sensitive = True
 
     def set_active(self, value):
         self.active = value
+
+    def set_sensitive(self, value):
+        self.sensitive = value
 
 
 class FakeWidget:
@@ -89,9 +93,14 @@ class FakeWindow:
 
     def __init__(self):
         self.mount_point = "/media/alex/Alex's iPod"
+        self.device_identity = "uuid:test-ipod"
+        self.pending_device_identity = None
+        self.pending = {}
+        self.pending_sources = {}
         self.commands = []
         self.toasts = []
         self.track_names = {}
+        self.library = type("Library", (), {"tracks": []})()
         self.speech_engine_available = True
         self.playlist_voiceover = FakeSwitch()
 
@@ -105,11 +114,23 @@ class FakeWindow:
     def _sync_options(self):
         return ["--dir-playlists=1", "--playlist-voiceover"]
 
+    def _populate_device_summary(self):
+        pass
+
+    def _refresh_current_view(self):
+        pass
+
     # The step that decides what to copy is the one under test, so it is the
     # real implementation rather than another stand-in. Same for the one that
     # empties the queue once a staged sync has succeeded.
     _sync_downloaded = ipod_gui.IpodWindow._sync_downloaded
     _clear_pending = ipod_gui.IpodWindow._clear_pending
+    _audio_files = ipod_gui.IpodWindow._audio_files
+    _pending_track = ipod_gui.IpodWindow._pending_track
+    _queue_sources = ipod_gui.IpodWindow._queue_sources
+    _queue_paths = ipod_gui.IpodWindow._queue_paths
+    _queue_playlist = ipod_gui.IpodWindow._queue_playlist
+    _update_device_controls = ipod_gui.IpodWindow._update_device_controls
 
 
 # ------------------------------------------------------------------ removal
@@ -261,6 +282,17 @@ ipod_gui.IpodWindow._refresh_current_view(album_refresh)
 assert album_refresh.current_album is not stale_album, "album detail kept stale tracks"
 assert album_refresh.shown == [album_refresh.current_album], album_refresh.shown
 
+partial_refresh = RefreshWindow("album")
+partial_album = partial_refresh.current_album
+partial_refresh.library = type(
+    "EmptyLibrary", (), {"collections": lambda _self, _mode: []}
+)()
+ipod_gui.IpodWindow._refresh_current_view(partial_refresh, scan_complete=False)
+assert partial_refresh.views.name == "album", "partial scan closed album detail"
+assert partial_refresh.current_album is partial_album, "partial scan dropped album state"
+ipod_gui.IpodWindow._refresh_current_view(partial_refresh, scan_complete=True)
+assert partial_refresh.views.name == "library", "completed scan kept a missing album open"
+
 disconnected_scan = type(
     "DisconnectedScan",
     (),
@@ -270,18 +302,107 @@ assert not ipod_gui.IpodWindow._apply_device_track_batch(
     disconnected_scan, 3, "/media/iPod", []
 ), "a disconnected device scan was applied"
 
+common = {
+    "title": "Same Song",
+    "artist": "Same Artist",
+    "album": "Same Album",
+    "duration": 200.2,
+}
+local_one = ipod_gui.Track("/music/one.mp3", common, ipod_gui.STATE_LIBRARY)
+local_two = ipod_gui.Track("/music/two.mp3", common, ipod_gui.STATE_LIBRARY)
+device_one = ipod_gui.Track(
+    "/media/iPod/iPod_Control/Music/F00/AAAA.mp3",
+    {**common, "duration": 200.4},
+    ipod_gui.STATE_IPOD,
+    relpath="F00/AAAA.mp3",
+)
+merge_library = type(
+    "MergeLibrary",
+    (),
+    {"tracks": [local_one, local_two], "device_only": []},
+)()
+merge_window = type(
+    "MergeWindow",
+    (),
+    {"library": merge_library, "device_tracks": [device_one]},
+)()
+ipod_gui.IpodWindow._merge_states(merge_window)
+assert sum(track.on_ipod for track in merge_library.tracks) == 1
+assert local_one.relpath == "F00/AAAA.mp3", local_one.relpath
+assert local_two.relpath == local_two.path, local_two.relpath
+
+other_album = ipod_gui.Track(
+    "/media/iPod/iPod_Control/Music/F00/BBBB.mp3",
+    {**common, "album": "Other Album"},
+    ipod_gui.STATE_IPOD,
+    relpath="F00/BBBB.mp3",
+)
+merge_window.device_tracks = [other_album]
+ipod_gui.IpodWindow._merge_states(merge_window)
+assert not any(track.on_ipod for track in merge_library.tracks)
+assert merge_library.device_only == [other_album]
+
+
+class SelectionWindow:
+    def __init__(self):
+        queued = ipod_gui.Track("/music/queued.mp3", common, ipod_gui.STATE_LIBRARY)
+        self.mount_point = "/media/A"
+        self.device_identity = "uuid:A"
+        self.pending_device_identity = "uuid:A"
+        self.pending = {queued.path: queued}
+        self.pending_sources = {queued.path: {queued.path}}
+        self.tag_generation = 0
+        self._device_scan_tracks = {}
+        self.device_tracks = []
+        self.track_names = {}
+        self.toasts = []
+
+    def _merge_states(self):
+        pass
+
+    def _refresh_current_view(self):
+        pass
+
+    def _toast(self, message):
+        self.toasts.append(message)
+
+
+identity_window = SelectionWindow()
+original_volume_identity = ipod_gui.volume_identity
+ipod_gui.volume_identity = lambda mount: {
+    "/media/A-again": "uuid:A",
+    "/media/B": "uuid:B",
+}.get(mount)
+try:
+    ipod_gui.IpodWindow._select_mount(identity_window, None)
+    assert identity_window.pending, "disconnect discarded a device-bound queue"
+    ipod_gui.IpodWindow._select_mount(identity_window, "/media/A-again")
+    assert identity_window.pending, "same device reconnect discarded its queue"
+    ipod_gui.IpodWindow._select_mount(identity_window, "/media/B")
+finally:
+    ipod_gui.volume_identity = original_volume_identity
+assert identity_window.pending == {}, identity_window.pending
+assert identity_window.pending_sources == {}, identity_window.pending_sources
+assert identity_window.toasts and "different iPod" in identity_window.toasts[-1]
+
 # ----------------------------------------------------------------- playlist
 
 playlist_window = FakeWindow()
-playlist_path = "/home/alex/Party Mix.m3u"
+playlist_root = Path(tempfile.mkdtemp())
+playlist_track = playlist_root / "Party Song.mp3"
+playlist_track.touch()
+playlist_path = playlist_root / "Party Mix.m3u"
+playlist_path.write_text(f"{playlist_track.name}\n", encoding="utf-8")
 ipod_gui.IpodWindow._add_playlist(playlist_window, playlist_path)
 
-playlist_add = playlist_window.commands[0]
-assert playlist_add[0].endswith("ipod-sync.sh"), playlist_add
-assert playlist_add[1:3] == ["--ipod", playlist_window.mount_point], playlist_add
-# After --, because a playlist may be named after a song, and a song can be
-# called "-1".
-assert playlist_add[-2:] == ["--", playlist_path], playlist_add
+assert playlist_window.commands == [], playlist_window.commands
+assert playlist_window.pending_sources == {
+    str(playlist_path): {str(playlist_path), str(playlist_track)}
+}, playlist_window.pending_sources
+assert set(playlist_window.pending) == {
+    str(playlist_path),
+    str(playlist_track),
+}, playlist_window.pending
 # A playlist that cannot speak its name cannot be found again on a screenless
 # device, so adding one switches the spoken names on rather than warning later.
 assert playlist_window.playlist_voiceover.active, "adding a playlist left voiceover off"
@@ -300,9 +421,17 @@ assert silent_window.toasts == ["No speech engine installed"], silent_window.toa
 busy_window = FakeWindow()
 busy_window._busy_widgets = [FakeWidget() for _ in range(3)]
 for attr in (
+    "add_button",
     "playlist_button",
     "youtube_button",
     "sync_button",
+    "new_playlist_button",
+    "rebuild_button",
+    "wipe_button",
+    "eject_button",
+    "sidebar_eject",
+    "playlist_mode",
+    "track_voiceover",
     "progress",
     "sync_revealer",
     "sync_spinner",
@@ -328,9 +457,17 @@ assert not busy_window.sync_spinner.spinning, "spinner left running when idle"
 queued_window = FakeWindow()
 queued_window._busy_widgets = []
 for attr in (
+    "add_button",
     "playlist_button",
     "youtube_button",
     "sync_button",
+    "new_playlist_button",
+    "rebuild_button",
+    "wipe_button",
+    "eject_button",
+    "sidebar_eject",
+    "playlist_mode",
+    "track_voiceover",
     "progress",
     "sync_revealer",
     "sync_spinner",
@@ -425,20 +562,19 @@ downloaded.touch()
 new_tracks.write_text(f"{downloaded}\n\n")
 
 ipod_gui.YOUTUBE_LIBRARY = library
-sync = window.then()
-assert sync[0][0].endswith("ipod-sync.sh"), sync
-assert sync[0][1:3] == ["--ipod", window.mount_point], sync
-# The playlist and voiceover choices made in the window apply to music that
-# arrives this way too, rather than only to Add Music.
-assert "--dir-playlists=1" in sync[0], sync
-assert sync[0][-2:] == ["--", str(downloaded)], sync
-assert str(library / "Old Artist") not in sync[0], sync
+queued_outcome = window.then()
+assert isinstance(queued_outcome, str), queued_outcome
+assert "queued" in queued_outcome, queued_outcome
+assert window.pending_sources == {
+    str(downloaded): {str(downloaded)}
+}, window.pending_sources
+assert len(window.commands) == 1, window.commands
 assert not new_tracks.exists(), "the track list outlived the sync that read it"
 
 # An empty list means the video had been downloaded before, so there is
 # nothing to copy and nothing to report as added.
 empty = Path(tempfile.mkstemp()[1])
-outcome = ipod_gui.IpodWindow._sync_downloaded(window, empty, [])
+outcome = ipod_gui.IpodWindow._sync_downloaded(window, empty)
 assert isinstance(outcome, str), outcome
 assert "Already downloaded" in outcome, outcome
 
@@ -462,6 +598,10 @@ queued_paths = {
     "/home/alex/Music/-Dashed Title.mp3": object(),
 }
 queue_window.pending = dict(queued_paths)
+queue_window.pending_sources = {
+    path: {path} for path in queued_paths
+}
+queue_window.pending_device_identity = queue_window.device_identity
 ipod_gui.IpodWindow.on_sync_pending(queue_window, None)
 
 staged = queue_window.commands[0]
@@ -477,11 +617,14 @@ assert queue_window.sync_total == len(queued_paths), queue_window.sync_total
 assert queue_window.pending == queued_paths, "queue emptied before the sync ran"
 cleared = queue_window.then()
 assert queue_window.pending == {}, "queue survived a successful sync"
+assert queue_window.pending_sources == {}, "sync sources survived a successful sync"
+assert queue_window.pending_device_identity is None, "queue stayed device-bound"
 assert isinstance(cleared, str), cleared
 
 # An empty queue must not launch a script at all.
 idle_window = FakeWindow()
 idle_window.pending = {}
+idle_window.pending_sources = {}
 idle_window.sync_files = []
 idle_window.sync_total = 0
 ipod_gui.IpodWindow.on_sync_pending(idle_window, None)
@@ -497,12 +640,14 @@ reorder_root = Path(tempfile.mkdtemp())
 (reorder_root / "iPod_Control" / "Music" / "F00").mkdir(parents=True)
 for code in ("LDPX", "QMRT"):
     (reorder_root / "iPod_Control" / "Music" / "F00" / f"{code}.mp3").write_bytes(b"x")
+absolute_entry = reorder_root / "absolute-and-existing.mp3"
+absolute_entry.write_bytes(b"x")
 
 m3u = reorder_root / "Morning Ride.m3u"
 m3u.write_text(
     "iPod_Control/Music/F00/LDPX.mp3\n"
     "iPod_Control/Music/F00/QMRT.mp3\n"
-    "/home/alex/elsewhere.mp3\n",
+    f"{absolute_entry}\n",
     encoding="utf-8",
 )
 
@@ -521,8 +666,7 @@ written = [
 assert written == [
     "iPod_Control/Music/F00/QMRT.mp3",
     "iPod_Control/Music/F00/LDPX.mp3",
-    # Never under the music folder, so it keeps the path it was written with.
-    "/home/alex/elsewhere.mp3",
+    str(absolute_entry),
 ], written
 # The rewrite is atomic, so no half-written list can be left behind for the
 # firmware to choke on if the device is pulled mid-write.
@@ -597,11 +741,11 @@ print(
         {
             "staged_sync_command": staged,
             "remove_command": removal,
-            "playlist_command": playlist_add,
+            "playlist_queue_sources": sorted(playlist_window.pending_sources),
             "playlist_remove_command": playlist_rm,
             "parsed_playlists": parsed,
             "fetch_command": fetch,
-            "sync_after_fetch": sync[0],
+            "queued_after_fetch": sorted(window.pending_sources),
             "nothing_new_outcome": outcome,
             "unreported_download_sources": sorted(fallback),
         },
