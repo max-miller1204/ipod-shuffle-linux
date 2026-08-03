@@ -2500,13 +2500,17 @@ class IpodWindow(Adw.ApplicationWindow):
         add.set_valign(Gtk.Align.CENTER)
         add.connect("clicked", lambda _b, r=result: self._download_result(r))
         add.set_sensitive(self._can_download())
-        if self.youtube_unavailable:
-            add.set_tooltip_text(self.youtube_unavailable)
-        elif not self.mount_point:
-            add.set_tooltip_text("Connect an iPod to download and queue a track")
+        add.set_tooltip_text(self._youtube_download_tooltip())
         row.append(add)
         self.search_add_buttons.append(add)
         return row
+
+    def _youtube_download_tooltip(self):
+        if self.youtube_unavailable:
+            return self.youtube_unavailable
+        if not self.mount_point:
+            return "Connect an iPod to download and queue a track"
+        return None
 
     def _can_download(self):
         """Whether a search result could be fetched and queued right now."""
@@ -3496,6 +3500,7 @@ class IpodWindow(Adw.ApplicationWindow):
         downloadable = self._can_download()
         for button in self.search_add_buttons:
             button.set_sensitive(downloadable)
+            button.set_tooltip_text(self._youtube_download_tooltip())
         self.new_playlist_button.set_sensitive(
             queue_enabled and self.speech_engine_available
         )
@@ -4913,7 +4918,8 @@ class IpodWindow(Adw.ApplicationWindow):
         if code == 0:
             self._toast(done_message)
         else:
-            self._toast(f"Failed (exit {code}) - see Details")
+            if on_failure is None:
+                self._toast(f"Failed (exit {code}) - see Details")
             self.details_toggle.set_active(True)
             self.sync_revealer.set_reveal_child(True)
             if on_failure is not None:

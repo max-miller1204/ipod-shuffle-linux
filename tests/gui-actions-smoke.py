@@ -64,6 +64,7 @@ class FakeWidget:
         self.spinning = False
         self.fraction = 0.0
         self.active = False
+        self.tooltip = None
 
     def set_sensitive(self, value):
         self.sensitive = value
@@ -85,6 +86,9 @@ class FakeWidget:
 
     def set_fraction(self, value):
         self.fraction = value
+
+    def set_tooltip_text(self, value):
+        self.tooltip = value
 
     def start(self):
         self.spinning = True
@@ -179,6 +183,7 @@ class FakeWindow:
     _launch_pending_sync = ipod_gui.IpodWindow._launch_pending_sync
     _update_device_controls = ipod_gui.IpodWindow._update_device_controls
     _confirmed_device = ipod_gui.IpodWindow._confirmed_device
+    _youtube_download_tooltip = ipod_gui.IpodWindow._youtube_download_tooltip
     _can_download = ipod_gui.IpodWindow._can_download
     _start_youtube_download = ipod_gui.IpodWindow._start_youtube_download
 
@@ -748,6 +753,24 @@ assert all(w.sensitive for w in busy_window._busy_widgets), "widgets left disabl
 assert not busy_window.sync_revealer.revealed, "sync bar left showing when idle"
 assert not busy_window.sync_spinner.spinning, "spinner left running when idle"
 
+search_add = FakeWidget()
+busy_window.search_add_buttons = [search_add]
+busy_window.mount_point = None
+busy_window._update_device_controls()
+assert not search_add.sensitive, "a disconnected result Add remained enabled"
+assert search_add.tooltip == "Connect an iPod to download and queue a track"
+busy_window.mount_point = "/media/alex/Alex's iPod"
+busy_window._update_device_controls()
+assert search_add.sensitive, "a reconnected result Add remained disabled"
+assert search_add.tooltip is None, "a reconnected result kept its stale tooltip"
+busy_window.youtube_unavailable = "ffmpeg is not installed"
+busy_window._update_device_controls()
+assert not search_add.sensitive, "an unavailable download remained enabled"
+assert search_add.tooltip == busy_window.youtube_unavailable
+busy_window.mount_point = None
+busy_window._update_device_controls()
+assert search_add.tooltip == busy_window.youtube_unavailable
+
 # With something queued, the same reset has to offer the sync.
 queued_window = FakeWindow()
 queued_window._busy_widgets = []
@@ -1165,7 +1188,11 @@ ipod_gui.IpodWindow._finish(
 assert failure_window.failures == 1, "a failed download reported nothing inline"
 assert failure_window.details_toggle.active, "a failure left Details closed"
 assert failure_window.sync_revealer.revealed, "a failure hid the script output"
-assert failure_window.toasts and "exit 1" in failure_window.toasts[-1]
+assert failure_window.toasts == [], "an inline failure also raised a toast"
+
+generic_failure_window = FailureWindow()
+ipod_gui.IpodWindow._finish(generic_failure_window, 2, "Finished")
+assert generic_failure_window.toasts == ["Failed (exit 2) - see Details"]
 
 # Success must not fire it, or every finished download would claim to have
 # failed as well.
