@@ -228,9 +228,10 @@ for current, dirs, files in os.walk(root):
 def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
     """Read tags for every supported file under root.
 
-    Returns a list of record dicts keyed by a path relative to root. on_record,
-    when given, is called with each record as it arrives so a caller can show
-    progress rather than waiting for the whole tree.
+    Returns (records, complete), with each record path relative to root.
+    on_record, when given, is called with each record as it arrives so a caller
+    can show progress rather than waiting for the whole tree. Partial records
+    are returned with complete false after cancellation, timeout, or failure.
     """
     global TAG_PYTHON
     if TAG_PYTHON is None:
@@ -255,7 +256,7 @@ def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
             bufsize=1,
         )
     except OSError:
-        return []
+        return [], False
 
     output = queue.Queue()
     output_done = object()
@@ -270,6 +271,7 @@ def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
 
     threading.Thread(target=read_output, daemon=True).start()
     deadline = time.monotonic() + timeout
+    complete = False
     try:
         while True:
             if cancelled is not None and cancelled():
@@ -309,7 +311,7 @@ def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise subprocess.TimeoutExpired(proc.args, timeout)
-        proc.wait(timeout=remaining)
+        complete = proc.wait(timeout=remaining) == 0
     except subprocess.SubprocessError:
         if proc.poll() is None:
             proc.kill()
@@ -320,7 +322,7 @@ def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
             proc.wait(timeout=1)
         except subprocess.SubprocessError:
             pass
-    return list(records.values())
+    return list(records.values()), complete
 
 
 def read_tags(mount_point):
@@ -330,7 +332,10 @@ def read_tags(mount_point):
     case the interface falls back to showing filenames.
     """
     music = Path(mount_point, "iPod_Control", "Music")
-    return {record["path"]: record for record in scan_tracks(music)}
+    records, complete = scan_tracks(music)
+    if not complete:
+        return {}
+    return {record["path"]: record for record in records}
 
 
 def find_ipods():
@@ -433,6 +438,27 @@ def volume_identity(mount_point):
     if not sysinfo:
         return None
     return f"sysinfo:{hashlib.sha256(sysinfo).hexdigest()}"
+
+
+class DeviceHandle:
+    __slots__ = ("mount_point", "identity", "block_device")
+
+    def __init__(self, mount_point, identity, block_device):
+        self.mount_point = mount_point
+        self.identity = identity
+        self.block_device = block_device
+
+
+def resolve_device(mount_point, expected_identity, require_block=False):
+    if mount_point is None or expected_identity is None:
+        return None
+    mount_point = str(mount_point)
+    if volume_identity(mount_point) != expected_identity:
+        return None
+    block_device = device_for(mount_point) if require_block else None
+    if require_block and block_device is None:
+        return None
+    return DeviceHandle(mount_point, expected_identity, block_device)
 
 
 def udisks_filesystem_call(device, method):
@@ -707,9 +733,10 @@ def write_playlist(mount_point, device_identity, path, entries):
     Written beside the target and renamed, because a half-written playlist on
     a volume that can be unplugged at any moment is one the firmware drops.
     """
-    if device_identity is None or volume_identity(mount_point) != device_identity:
+    device = resolve_device(mount_point, device_identity)
+    if device is None:
         return False
-    music = Path(mount_point, "iPod_Control", "Music")
+    music = Path(device.mount_point, "iPod_Control", "Music")
     lines = []
     for entry in entries:
         if not Path(entry).is_absolute() and (music / entry).exists():
@@ -3039,6 +3066,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self.scan_generation += 1
         generation = self.scan_generation
         roots = self.library.roots
+        previous_tracks = list(self.library.tracks)
         self._library_scan_tracks = {}
         self.library_status.set_text("Reading your music folders…")
 
@@ -3055,12 +3083,17 @@ class IpodWindow(Adw.ApplicationWindow):
                     GLib.idle_add(self._apply_library_batch, generation, ready)
 
             for root in roots:
-                scan_tracks(
+                _records, complete = scan_tracks(
                     root,
                     on_record=lambda record, r=root: publish(r, record),
                     cancelled=lambda: generation != self.scan_generation,
                 )
                 if generation != self.scan_generation:
+                    return
+                if not complete:
+                    GLib.idle_add(
+                        self._fail_library_scan, generation, previous_tracks
+                    )
                     return
             if batch:
                 GLib.idle_add(self._apply_library_batch, generation, batch[:])
@@ -3089,6 +3122,20 @@ class IpodWindow(Adw.ApplicationWindow):
         self._populate_folders()
         return False
 
+    def _fail_library_scan(self, generation, previous_tracks):
+        if generation != self.scan_generation:
+            return False
+        self.library.tracks = previous_tracks
+        self._library_scan_tracks = {track.path: track for track in previous_tracks}
+        self._merge_states()
+        self._refresh_current_view()
+        self._populate_folders()
+        self.library_status.set_text(
+            "Could not finish reading your music folders; the previous library is shown."
+        )
+        self.library_status.set_visible(True)
+        return False
+
     def _load_device_tracks_async(self):
         """Read the device's tags without blocking the main loop.
 
@@ -3098,6 +3145,8 @@ class IpodWindow(Adw.ApplicationWindow):
         self.tag_generation += 1
         generation = self.tag_generation
         mount_point = self.mount_point
+        previous_tracks = list(self.device_tracks)
+        previous_ready = self._device_snapshot_ready
         self._device_scan_tracks = {}
         self._device_scan_active = True
         self._update_device_controls()
@@ -3123,11 +3172,22 @@ class IpodWindow(Adw.ApplicationWindow):
                         ready,
                     )
 
-            scan_tracks(
+            _records, complete = scan_tracks(
                 music,
                 on_record=publish,
                 cancelled=lambda: generation != self.tag_generation,
             )
+            if generation != self.tag_generation:
+                return
+            if not complete:
+                GLib.idle_add(
+                    self._fail_device_scan,
+                    generation,
+                    mount_point,
+                    previous_tracks,
+                    previous_ready,
+                )
+                return
             if batch:
                 GLib.idle_add(
                     self._apply_device_track_batch,
@@ -3154,7 +3214,7 @@ class IpodWindow(Adw.ApplicationWindow):
             self._device_scan_tracks[relpath] = Track(
                 music / relpath, record, STATE_IPOD, relpath=relpath
             )
-        if scan_complete or not self._device_snapshot_ready:
+        if scan_complete:
             self.device_tracks = sorted(
                 self._device_scan_tracks.values(), key=lambda track: track.relpath
             )
@@ -3176,6 +3236,27 @@ class IpodWindow(Adw.ApplicationWindow):
             self._populate_device_summary()
             self._update_device_controls()
         return result
+
+    def _fail_device_scan(
+        self, generation, mount_point, previous_tracks, previous_ready
+    ):
+        if generation != self.tag_generation or mount_point != self.mount_point:
+            return False
+        self._device_scan_active = False
+        self._device_snapshot_ready = previous_ready
+        self.device_tracks = previous_tracks if previous_ready else []
+        self._device_scan_tracks = {
+            track.relpath: track for track in self.device_tracks
+        }
+        self.track_names = {
+            track.relpath: track.title for track in self.device_tracks
+        }
+        self._merge_states()
+        self._populate_device_summary()
+        self._refresh_current_view()
+        self._update_device_controls()
+        self._toast("Could not finish reading tracks from this iPod")
+        return False
 
     def _apply_device_tracks(self, generation, records, mount_point=None):
         captured_mount = self.mount_point if mount_point is None else mount_point
@@ -3490,7 +3571,93 @@ class IpodWindow(Adw.ApplicationWindow):
     def _pending_change_count(self):
         return self._pending_accounting()[1]
 
-    def _queue_sources(self, sources, show_toast=True):
+    def _queue_sources(self, sources, show_toast=True, metadata_complete=False):
+        sources = {str(source): list(tracks) for source, tracks in sources.items()}
+        pending_only = {
+            track.path
+            for tracks in sources.values()
+            for track in tracks
+            if Path(track.path).suffix.lower() in AUDIO_EXTENSIONS
+            and track.path not in self._library_by_path
+        }
+        if pending_only and not metadata_complete:
+            self.source_generation += 1
+            generation = self.source_generation
+            device_identity = self.device_identity
+            self.discovering_sources = True
+            self._update_device_controls()
+
+            def worker():
+                enriched, complete = self._scan_pending_tracks(
+                    pending_only, generation
+                )
+                GLib.idle_add(
+                    self._finish_pending_enrichment,
+                    generation,
+                    device_identity,
+                    sources,
+                    enriched,
+                    complete,
+                    show_toast,
+                )
+
+            threading.Thread(target=worker, daemon=True).start()
+            return None
+        return self._commit_queue_sources(sources, show_toast=show_toast)
+
+    def _scan_pending_tracks(self, paths, generation):
+        grouped = {}
+        for path in paths:
+            grouped.setdefault(str(Path(path).parent), set()).add(str(path))
+        enriched = {}
+        for parent, wanted in grouped.items():
+            records, complete = scan_tracks(
+                parent,
+                cancelled=lambda: generation != self.source_generation,
+            )
+            if not complete:
+                return {}, False
+            wanted_by_path = {
+                str(Path(path).absolute()): path for path in wanted
+            }
+            for record in records:
+                absolute = str(Path(parent, record["path"]).absolute())
+                original = wanted_by_path.get(absolute)
+                if original is not None:
+                    enriched[original] = Track(
+                        original, record, STATE_LIBRARY
+                    )
+        for path in paths:
+            enriched.setdefault(path, self._pending_track(path))
+        return enriched, True
+
+    def _finish_pending_enrichment(
+        self,
+        generation,
+        device_identity,
+        sources,
+        enriched,
+        complete,
+        show_toast,
+    ):
+        if generation != self.source_generation:
+            return False
+        self.discovering_sources = False
+        self._update_device_controls()
+        if device_identity != self.device_identity or not self.mount_point:
+            self._toast("The connected iPod changed, so nothing was queued")
+            return False
+        if not complete:
+            self._toast("Could not finish reading those tracks; nothing was queued")
+            return False
+        resolved = {
+            source: [enriched.get(track.path, track) for track in tracks]
+            for source, tracks in sources.items()
+        }
+        self._commit_queue_sources(resolved, show_toast=show_toast)
+        return False
+
+    def _commit_queue_sources(self, sources, show_toast=True):
         if not self.mount_point:
             self._toast("Connect an iPod to queue tracks")
             return 0
@@ -3759,8 +3926,7 @@ class IpodWindow(Adw.ApplicationWindow):
         mount_point = str(argv[index])
         if (
             mount_point != self.mount_point
-            or self.device_identity is None
-            or volume_identity(mount_point) != self.device_identity
+            or resolve_device(mount_point, self.device_identity) is None
         ):
             self._toast("The connected iPod changed, so the action was cancelled")
             return False
@@ -3781,12 +3947,23 @@ class IpodWindow(Adw.ApplicationWindow):
             return False
         if not self._device_command_is_current(argv):
             return False
+        device_command = "--ipod" in argv
+        expected_identity = self.device_identity if device_command else None
         if clear:
             self._clear_log()
         self._set_busy(True, busy_message)
 
         def worker():
             code = -1
+            if device_command:
+                mount_index = argv.index("--ipod") + 1
+                mount_point = str(argv[mount_index])
+                if (
+                    mount_point != self.mount_point
+                    or resolve_device(mount_point, expected_identity) is None
+                ):
+                    GLib.idle_add(self._cancel_device_command)
+                    return
             try:
                 proc = subprocess.Popen(
                     argv,
@@ -3801,12 +3978,32 @@ class IpodWindow(Adw.ApplicationWindow):
                 code = proc.wait()
             except (OSError, TypeError, ValueError) as exc:
                 GLib.idle_add(self._log, f"failed to run: {exc}\n")
-            GLib.idle_add(self._finish, code, done_message, then)
+            GLib.idle_add(
+                self._finish, code, done_message, then, device_command
+            )
 
         threading.Thread(target=worker, daemon=True).start()
         return True
 
-    def _finish(self, code, done_message, then=None):
+    def _cancel_device_command(self):
+        self._set_busy(False)
+        self._toast("The connected iPod changed, so the action was cancelled")
+        return False
+
+    def _invalidate_device_snapshot(self):
+        self.tag_generation += 1
+        self._device_scan_active = bool(self.mount_point)
+        self._device_snapshot_ready = False
+        self._device_scan_tracks = {}
+        self.device_tracks = []
+        self.track_names = {}
+        self._merge_states()
+        self._populate_device_summary()
+        self._update_device_controls()
+
+    def _finish(self, code, done_message, then=None, device_command=False):
+        if code == 0 and device_command:
+            self._invalidate_device_snapshot()
         if code == 0 and then is not None:
             outcome = then()
             if isinstance(outcome, tuple):
@@ -3852,28 +4049,31 @@ class IpodWindow(Adw.ApplicationWindow):
         self._update_device_controls()
 
         def worker():
-            tracks = self._scan_source_tracks(path, generation)
+            tracks, complete = self._scan_source_tracks(path, generation)
             GLib.idle_add(
                 self._finish_music_folder_discovery,
                 generation,
                 device_identity,
                 path,
                 tracks,
+                complete,
             )
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _scan_source_tracks(self, path, generation):
-        return [
+        records, complete = scan_tracks(
+            path,
+            cancelled=lambda: generation != self.source_generation,
+        )
+        tracks = [
             Track(Path(path, record["path"]), record, STATE_LIBRARY)
-            for record in scan_tracks(
-                path,
-                cancelled=lambda: generation != self.source_generation,
-            )
+            for record in records
         ]
+        return tracks, complete
 
     def _finish_music_folder_discovery(
-        self, generation, device_identity, path, tracks
+        self, generation, device_identity, path, tracks, complete
     ):
         if generation != self.source_generation:
             return False
@@ -3882,10 +4082,13 @@ class IpodWindow(Adw.ApplicationWindow):
         if device_identity != self.device_identity or not self.mount_point:
             self._toast("The connected iPod changed, so the folder was not queued")
             return False
+        if not complete:
+            self._toast("Could not finish reading that folder; nothing was queued")
+            return False
         if not tracks:
             self._toast("No supported audio found in that folder")
             return False
-        self._queue_sources({str(path): tracks})
+        self._queue_sources({str(path): tracks}, metadata_complete=True)
         return False
 
     def on_add_folder(self, _button):
@@ -4037,6 +4240,8 @@ class IpodWindow(Adw.ApplicationWindow):
         if not sources:
             return "Already downloaded - nothing new to add"
         queued = self._queue_paths(sources, show_toast=False)
+        if queued is None:
+            return "Downloaded; reading track details before queueing"
         return (
             f"{plural(queued, 'track')} queued for sync"
             if queued
@@ -4183,10 +4388,7 @@ class IpodWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def _confirmed_device(self, device_identity):
-        current_identity = (
-            volume_identity(self.mount_point) if self.mount_point else None
-        )
-        if device_identity is None or current_identity != device_identity:
+        if resolve_device(self.mount_point, device_identity) is None:
             self._toast("The connected iPod changed, so the action was cancelled")
             return False
         return True
@@ -4203,22 +4405,44 @@ class IpodWindow(Adw.ApplicationWindow):
         self._run(argv, "Wiping", "iPod wiped")
 
     def on_eject(self, _button):
-        device = device_for(self.mount_point) if self.mount_point else None
-        if not device:
+        expected_identity = self.device_identity
+        device = resolve_device(
+            self.mount_point, expected_identity, require_block=True
+        )
+        if device is None:
             self._toast("Could not determine the device to unmount")
             return
 
         self._set_busy(True, "Ejecting")
 
         def worker():
-            ok, message = udisks_filesystem_call(device, "Unmount")
-            GLib.idle_add(self._finish_dbus, ok, "Safe to unplug", message)
+            current = resolve_device(
+                self.mount_point, expected_identity, require_block=True
+            )
+            if current is None:
+                GLib.idle_add(
+                    self._finish_dbus,
+                    False,
+                    "",
+                    "the connected iPod changed; eject was cancelled",
+                )
+                return
+            ok, message = udisks_filesystem_call(
+                current.block_device, "Unmount"
+            )
+            GLib.idle_add(
+                self._finish_dbus, ok, "Safe to unplug", message, True
+            )
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _finish_dbus(self, ok, success_message, error_message):
+    def _finish_dbus(
+        self, ok, success_message, error_message, invalidate_snapshot=False
+    ):
         self._set_busy(False)
         self._toast(success_message if ok else f"Failed: {error_message}")
+        if ok and invalidate_snapshot:
+            self._invalidate_device_snapshot()
         self.refresh()
         return False
 

@@ -96,6 +96,7 @@ class FakeWindow:
         self.mount_point = "/media/alex/Alex's iPod"
         self.device_identity = "uuid:test-ipod"
         self.discovering_sources = False
+        self.source_generation = 0
         self._device_scan_active = False
         self._device_snapshot_ready = True
         self.pending_device_identity = None
@@ -140,6 +141,9 @@ class FakeWindow:
     _pending_change_count = ipod_gui.IpodWindow._pending_change_count
     _record_for_track = staticmethod(ipod_gui.IpodWindow._record_for_track)
     _merge_states = ipod_gui.IpodWindow._merge_states
+    _scan_pending_tracks = ipod_gui.IpodWindow._scan_pending_tracks
+    _finish_pending_enrichment = ipod_gui.IpodWindow._finish_pending_enrichment
+    _commit_queue_sources = ipod_gui.IpodWindow._commit_queue_sources
     _queue_sources = ipod_gui.IpodWindow._queue_sources
     _queue_paths = ipod_gui.IpodWindow._queue_paths
     _queue_playlist = ipod_gui.IpodWindow._queue_playlist
@@ -238,7 +242,8 @@ original_reader = ipod_gui._TAG_READER
 try:
     ipod_gui.TAG_PYTHON = None
     ipod_gui._tag_interpreter = lambda: None
-    fallback = ipod_gui.scan_tracks(scan_root)
+    fallback, complete = ipod_gui.scan_tracks(scan_root)
+    assert complete
     assert fallback == [
         {
             "path": "Artist/Fallback.mp3",
@@ -256,18 +261,22 @@ time.sleep(10)
 """
     streamed = []
     started = time.monotonic()
-    records = ipod_gui.scan_tracks(scan_root, streamed.append, timeout=0.4)
+    records, complete = ipod_gui.scan_tracks(
+        scan_root, streamed.append, timeout=0.4
+    )
     elapsed = time.monotonic() - started
     assert elapsed < 2, elapsed
+    assert not complete, "a timed-out scan was reported as complete"
     assert records[0]["title"] == "Tagged", records
     assert [record["title"] for record in streamed] == ["Fallback", "Tagged"], streamed
 
     started = time.monotonic()
-    ipod_gui.scan_tracks(
+    _records, complete = ipod_gui.scan_tracks(
         scan_root,
         timeout=10,
         cancelled=lambda: time.monotonic() - started >= 0.1,
     )
+    assert not complete, "a cancelled scan was reported as complete"
     assert time.monotonic() - started < 2, "cancelled scan left its reader running"
 finally:
     ipod_gui._tag_interpreter = original_interpreter
@@ -300,9 +309,10 @@ class FolderDiscoveryWindow:
                 {"title": "Song", "artist": "Artist", "album": "Album"},
                 ipod_gui.STATE_LIBRARY,
             )
-        ]
+        ], True
 
-    def _queue_sources(self, sources):
+    def _queue_sources(self, sources, metadata_complete=False):
+        assert metadata_complete
         self.queued = {
             source: [track.path for track in tracks]
             for source, tracks in sources.items()
@@ -339,6 +349,61 @@ assert discovery_window.queued == {
     "/music": ["/music/song.mp3"]
 }, discovery_window.queued
 assert not discovery_window.discovering_sources, "folder discovery stayed active"
+
+failed_discovery = FolderDiscoveryWindow()
+failed_discovery.toasts = []
+failed_discovery._toast = failed_discovery.toasts.append
+partial_track = ipod_gui.Track(
+    "/music/partial.mp3", {"title": "Partial"}, ipod_gui.STATE_LIBRARY
+)
+ipod_gui.IpodWindow._finish_music_folder_discovery(
+    failed_discovery,
+    failed_discovery.source_generation,
+    failed_discovery.device_identity,
+    "/music",
+    [partial_track],
+    False,
+)
+assert failed_discovery.queued is None, "partial folder scan entered the queue"
+assert "nothing was queued" in failed_discovery.toasts[-1]
+
+enrichment_window = FakeWindow()
+pending_only = Path(tempfile.mkdtemp()) / "Outside.mp3"
+pending_only.touch()
+enrichment_window._update_device_controls = lambda: None
+
+
+def enrich_pending(paths, _generation):
+    assert paths == {str(pending_only)}
+    return {
+        str(pending_only): ipod_gui.Track(
+            pending_only,
+            {
+                "title": "Outside",
+                "artist": "Artist",
+                "album": "Album",
+                "duration": 120,
+            },
+            ipod_gui.STATE_LIBRARY,
+        )
+    }, True
+
+
+enrichment_window._scan_pending_tracks = enrich_pending
+scheduled = []
+scheduled_event = threading.Event()
+ipod_gui.GLib = type("ImmediateGLib", (), {"idle_add": staticmethod(record_idle)})
+try:
+    result = enrichment_window._queue_sources(
+        {str(pending_only): [enrichment_window._pending_track(pending_only)]}
+    )
+    assert result is None, "pending-only tags were not enriched asynchronously"
+    assert scheduled_event.wait(2), "pending enrichment did not reach GLib"
+finally:
+    ipod_gui.GLib = original_glib
+callback, callback_args = scheduled[0]
+callback(*callback_args)
+assert enrichment_window.pending_records[str(pending_only)]["artist"] == "Artist"
 
 
 class Selected:
@@ -514,6 +579,14 @@ playlist_track = playlist_root / "Party Song.mp3"
 playlist_track.touch()
 playlist_path = playlist_root / "Party Mix.m3u"
 playlist_path.write_text(f"{playlist_track.name}\n", encoding="utf-8")
+playlist_window.library.tracks = [
+    ipod_gui.Track(
+        playlist_track,
+        {"title": "Party Song", "artist": "Artist"},
+        ipod_gui.STATE_LIBRARY,
+    )
+]
+playlist_window._merge_states()
 ipod_gui.IpodWindow._add_playlist(playlist_window, playlist_path)
 
 assert playlist_window.commands == [], playlist_window.commands
@@ -545,6 +618,7 @@ folder_members = [
     for name in ("One", "Two")
 ]
 folder_window.library.tracks = folder_members
+folder_window._merge_states()
 folder_window._queue_sources({"/music/Album": folder_members})
 folder_window._unqueue_track(folder_members[0])
 assert folder_window.pending_sources == {}, folder_window.pending_sources
@@ -739,6 +813,14 @@ downloaded.touch()
 new_tracks.write_text(f"{downloaded}\n\n")
 
 ipod_gui.YOUTUBE_LIBRARY = library
+window.library.tracks = [
+    ipod_gui.Track(
+        downloaded,
+        {"title": "New Song", "artist": "New Artist"},
+        ipod_gui.STATE_LIBRARY,
+    )
+]
+window._merge_states()
 queued_outcome = window.then()
 assert isinstance(queued_outcome, str), queued_outcome
 assert "queued" in queued_outcome, queued_outcome
@@ -857,7 +939,9 @@ outside_window.device_tracks = [
         relpath="F00/ABCD.mp3",
     )
 ]
-outside_window._queue_sources({"/outside/Album": [outside_track]})
+outside_window._queue_sources(
+    {"/outside/Album": [outside_track]}, metadata_complete=True
+)
 assert outside_window._pending_accounting()[1:] == (0, 0)
 
 
@@ -903,6 +987,58 @@ finally:
     ipod_gui.volume_identity = original_volume_identity
 assert started is False
 assert "changed" in run_guard.toasts[-1]
+
+
+class EjectGuardWindow:
+    def __init__(self):
+        self.mount_point = "/media/iPod"
+        self.device_identity = "uuid:expected"
+        self.toasts = []
+
+    def _toast(self, message):
+        self.toasts.append(message)
+
+    def _set_busy(self, *_args):
+        raise AssertionError("stale device began ejecting")
+
+
+eject_guard = EjectGuardWindow()
+original_volume_identity = ipod_gui.volume_identity
+ipod_gui.volume_identity = lambda _mount: "uuid:replacement"
+try:
+    ipod_gui.IpodWindow.on_eject(eject_guard, None)
+finally:
+    ipod_gui.volume_identity = original_volume_identity
+assert eject_guard.toasts, "stale device eject failed silently"
+
+
+class FinishWindow:
+    def __init__(self):
+        self.events = []
+        self.sync_total = 1
+
+    def _invalidate_device_snapshot(self):
+        self.events.append("invalidate")
+
+    def _set_busy(self, _busy):
+        self.events.append("idle")
+
+    def _toast(self, _message):
+        self.events.append("toast")
+
+    def refresh(self):
+        self.events.append("refresh")
+
+    def _rescan_library(self):
+        self.events.append("library")
+
+
+finish_window = FinishWindow()
+ipod_gui.IpodWindow._finish(
+    finish_window, 0, "Done", device_command=True
+)
+assert finish_window.events[0] == "invalidate", finish_window.events
+assert finish_window.sync_total == 0
 
 # An empty queue must not launch a script at all.
 idle_window = FakeWindow()
