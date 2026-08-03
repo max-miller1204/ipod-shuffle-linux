@@ -124,16 +124,16 @@ That view is deliberately not sortable: a playlist's order is the one thing you 
 
 The search field at the top of the window queries two sources at once.
 Your indexed music folders answer immediately, matching every word of the query in any order across title, artist and album, so "queen rhapsody" finds a track tagged *Bohemian Rhapsody* by *Queen*.
-YouTube answers a second or so later, into a placeholder that is already exactly the size of the results it is waiting for, so nothing on the page moves when they land.
-Adding one of those results downloads it as MP3 and queues it, the same as pasting its link would.
+For queries of at least two characters, YouTube answers a second or so later with up to three matches; a reserved three-row placeholder keeps the page steady while it waits.
+Once an iPod is connected, adding one of those results downloads it as MP3 and queues it, the same as pasting its link would.
 Pasting a link into the search field looks that link up rather than searching for its text, so you can see what a URL actually is before adding it.
 
-The two halves fail independently and each says so in place of its own rows, never as a toast that is gone by the time you look back at the empty space:
+The two halves fail independently and each explains problems inline in its own section, never as a toast that is gone by the time you look back at the empty space:
 
 | What is wrong | What happens |
 | --- | --- |
 | No `yt-dlp` | The YouTube half says so; your music folders are still searched |
-| No JavaScript runtime, or no `ffmpeg` | Results are still listed, and **Add** says which piece the download needs |
+| No JavaScript runtime, or no `ffmpeg` | Results are still listed, while **Add** is disabled and explains which piece the download needs |
 | Offline, or rate-limited | The section says it could not reach YouTube, which is not the same as finding nothing |
 | Nothing matched | Each half says so on its own, since one can find something when the other does not |
 | A download stopped part-way | The section says which track, and points at **Details** for what `yt-dlp` reported |

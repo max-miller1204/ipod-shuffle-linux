@@ -4833,8 +4833,8 @@ class IpodWindow(Adw.ApplicationWindow):
         it produced.
 
         on_failure is its opposite, for a caller that has somewhere better to
-        report the failure than the toast: a search result says so in the row
-        the user pressed Add on, which is still on screen when the toast is not.
+        report the failure than the toast: a search result reports it inline in
+        the section where the user pressed Add, which remains on screen.
         """
         if any(part is None for part in argv):
             self._toast("Connect an iPod before running this action")
