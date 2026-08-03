@@ -43,15 +43,43 @@ class FakeSwitch:
 
 
 class FakeWidget:
+    """Stands in for any widget _set_busy touches.
+
+    One class rather than several, because the point of the check is which
+    controls end up sensitive, not which GTK type each one happens to be.
+    """
+
     def __init__(self):
         self.sensitive = True
         self.visible = False
+        self.text = None
+        self.revealed = False
+        self.spinning = False
+        self.fraction = 0.0
 
     def set_sensitive(self, value):
         self.sensitive = value
 
     def set_visible(self, value):
         self.visible = value
+
+    def set_text(self, value):
+        self.text = value
+
+    def set_label(self, value):
+        self.text = value
+
+    def set_reveal_child(self, value):
+        self.revealed = value
+
+    def set_fraction(self, value):
+        self.fraction = value
+
+    def start(self):
+        self.spinning = True
+
+    def stop(self):
+        self.spinning = False
 
 
 class FakeWindow:
@@ -76,8 +104,10 @@ class FakeWindow:
         return ["--dir-playlists=1", "--playlist-voiceover"]
 
     # The step that decides what to copy is the one under test, so it is the
-    # real implementation rather than another stand-in.
+    # real implementation rather than another stand-in. Same for the one that
+    # empties the queue once a staged sync has succeeded.
     _sync_downloaded = ipod_gui.IpodWindow._sync_downloaded
+    _clear_pending = ipod_gui.IpodWindow._clear_pending
 
 
 # ------------------------------------------------------------------ removal
@@ -148,24 +178,57 @@ assert not silent_window.playlist_voiceover.active, "voiceover flipped without a
 assert not silent_window.commands, "a playlist was synced without spoken names"
 assert silent_window.toasts == ["No speech engine installed"], silent_window.toasts
 
+# Coming out of an operation must not enable a control this machine cannot
+# support. _set_busy re-applies the capability gating on the way out, and the
+# widgets it blanket-disables are collected in _busy_widgets rather than named
+# one at a time, so a new control cannot be forgotten here.
 busy_window = FakeWindow()
+busy_window._busy_widgets = [FakeWidget() for _ in range(3)]
 for attr in (
-    "add_row",
-    "playlist_row",
-    "rebuild_row",
-    "wipe_row",
-    "eject_row",
-    "youtube_row",
-    "tracks_list",
-    "playlists_list",
-    "refresh_button",
+    "playlist_button",
+    "youtube_button",
+    "sync_button",
     "progress",
+    "sync_revealer",
+    "sync_spinner",
+    "sync_title",
+    "sync_count",
+    "sync_current",
 ):
     setattr(busy_window, attr, FakeWidget())
 busy_window.youtube_unavailable = None
 busy_window.speech_engine_available = False
+busy_window.pending = {}
+
 ipod_gui.IpodWindow._set_busy(busy_window, False)
-assert not busy_window.playlist_row.sensitive, "busy reset enabled Add Playlist"
+assert not busy_window.playlist_button.sensitive, "busy reset enabled Add Playlist"
+assert busy_window.youtube_button.sensitive, "busy reset left YouTube disabled"
+# Nothing is queued, so there is nothing for Sync to do.
+assert not busy_window.sync_button.sensitive, "Sync offered with an empty queue"
+assert all(w.sensitive for w in busy_window._busy_widgets), "widgets left disabled"
+assert not busy_window.sync_revealer.revealed, "sync bar left showing when idle"
+assert not busy_window.sync_spinner.spinning, "spinner left running when idle"
+
+# With something queued, the same reset has to offer the sync.
+queued_window = FakeWindow()
+queued_window._busy_widgets = []
+for attr in (
+    "playlist_button",
+    "youtube_button",
+    "sync_button",
+    "progress",
+    "sync_revealer",
+    "sync_spinner",
+    "sync_title",
+    "sync_count",
+    "sync_current",
+):
+    setattr(queued_window, attr, FakeWidget())
+queued_window.youtube_unavailable = None
+queued_window.speech_engine_available = True
+queued_window.pending = {"/home/alex/Music/one.mp3": object()}
+ipod_gui.IpodWindow._set_busy(queued_window, False)
+assert queued_window.sync_button.sensitive, "queued changes could not be synced"
 
 # -------------------------------------------------------- playlist removal
 
@@ -271,9 +334,153 @@ assert sorted(fallback) == sorted(
     [str(library / "New Artist"), str(library / "Old Artist")]
 ), fallback
 
+# --------------------------------------------------------------- staged sync
+#
+# Adding queues a track rather than copying it, so the command that finally
+# runs has to name every queued path and nothing else. Copying the whole
+# library instead would fill a 2GB device from a single click.
+queue_window = FakeWindow()
+queue_window.sync_files = []
+queue_window.sync_total = 0
+queued_paths = {
+    "/home/alex/Music/Kova/Nightbus/01 Nightbus.mp3": object(),
+    "/home/alex/Music/-Dashed Title.mp3": object(),
+}
+queue_window.pending = dict(queued_paths)
+ipod_gui.IpodWindow.on_sync_pending(queue_window, None)
+
+staged = queue_window.commands[0]
+assert staged[0].endswith("ipod-sync.sh"), staged
+assert staged[1:3] == ["--ipod", queue_window.mount_point], staged
+# Everything after -- is a path, because a track title can begin with a dash.
+separator = staged.index("--")
+assert sorted(staged[separator + 1:]) == sorted(queued_paths), staged
+assert queue_window.sync_total == len(queued_paths), queue_window.sync_total
+
+# The queue is only cleared once the copy has actually succeeded, which is
+# what the then callback is for.
+assert queue_window.pending == queued_paths, "queue emptied before the sync ran"
+cleared = queue_window.then()
+assert queue_window.pending == {}, "queue survived a successful sync"
+assert isinstance(cleared, str), cleared
+
+# An empty queue must not launch a script at all.
+idle_window = FakeWindow()
+idle_window.pending = {}
+idle_window.sync_files = []
+idle_window.sync_total = 0
+ipod_gui.IpodWindow.on_sync_pending(idle_window, None)
+assert idle_window.commands == [], idle_window.commands
+
+# -------------------------------------------------------- playlist reordering
+#
+# A playlist's order is the only thing the user arranged by hand, so a reorder
+# has to reach the device rather than living in the window. The entries under
+# the music folder get their prefix back; anything hand-written is left as it
+# was, because restoring the prefix blindly would break an absolute path.
+reorder_root = Path(tempfile.mkdtemp())
+(reorder_root / "iPod_Control" / "Music" / "F00").mkdir(parents=True)
+for code in ("LDPX", "QMRT"):
+    (reorder_root / "iPod_Control" / "Music" / "F00" / f"{code}.mp3").write_bytes(b"x")
+
+m3u = reorder_root / "Morning Ride.m3u"
+m3u.write_text(
+    "iPod_Control/Music/F00/LDPX.mp3\n"
+    "iPod_Control/Music/F00/QMRT.mp3\n"
+    "/home/alex/elsewhere.mp3\n",
+    encoding="utf-8",
+)
+
+assert ipod_gui.playlist_file(reorder_root, "Morning Ride") == m3u
+assert ipod_gui.playlist_file(reorder_root, "Nonexistent") is None
+
+parsed_order = dict(ipod_gui.list_playlists(reorder_root))["Morning Ride"]
+reordered = [parsed_order[1], parsed_order[0], parsed_order[2]]
+assert ipod_gui.write_playlist(reorder_root, m3u, reordered)
+
+written = [
+    line
+    for line in m3u.read_text(encoding="utf-8").splitlines()
+    if line and not line.startswith("#")
+]
+assert written == [
+    "iPod_Control/Music/F00/QMRT.mp3",
+    "iPod_Control/Music/F00/LDPX.mp3",
+    # Never under the music folder, so it keeps the path it was written with.
+    "/home/alex/elsewhere.mp3",
+], written
+# The rewrite is atomic, so no half-written list can be left behind for the
+# firmware to choke on if the device is pulled mid-write.
+assert not list(reorder_root.glob(".*tmp")), list(reorder_root.glob(".*tmp"))
+
+pls = reorder_root / "Gym.pls"
+pls.write_text("[playlist]\nFile1=iPod_Control/Music/F00/LDPX.mp3\n", encoding="utf-8")
+assert ipod_gui.write_playlist(reorder_root, pls, ["F00/QMRT.mp3", "F00/LDPX.mp3"])
+pls_text = pls.read_text(encoding="utf-8")
+assert "NumberOfEntries=2" in pls_text, pls_text
+assert "File1=iPod_Control/Music/F00/QMRT.mp3" in pls_text, pls_text
+assert "File2=iPod_Control/Music/F00/LDPX.mp3" in pls_text, pls_text
+
+# ---------------------------------------------------------- column sorting
+#
+# Driven through Gtk.Sorter.compare so the comparison is invoked exactly as
+# the column view invokes it, trailing user_data included. That argument is
+# the whole point of the test: it used to land on a lambda default and
+# replace the key function with None, so every sortable column raised
+# TypeError and quietly did nothing.
+def sortable(title):
+    return ipod_gui.TrackItem(
+        ipod_gui.Track("/tmp/x.mp3", {"title": title}, ipod_gui.STATE_LIBRARY), 1
+    )
+
+
+Gtk = ipod_gui.Gtk
+by_title = ipod_gui.track_sorter(lambda track: track.title.lower())
+assert by_title.compare(sortable("a"), sortable("b")) == Gtk.Ordering.SMALLER
+assert by_title.compare(sortable("b"), sortable("a")) == Gtk.Ordering.LARGER
+assert by_title.compare(sortable("a"), sortable("A")) == Gtk.Ordering.EQUAL
+
+by_duration = ipod_gui.track_sorter(lambda track: track.duration)
+short, long_ = sortable("short"), sortable("long")
+short.track.duration, long_.track.duration = 10.0, 400.0
+assert by_duration.compare(short, long_) == Gtk.Ordering.SMALLER
+
+# Every sortable column must produce a usable sorter, not just the one above.
+for _key, _title, _expand, sort_key in ipod_gui.TRACK_COLUMNS:
+    if sort_key is None:
+        continue
+    built = ipod_gui.track_sorter(sort_key)
+    assert built.compare(sortable("a"), sortable("b")) in (
+        Gtk.Ordering.SMALLER,
+        Gtk.Ordering.EQUAL,
+        Gtk.Ordering.LARGER,
+    ), _key
+
+# ------------------------------------------------------ per-file sync output
+#
+# ipod-sync.sh prints one of these per file; the sync bar counts them. The
+# destination can contain spaces, so the pattern must not stop at one.
+progress = ipod_gui.COPIED_LINE.match("  + Harbour Light.mp3 -> F00/LDPX.mp3\n".rstrip())
+assert progress, "per-file sync line no longer parses"
+assert progress.group("name") == "Harbour Light.mp3", progress.group("name")
+assert progress.group("dest") == "F00/LDPX.mp3", progress.group("dest")
+
+spaced = ipod_gui.COPIED_LINE.match("  + A Song.mp3 -> Some Folder/B QRST.mp3")
+assert spaced, "a destination containing a space did not parse"
+assert spaced.group("dest") == "Some Folder/B QRST.mp3", spaced.group("dest")
+
+# Aggregate lines are not per-file lines and must not be counted as copies.
+for line in ("==> Copied 4 file(s)", "warning: Skipped 1 unsupported file(s)"):
+    assert ipod_gui.COPIED_LINE.match(line) is None, line
+
+# The shell script must still emit the format the bar parses.
+sync_sh = (repo / "ipod-sync.sh").read_text(encoding="utf-8")
+assert "'  + %s -> %s\\n'" in sync_sh, "ipod-sync.sh stopped reporting each file"
+
 print(
     json.dumps(
         {
+            "staged_sync_command": staged,
             "remove_command": removal,
             "playlist_command": playlist_add,
             "playlist_remove_command": playlist_rm,

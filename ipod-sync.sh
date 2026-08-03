@@ -225,6 +225,11 @@ copy_track() {
     mkdir -p "$(dirname "$COPY_TARGET")"
     cp "$source" "$COPY_TARGET"
     copied=$((copied + 1))
+    # One line per file. A copy onto a shuffle runs at USB 2.0 speeds and can
+    # take minutes, and until now neither the terminal nor the GUI had
+    # anything to report until the whole thing had finished.
+    printf '  + %s -> %s\n' \
+        "$(basename -- "$source")" "${COPY_TARGET#"$MUSIC_DIR"/}"
 }
 
 # The folder a lone file argument lands in: the one it came from. Syncing an
