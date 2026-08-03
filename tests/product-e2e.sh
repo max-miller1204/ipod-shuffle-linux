@@ -852,21 +852,21 @@ mkdir -p "$PLAYLIST_LIB/Unicode First" "$PLAYLIST_LIB/Unicode Second"
 printf 'unicode first track\n' > "$PLAYLIST_LIB/Unicode First/First.mp3"
 printf 'unicode second track\n' > "$PLAYLIST_LIB/Unicode Second/Second.mp3"
 printf '%s\n' "$PLAYLIST_LIB/Unicode First/First.mp3" \
-    > "$PLAYLIST_LIB/ÄMIX.m3u"
+    > "$PLAYLIST_LIB/ΟΣ.m3u"
 printf '%s\n' "$PLAYLIST_LIB/Unicode Second/Second.mp3" \
-    > "$PLAYLIST_LIB/ämix.m3u"
+    > "$PLAYLIST_LIB/οσ.m3u"
 LC_ALL=C "$ROOT/ipod-sync.sh" \
     --ipod "$PLAYLIST_IPOD" \
-    "$PLAYLIST_LIB/ÄMIX.m3u" \
-    "$PLAYLIST_LIB/ämix.m3u" \
+    "$PLAYLIST_LIB/ΟΣ.m3u" \
+    "$PLAYLIST_LIB/οσ.m3u" \
     > "$EVIDENCE_DIR/playlist-locale-case-collision.txt" 2>&1
 diff -u <(printf '%s\n' \
     '#EXTM3U' \
     'iPod_Control/Music/Unicode First/First.mp3') \
-    "$PLAYLIST_IPOD/ÄMIX.m3u"
-test ! -e "$PLAYLIST_IPOD/ämix.m3u"
+    "$PLAYLIST_IPOD/ΟΣ.m3u"
+test ! -e "$PLAYLIST_IPOD/οσ.m3u"
 test ! -e "$PLAYLIST_IPOD/iPod_Control/Music/Unicode Second/Second.mp3"
-grep -Fq "both become 'ÄMIX.m3u'" \
+grep -Fq "both become 'ΟΣ.m3u'" \
     "$EVIDENCE_DIR/playlist-locale-case-collision.txt"
 
 mkdir -p \
@@ -937,6 +937,22 @@ diff -u <(printf '%s\n' \
     "$PLAYLIST_IPOD/Parser.m3u"
 test ! -e "$PLAYLIST_IPOD/iPod_Control/Music/Parser/New.mp3"
 
+printf -v LONG_PLAYLIST_STEM '%0251d' 0
+mkdir -p "$PLAYLIST_LIB/Long Atomic"
+printf 'long atomic track\n' > "$PLAYLIST_LIB/Long Atomic/Track.mp3"
+printf '%s\n' "$PLAYLIST_LIB/Long Atomic/Track.mp3" \
+    > "$PLAYLIST_LIB/$LONG_PLAYLIST_STEM.m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/$LONG_PLAYLIST_STEM.m3u" \
+    > "$EVIDENCE_DIR/playlist-long-atomic-name.txt" 2>&1
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Long Atomic/Track.mp3') \
+    "$PLAYLIST_IPOD/$LONG_PLAYLIST_STEM.m3u"
+test -f "$PLAYLIST_IPOD/iPod_Control/Music/Long Atomic/Track.mp3"
+test -z "$(find "$PLAYLIST_IPOD" -maxdepth 1 -name '.ipod-tmp.*' -print -quit)"
+
 FAILING_MV_PATH="$TEST_ROOT/failing-mv-path"
 mkdir -p "$FAILING_MV_PATH"
 printf '%s\n' \
@@ -965,7 +981,7 @@ diff -u <(printf '%s\n' \
     '#EXTM3U' \
     'iPod_Control/Music/Neil Young/Heart of Gold.mp3') \
     "$PLAYLIST_IPOD/Atomic.m3u"
-test -z "$(find "$PLAYLIST_IPOD" -maxdepth 1 -name 'Atomic.m3u.tmp.*' -print -quit)"
+test -z "$(find "$PLAYLIST_IPOD" -maxdepth 1 -name '.ipod-tmp.*' -print -quit)"
 
 ATOMIC_REMOVE_IPOD="$TEST_ROOT/atomic-remove-target"
 mkdir -p \
@@ -995,7 +1011,7 @@ diff -u <(printf '%s\n' \
     'iPod_Control/Music/Album/One.mp3' \
     'iPod_Control/Music/Album/Two.mp3') \
     "$ATOMIC_REMOVE_IPOD/Atomic Remove.m3u"
-test -z "$(find "$ATOMIC_REMOVE_IPOD" -maxdepth 1 -name 'Atomic Remove.m3u.tmp.*' -print -quit)"
+test -z "$(find "$ATOMIC_REMOVE_IPOD" -maxdepth 1 -name '.ipod-tmp.*' -print -quit)"
 
 # A removed track leaves every list that names it, and a list that loses its
 # last track disappears rather than survive as a playlist that plays nothing.
@@ -1408,6 +1424,7 @@ printf '%s\n' \
     "PASS: colliding sanitized playlist names kept the first list and skipped the second" \
     "PASS: case-only playlist collisions kept the first list and its casing" \
     "PASS: playlist case folding stayed stable across locale and Unicode casing" \
+    "PASS: long playlist names used bounded atomic temporary files" \
     "PASS: the real database builder resolved every rewritten playlist entry" \
     "PASS: colliding playlist tracks kept distinct content and destinations" \
     "PASS: replacing a playlist with no playable tracks removed its stale device list" \

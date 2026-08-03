@@ -43,10 +43,17 @@ warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
 die() { err "$*"; exit 1; }
 
 atomic_replace_lines() {
-    local target="$1" temporary
+    local target="$1" directory temporary
     shift
 
-    temporary="$(mktemp "${target}.tmp.XXXXXX")" \
+    case "$target" in
+        */*)
+            directory="${target%/*}"
+            [[ -n "$directory" ]] || directory="/"
+            ;;
+        *) directory="." ;;
+    esac
+    temporary="$(mktemp "$directory/.ipod-tmp.XXXXXX")" \
         || die "Could not create a temporary file beside $target."
     if ! printf '%s\n' "$@" > "$temporary"; then
         rm -f -- "$temporary"
