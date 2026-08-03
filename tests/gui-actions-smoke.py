@@ -188,7 +188,7 @@ for answer in ("cancel", "close"):
 # entries under the music folder rewritten to match the track list's keys so
 # both share tag-derived titles.
 fake_volume = Path(tempfile.mkdtemp())
-(fake_volume / "Party.m3u").write_text(
+(fake_volume / "Party.M3U").write_text(
     "#EXTM3U\r\niPod_Control/Music/Yeat/Song [x1].mp3\r\n\r\n/kept/as/written.mp3\n",
     encoding="utf-8",
 )
@@ -196,7 +196,7 @@ fake_volume = Path(tempfile.mkdtemp())
     "iPod_Control/Music/Yeat/Song [x1].mp3\n",
     encoding="utf-8",
 )
-(fake_volume / "Radio.pls").write_text(
+(fake_volume / "Radio.PLS").write_text(
     "[playlist]\nFile2=/second.mp3\nTitle2=Second\nfile1=iPod_Control/Music/Yeat/Song [x1].mp3\n",
     encoding="utf-8",
 )

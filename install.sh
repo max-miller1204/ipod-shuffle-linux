@@ -47,6 +47,10 @@ command -v python3 >/dev/null || die "python3 is required but not installed."
 command -v git >/dev/null     || die "git is required but not installed."
 info "python3: $(python3 --version)"
 
+readonly APP_ID="io.github.max_miller1204.IpodShuffle"
+apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+desktop_file="$apps_dir/$APP_ID.desktop"
+
 # ------------------------------------------------------------------ privileged
 
 # Probe for capabilities rather than package names, so the check itself works
@@ -61,6 +65,13 @@ fi
 if find_gui_python >/dev/null 2>&1; then
     info "GUI: GTK4 bindings present"
 else
+    if [[ -e "$desktop_file" ]]; then
+        rm -f -- "$desktop_file"
+        if command -v update-desktop-database >/dev/null; then
+            update-desktop-database "$apps_dir" 2>/dev/null || true
+        fi
+        info "Desktop entry removed because the GUI dependencies are unavailable"
+    fi
     needed+=("python3-gi" "gir1.2-gtk-4.0" "gir1.2-adw-1")
 fi
 
@@ -185,11 +196,8 @@ desktop_exec_escape() {
     printf '"%s"' "$output"
 }
 
-readonly APP_ID="io.github.max_miller1204.IpodShuffle"
 REPO_DIR="$(dirname "$(readlink -f "$0")")"
 readonly REPO_DIR
-apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-desktop_file="$apps_dir/$APP_ID.desktop"
 if find_gui_python >/dev/null 2>&1; then
     icons_root="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
     mkdir -p "$apps_dir" "$icons_root/scalable/apps"
@@ -232,15 +240,7 @@ if find_gui_python >/dev/null 2>&1; then
     fi
     info "Desktop entry installed (look for iPod Shuffle in the app grid)"
 else
-    if [[ -e "$desktop_file" ]]; then
-        rm -f -- "$desktop_file"
-        if command -v update-desktop-database >/dev/null; then
-            update-desktop-database "$apps_dir" 2>/dev/null || true
-        fi
-        info "Desktop entry removed because the GUI dependencies are unavailable"
-    else
-        info "Desktop entry skipped until the GUI dependencies are installed"
-    fi
+    info "Desktop entry skipped until the GUI dependencies are installed"
 fi
 
 # ---------------------------------------------------------------- unprivileged

@@ -155,9 +155,7 @@ mkdir -p "$MUSIC_DIR"
 
 if (( CLEAR )); then
     existing="$(find "$MUSIC_DIR" -type f | wc -l)"
-    shopt -s nullglob
-    stale_playlists=("$IPOD"/*.m3u "$IPOD"/*.pls)
-    shopt -u nullglob
+    mapfile -d '' -t stale_playlists < <(root_playlist_files "$IPOD")
     playlist_count=${#stale_playlists[@]}
     if (( existing > 0 || playlist_count > 0 )); then
         if (( existing > 0 && playlist_count > 0 )); then

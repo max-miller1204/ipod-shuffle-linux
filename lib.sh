@@ -42,6 +42,11 @@ warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
 
 die() { err "$*"; exit 1; }
 
+root_playlist_files() {
+    find "$1" -maxdepth 1 -type f \
+        \( -iname '*.m3u' -o -iname '*.pls' \) -print0
+}
+
 atomic_replace_lines() {
     local target="$1" directory temporary
     shift

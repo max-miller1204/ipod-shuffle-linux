@@ -58,9 +58,7 @@ ITUNES_DIR="$IPOD/iPod_Control/iTunes"
 # The playlist files ipod-sync.sh stores at the volume root. They are cleared
 # with the tracks they reference, and backed up alongside them: each one is
 # the only record of which songs made up that playlist.
-shopt -s nullglob
-ROOT_PLAYLISTS=("$IPOD"/*.m3u "$IPOD"/*.pls)
-shopt -u nullglob
+mapfile -d '' -t ROOT_PLAYLISTS < <(root_playlist_files "$IPOD")
 
 track_count="$(find "$MUSIC_DIR" -type f 2>/dev/null | wc -l)"
 info "iPod: $IPOD"

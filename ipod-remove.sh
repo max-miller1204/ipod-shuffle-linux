@@ -80,6 +80,30 @@ MUSIC_DIR="$IPOD/iPod_Control/Music"
 # relative mount point would otherwise let a path escape the comparison.
 MUSIC_REAL="$(readlink -f -- "$MUSIC_DIR")"
 readonly MUSIC_REAL
+mapfile -d '' -t ROOT_PLAYLISTS < <(root_playlist_files "$IPOD")
+
+resolve_root_playlist() {
+    local requested="$1" wanted_extension list filename extension stem
+
+    RESOLVED_PLAYLIST=""
+    for wanted_extension in m3u pls; do
+        for list in "${ROOT_PLAYLISTS[@]}"; do
+            filename="${list##*/}"
+            case "$filename" in
+                *.[mM]3[uU]) extension="m3u" ;;
+                *.[pP][lL][sS]) extension="pls" ;;
+                *) continue ;;
+            esac
+            [[ "$extension" == "$wanted_extension" ]] || continue
+            stem="${filename%.*}"
+            if [[ "$stem" == "$requested" ]]; then
+                RESOLVED_PLAYLIST="$list"
+                return 0
+            fi
+        done
+    done
+    return 1
+}
 
 # Nothing but the track paths on stdout, so the output can be fed straight
 # back in as arguments.
@@ -106,39 +130,29 @@ if (( PLAYLIST_MODE )); then
         name="$arg"
         [[ "$name" != */* && "$name" != *\\* ]] \
             || die "Not a playlist name: $arg"
-        target=""
-        for extension in m3u pls; do
-            candidate="$IPOD/$name.$extension"
-            if [[ -f "$candidate" ]]; then
-                target="$candidate"
-                break
-            fi
-        done
-        if [[ -z "$target" ]]; then
+        if resolve_root_playlist "$name"; then
+            target="$RESOLVED_PLAYLIST"
+        else
             fallback_name="$name"
             case "$fallback_name" in
-                *.m3u) fallback_name="${fallback_name%.m3u}" ;;
-                *.pls) fallback_name="${fallback_name%.pls}" ;;
+                *.[mM]3[uU]|*.[pP][lL][sS]) fallback_name="${fallback_name%????}" ;;
             esac
             if [[ "$fallback_name" != "$name" ]]; then
-                for extension in m3u pls; do
-                    candidate="$IPOD/$fallback_name.$extension"
-                    if [[ -f "$candidate" ]]; then
-                        target="$candidate"
-                        name="$fallback_name"
-                        break
-                    fi
-                done
+                if resolve_root_playlist "$fallback_name"; then
+                    target="$RESOLVED_PLAYLIST"
+                    name="$fallback_name"
+                else
+                    target=""
+                fi
+            else
+                target=""
             fi
         fi
         if [[ -z "$target" ]]; then
             err "No playlist called '$name' on this iPod."
-            shopt -s nullglob
-            available=("$IPOD"/*.m3u "$IPOD"/*.pls)
-            shopt -u nullglob
-            if (( ${#available[@]} > 0 )); then
+            if (( ${#ROOT_PLAYLISTS[@]} > 0 )); then
                 err "It has:"
-                for list in "${available[@]}"; do
+                for list in "${ROOT_PLAYLISTS[@]}"; do
                     available_name="$(basename -- "$list")"
                     printf '  %s\n' "${available_name%.*}" >&2
                 done
@@ -234,12 +248,10 @@ fi
 # the volume root are rewritten, and within them only the entries ipod-sync.sh
 # writes; lines kept by hand in some other form pass through untouched.
 prune_playlists() {
-    local list line dropped kept_tracks
+    local list line dropped kept_tracks playlist_name
     local -a lists=() kept=()
 
-    shopt -s nullglob
-    lists=("$IPOD"/*.m3u)
-    shopt -u nullglob
+    lists=("${ROOT_PLAYLISTS[@]}")
 
     for list in "${lists[@]}"; do
         kept=()
@@ -261,12 +273,14 @@ prune_playlists() {
         done < "$list"
 
         (( dropped > 0 )) || continue
+        playlist_name="$(basename -- "$list")"
+        playlist_name="${playlist_name%.*}"
         if (( kept_tracks == 0 )); then
             rm -f -- "$list"
-            info "Removed playlist '$(basename -- "${list%.m3u}")': every track it listed is gone"
+            info "Removed playlist '$playlist_name': every track it listed is gone"
         else
             atomic_replace_lines "$list" "${kept[@]}"
-            info "Playlist '$(basename -- "${list%.m3u}")': dropped $dropped removed track(s)"
+            info "Playlist '$playlist_name': dropped $dropped removed track(s)"
         fi
     done
 }

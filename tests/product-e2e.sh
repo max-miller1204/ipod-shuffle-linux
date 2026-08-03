@@ -138,7 +138,7 @@ mkdir -p "$YES_SOURCE" \
     "$YES_IPOD/iPod_Control/Speakable"
 printf 'a track\n' > "$YES_SOURCE/track.mp3"
 printf 'already there\n' > "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
-printf '%s\n' '#EXTM3U' > "$YES_IPOD/Existing.m3u"
+printf '%s\n' '#EXTM3U' > "$YES_IPOD/Existing.M3U"
 
 if "$ROOT/ipod-sync.sh" \
     --ipod "$YES_IPOD" \
@@ -149,7 +149,7 @@ if "$ROOT/ipod-sync.sh" \
 fi
 grep -Fq 'Aborted.' "$EVIDENCE_DIR/clear-without-yes.txt"
 test -s "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
-test -f "$YES_IPOD/Existing.m3u"
+test -f "$YES_IPOD/Existing.M3U"
 
 "$ROOT/ipod-sync.sh" \
     --ipod "$YES_IPOD" \
@@ -160,14 +160,14 @@ grep -Fq 'Delete 1 existing track(s) and 1 playlist(s) from the iPod?' \
     "$EVIDENCE_DIR/clear-with-yes.txt"
 test -f "$YES_IPOD/iPod_Control/Music/yes-source/track.mp3"
 test ! -e "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
-test ! -e "$YES_IPOD/Existing.m3u"
+test ! -e "$YES_IPOD/Existing.M3U"
 
 PLAYLIST_ONLY_IPOD="$TEST_ROOT/playlist-only-clear-target"
 mkdir -p \
     "$PLAYLIST_ONLY_IPOD/iPod_Control/iTunes" \
     "$PLAYLIST_ONLY_IPOD/iPod_Control/Music" \
     "$PLAYLIST_ONLY_IPOD/iPod_Control/Speakable"
-printf '%s\n' '#EXTM3U' > "$PLAYLIST_ONLY_IPOD/Only List.m3u"
+printf '%s\n' '[playlist]' > "$PLAYLIST_ONLY_IPOD/Only List.PLS"
 if "$ROOT/ipod-sync.sh" \
     --ipod "$PLAYLIST_ONLY_IPOD" \
     --clear \
@@ -177,7 +177,7 @@ if "$ROOT/ipod-sync.sh" \
     exit 1
 fi
 grep -Fq 'Aborted.' "$EVIDENCE_DIR/clear-playlist-only-without-yes.txt"
-test -f "$PLAYLIST_ONLY_IPOD/Only List.m3u"
+test -f "$PLAYLIST_ONLY_IPOD/Only List.PLS"
 "$ROOT/ipod-sync.sh" \
     --ipod "$PLAYLIST_ONLY_IPOD" \
     --clear \
@@ -186,7 +186,7 @@ test -f "$PLAYLIST_ONLY_IPOD/Only List.m3u"
     > "$EVIDENCE_DIR/clear-playlist-only-with-yes.txt" 2>&1
 grep -Fq 'Delete 1 playlist(s) from the iPod?' \
     "$EVIDENCE_DIR/clear-playlist-only-with-yes.txt"
-test ! -e "$PLAYLIST_ONLY_IPOD/Only List.m3u"
+test ! -e "$PLAYLIST_ONLY_IPOD/Only List.PLS"
 
 # --yes has to answer every prompt, not just the caller's own. assert_shuffle
 # asks its own question from inside lib.sh when a volume has no Speakable
@@ -350,16 +350,24 @@ NO_GUI_PYTHON="$TEST_ROOT/no-gui-python"
 mkdir -p "$NO_GUI_PYTHON"
 printf '%s\n' 'raise ImportError("GUI bindings hidden for test")' \
     > "$NO_GUI_PYTHON/gi.py"
-if PYTHONPATH="$NO_GUI_PYTHON" XDG_DATA_HOME="$DESKTOP_DATA" \
-    IPOD_TOOLS_DIR="$INSTALL_BLOCKER" \
-    "$ROOT/install.sh" --no-system \
+FAILING_PRIVILEGE_PATH="$TEST_ROOT/failing-privilege-path"
+mkdir -p "$FAILING_PRIVILEGE_PATH"
+printf '%s\n' '#!/bin/sh' 'exit 1' > "$FAILING_PRIVILEGE_PATH/sudo"
+chmod +x "$FAILING_PRIVILEGE_PATH/sudo"
+if PATH="$FAILING_PRIVILEGE_PATH:$BASE_PATH" \
+    PYTHONPATH="$NO_GUI_PYTHON" \
+    XDG_DATA_HOME="$DESKTOP_DATA" \
+    DISPLAY='' WAYLAND_DISPLAY='' \
+    "$ROOT/install.sh" --yes \
     > "$EVIDENCE_DIR/install-desktop-entry-removed.txt" 2>&1; then
-    echo "installer unexpectedly continued past the blocked tools dir" >&2
+    echo "installer unexpectedly survived the failed privilege request" >&2
     exit 1
 fi
 test ! -e "$DESKTOP_FILE"
 test -s "$DESKTOP_DATA/icons/hicolor/scalable/apps/io.github.max_miller1204.IpodShuffle.svg"
 grep -Fq 'Desktop entry removed because the GUI dependencies are unavailable' \
+    "$EVIDENCE_DIR/install-desktop-entry-removed.txt"
+grep -Fq 'Requesting privileges' \
     "$EVIDENCE_DIR/install-desktop-entry-removed.txt"
 
 WEIRD_ROOT="$TEST_ROOT/checkout %f \"quoted\" \\slash \$cash \`tick\`"
@@ -1054,6 +1062,7 @@ test -z "$(find "$ATOMIC_REMOVE_IPOD" -maxdepth 1 -name '.ipod-tmp.*' -print -qu
 
 # A removed track leaves every list that names it, and a list that loses its
 # last track disappears rather than survive as a playlist that plays nothing.
+mv "$PLAYLIST_IPOD/Summer Mix.m3u" "$PLAYLIST_IPOD/Summer Mix.M3U"
 "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
@@ -1062,7 +1071,7 @@ diff -u <(printf '%s\n' \
     '#EXTM3U' \
     'iPod_Control/Music/Beach Boys/Surfin.mp3' \
     'iPod_Control/Music/Neil Young/Heart of Gold.mp3') \
-    "$PLAYLIST_IPOD/Summer Mix.m3u"
+    "$PLAYLIST_IPOD/Summer Mix.M3U"
 grep -Fq "Playlist 'Summer Mix': dropped 1 removed track(s)" \
     "$EVIDENCE_DIR/playlist-prune.txt"
 
@@ -1080,13 +1089,19 @@ diff -u <(printf '%s\n' \
 
 # Wiping clears the playlists with the tracks, and the backup keeps them: each
 # list is the only record of which songs made up that playlist.
+printf '%s\n' \
+    '[playlist]' \
+    'File1=iPod_Control/Music/Neil Young/Heart of Gold.mp3' \
+    > "$PLAYLIST_IPOD/Radio.PLS"
 "$ROOT/ipod-wipe.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --backup "$TEST_ROOT/playlist-backup" \
     --yes > "$EVIDENCE_DIR/playlist-wipe.txt" 2>&1
-test -s "$TEST_ROOT/playlist-backup/Playlists/Summer Mix.m3u"
+test -s "$TEST_ROOT/playlist-backup/Playlists/Summer Mix.M3U"
 test -s "$TEST_ROOT/playlist-backup/Playlists/Party.m3u"
-test -z "$(find "$PLAYLIST_IPOD" -maxdepth 1 -name '*.m3u' -print -quit)"
+test -s "$TEST_ROOT/playlist-backup/Playlists/Radio.PLS"
+test -z "$(find "$PLAYLIST_IPOD" -maxdepth 1 -type f \
+    \( -iname '*.m3u' -o -iname '*.pls' \) -print -quit)"
 
 # --clear starts the device over, so the playlists referencing the deleted
 # tracks go too.
@@ -1094,13 +1109,14 @@ test -z "$(find "$PLAYLIST_IPOD" -maxdepth 1 -name '*.m3u' -print -quit)"
     --ipod "$PLAYLIST_IPOD" \
     "$PLAYLIST_LIB/Summer Mix.m3u" > "$EVIDENCE_DIR/playlist-clear-setup.txt" 2>&1
 test -f "$PLAYLIST_IPOD/Summer Mix.m3u"
+mv "$PLAYLIST_IPOD/Summer Mix.m3u" "$PLAYLIST_IPOD/Summer Mix.M3U"
 "$ROOT/ipod-sync.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --clear \
     --yes \
     "$PLAYLIST_LIB/Beach Boys" < /dev/null \
     > "$EVIDENCE_DIR/playlist-clear.txt" 2>&1
-test ! -e "$PLAYLIST_IPOD/Summer Mix.m3u"
+test ! -e "$PLAYLIST_IPOD/Summer Mix.M3U"
 grep -Fq 'Removed 1 playlist(s)' "$EVIDENCE_DIR/playlist-clear.txt"
 
 # A playlist can be deleted by name, which removes only the list itself. The
@@ -1110,7 +1126,7 @@ grep -Fq 'Removed 1 playlist(s)' "$EVIDENCE_DIR/playlist-clear.txt"
     "$PLAYLIST_LIB/Summer Mix.m3u" > "$EVIDENCE_DIR/playlist-byname-setup.txt" 2>&1
 test -f "$PLAYLIST_IPOD/Summer Mix.m3u"
 printf '%s\n' 'File1=iPod_Control/Music/Beach Boys/Surfin.mp3' \
-    > "$PLAYLIST_IPOD/Legacy.pls"
+    > "$PLAYLIST_IPOD/Legacy.PLS"
 
 # An unknown name must not delete anything, and says what the device has,
 # since with no screen the names are otherwise only spoken audio.
@@ -1174,7 +1190,7 @@ test ! -e "$PLAYLIST_IPOD/mix.m3u.m3u"
     --ipod "$PLAYLIST_IPOD" \
     --yes \
     --playlist 'Legacy' > "$EVIDENCE_DIR/playlist-pls-delete.txt" 2>&1
-test ! -e "$PLAYLIST_IPOD/Legacy.pls"
+test ! -e "$PLAYLIST_IPOD/Legacy.PLS"
 
 printf '%s\n' '#EXTM3U' > "$PLAYLIST_IPOD/Priority.m3u"
 printf '%s\n' '[playlist]' > "$PLAYLIST_IPOD/Priority.pls"
@@ -1473,6 +1489,7 @@ printf '%s\n' \
     "PASS: removal pruned playlists and deleted one that lost every track" \
     "PASS: wipe backed up the playlists and cleared them from the volume root" \
     "PASS: sync --clear removed the playlists with the tracks they referenced" \
+    "PASS: uppercase playlist extensions were listed, pruned, backed up, and cleared" \
     "PASS: a playlist was deleted by name, keeping every song it listed" \
     "PASS: double-dot, extension-like M3U, and root PLS names deleted safely" \
     "PASS: GUI add-playlist named the device, options and file, and switched spoken names on" \
