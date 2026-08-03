@@ -17,12 +17,14 @@ import hashlib
 import json
 
 import os
+import queue
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 from pathlib import Path
 
@@ -215,6 +217,28 @@ for path in sorted(root.rglob("*")):
 """
 
 
+def _fallback_track_records(root):
+    records = []
+    for current, dirs, files in os.walk(root):
+        dirs.sort()
+        for name in sorted(files):
+            path = Path(current, name)
+            if path.suffix.lower() not in AUDIO_EXTENSIONS:
+                continue
+            try:
+                size = path.stat().st_size
+            except OSError:
+                size = 0
+            records.append(
+                {
+                    "path": str(path.relative_to(root)),
+                    "title": path.stem,
+                    "size": size,
+                }
+            )
+    return records
+
+
 def scan_tracks(root, on_record=None, timeout=900):
     """Read tags for every supported file under root.
 
@@ -227,10 +251,18 @@ def scan_tracks(root, on_record=None, timeout=900):
         TAG_PYTHON = _tag_interpreter()
 
     root = Path(root)
-    if TAG_PYTHON is None or not root.is_dir():
+    if not root.is_dir():
         return []
 
-    records = []
+    records = {
+        record["path"]: record for record in _fallback_track_records(root)
+    }
+    if on_record is not None:
+        for record in records.values():
+            on_record(record)
+    if TAG_PYTHON is None or not records:
+        return list(records.values())
+
     try:
         proc = subprocess.Popen(
             [
@@ -247,25 +279,60 @@ def scan_tracks(root, on_record=None, timeout=900):
             bufsize=1,
         )
     except OSError:
-        return []
+        return list(records.values())
 
+    output = queue.Queue()
+    output_done = object()
+
+    def read_output():
+        try:
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    output.put(line)
+        finally:
+            output.put(output_done)
+
+    threading.Thread(target=read_output, daemon=True).start()
+    deadline = time.monotonic() + timeout
     try:
-        if proc.stdout is not None:
-            for line in proc.stdout:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    record = json.loads(line)
-                except ValueError:
-                    continue
-                records.append(record)
-                if on_record is not None:
-                    on_record(record)
-        proc.wait(timeout=timeout)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(proc.args, timeout)
+            try:
+                line = output.get(timeout=remaining)
+            except queue.Empty as exc:
+                raise subprocess.TimeoutExpired(proc.args, timeout) from exc
+            if line is output_done:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+                relpath = record["path"]
+            except (KeyError, TypeError, ValueError):
+                continue
+            if relpath not in records:
+                continue
+            records[relpath] = record
+            if on_record is not None:
+                on_record(record)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(proc.args, timeout)
+        proc.wait(timeout=remaining)
     except subprocess.SubprocessError:
-        proc.kill()
-    return records
+        if proc.poll() is None:
+            proc.kill()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        try:
+            proc.wait(timeout=1)
+        except subprocess.SubprocessError:
+            pass
+    return list(records.values())
 
 
 def read_tags(mount_point):
@@ -1398,6 +1465,8 @@ class IpodWindow(Adw.ApplicationWindow):
 
         self.library = LibraryIndex()
         self.device_tracks = []
+        self._device_scan_tracks = {}
+        self._library_scan_tracks = {}
         self.pending = {}
         self.sync_files = []
         self.sync_total = 0
@@ -2459,7 +2528,7 @@ class IpodWindow(Adw.ApplicationWindow):
 
         candidates = find_ipods()
         if len(candidates) != 1:
-            self.mount_point = None
+            self._select_mount(None)
             if len(candidates) > 1:
                 self.empty_page.set_title("Multiple iPods Connected")
                 self.empty_page.set_description(
@@ -2476,7 +2545,7 @@ class IpodWindow(Adw.ApplicationWindow):
             self.stack.set_visible_child_name("empty")
             return False
 
-        self.mount_point = candidates[0]
+        self._select_mount(candidates[0])
         self.stack.set_visible_child_name("device")
         self._load_sync_options()
         self.playlists = list_playlists(self.mount_point)
@@ -2485,6 +2554,17 @@ class IpodWindow(Adw.ApplicationWindow):
         self._populate_playlist_rail()
         self._load_device_tracks_async()
         return False
+
+    def _select_mount(self, mount_point):
+        if mount_point == self.mount_point:
+            return
+        self.tag_generation += 1
+        self.mount_point = mount_point
+        self._device_scan_tracks = {}
+        self.device_tracks = []
+        self.track_names = {}
+        self._merge_states()
+        self._refresh_current_view()
 
     def _populate_device_summary(self):
         name = Path(self.mount_point).name
@@ -2746,25 +2826,45 @@ class IpodWindow(Adw.ApplicationWindow):
         self.scan_generation += 1
         generation = self.scan_generation
         roots = self.library.roots
+        self._library_scan_tracks = {}
         self.library_status.set_text("Reading your music folders…")
 
         def worker():
-            found = []
+            batch = []
+
+            def publish(root, record):
+                batch.append(
+                    Track(Path(root, record["path"]), record, STATE_LIBRARY)
+                )
+                if len(batch) >= 25:
+                    ready = batch[:]
+                    batch.clear()
+                    GLib.idle_add(self._apply_library_batch, generation, ready)
+
             for root in roots:
-                for record in scan_tracks(root):
-                    found.append(
-                        Track(Path(root, record["path"]), record, STATE_LIBRARY)
-                    )
-            GLib.idle_add(self._apply_library, generation, found)
+                scan_tracks(root, on_record=lambda record, r=root: publish(r, record))
+            if batch:
+                GLib.idle_add(self._apply_library_batch, generation, batch[:])
+            GLib.idle_add(self._finish_library_scan, generation)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _apply_library(self, generation, tracks):
+    def _apply_library_batch(self, generation, tracks):
         if generation != self.scan_generation:
             return False
-        self.library.tracks = tracks
+        for track in tracks:
+            self._library_scan_tracks[track.path] = track
+        self.library.tracks = list(self._library_scan_tracks.values())
         self._merge_states()
-        self._populate_albums()
+        self._refresh_current_view()
+        return False
+
+    def _finish_library_scan(self, generation):
+        if generation != self.scan_generation:
+            return False
+        self.library.tracks = list(self._library_scan_tracks.values())
+        self._merge_states()
+        self._refresh_current_view()
         self._populate_folders()
         return False
 
@@ -2777,29 +2877,99 @@ class IpodWindow(Adw.ApplicationWindow):
         self.tag_generation += 1
         generation = self.tag_generation
         mount_point = self.mount_point
+        self._device_scan_tracks = {}
 
         def worker():
             music = Path(mount_point, "iPod_Control", "Music")
-            records = scan_tracks(music)
-            GLib.idle_add(self._apply_device_tracks, generation, records)
+            batch = []
+
+            def publish(record):
+                batch.append(record)
+                if len(batch) >= 25:
+                    ready = batch[:]
+                    batch.clear()
+                    GLib.idle_add(
+                        self._apply_device_track_batch,
+                        generation,
+                        mount_point,
+                        ready,
+                    )
+
+            scan_tracks(music, on_record=publish)
+            if batch:
+                GLib.idle_add(
+                    self._apply_device_track_batch,
+                    generation,
+                    mount_point,
+                    batch[:],
+                )
+            GLib.idle_add(self._finish_device_scan, generation, mount_point)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _apply_device_tracks(self, generation, records):
-        # Discard results from a scan the device has already moved on from.
-        if generation != self.tag_generation:
+    def _apply_device_track_batch(self, generation, mount_point, records):
+        if (
+            generation != self.tag_generation
+            or mount_point is None
+            or mount_point != self.mount_point
+        ):
             return False
-        music = Path(self.mount_point, "iPod_Control", "Music")
-        self.device_tracks = [
-            Track(music / record["path"], record, STATE_IPOD, relpath=record["path"])
-            for record in records
-        ]
+        music = Path(mount_point, "iPod_Control", "Music")
+        for record in records:
+            relpath = record["path"]
+            self._device_scan_tracks[relpath] = Track(
+                music / relpath, record, STATE_IPOD, relpath=relpath
+            )
+        self.device_tracks = sorted(
+            self._device_scan_tracks.values(), key=lambda track: track.relpath
+        )
         self.track_names = {
             track.relpath: track.title for track in self.device_tracks
         }
         self._merge_states()
+        self._refresh_current_view()
+        return False
+
+    def _finish_device_scan(self, generation, mount_point):
+        return self._apply_device_track_batch(generation, mount_point, [])
+
+    def _apply_device_tracks(self, generation, records, mount_point=None):
+        captured_mount = self.mount_point if mount_point is None else mount_point
+        if captured_mount is None:
+            return False
+        self._device_scan_tracks = {}
+        return self._apply_device_track_batch(generation, captured_mount, records)
+
+    def _resolve_current_album(self):
+        if self.current_album is None:
+            return None
+        by_artist = self.group_mode.get_selected() == 1
+        for collection in self.library.collections(by_artist):
+            if by_artist:
+                matches = collection.title.lower() == self.current_album.title.lower()
+            else:
+                matches = (
+                    collection.title.lower(),
+                    collection.artist.lower(),
+                ) == (
+                    self.current_album.title.lower(),
+                    self.current_album.artist.lower(),
+                )
+            if matches:
+                return collection
+        return None
+
+    def _refresh_current_view(self):
         self._populate_albums()
-        if self.current_playlist is not None:
+        visible = self.views.get_visible_child_name()
+        if visible == "album":
+            album = self._resolve_current_album()
+            if album is None:
+                self.current_album = None
+                self.show_view("library")
+            else:
+                self._show_album(album)
+        elif visible == "playlists" and self.current_playlist is not None:
             self._show_playlist(self.current_playlist)
         return False
 
@@ -3007,12 +3177,6 @@ class IpodWindow(Adw.ApplicationWindow):
         self.pending.pop(track.path, None)
         self._populate_device_summary()
         self._refresh_current_view()
-
-    def _refresh_current_view(self):
-        if self.current_album is not None:
-            self._show_album(self.current_album)
-        if self.current_playlist is not None:
-            self._show_playlist(self.current_playlist)
 
     def on_sync_pending(self, _button):
         if not self.pending or not self.mount_point:

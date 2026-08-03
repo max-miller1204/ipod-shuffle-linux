@@ -14,7 +14,9 @@ which is the approach the other GUI checks use.
 import importlib.util
 import json
 import re
+import sys
 import tempfile
+import time
 from pathlib import Path
 
 repo = Path(__file__).resolve().parents[1]
@@ -154,6 +156,110 @@ assert {f".{e}" for e in declared.group(1).split("|")} == ipod_gui.AUDIO_EXTENSI
     declared.group(1),
     ipod_gui.AUDIO_EXTENSIONS,
 )
+
+scan_root = Path(tempfile.mkdtemp())
+(scan_root / "Artist").mkdir()
+(scan_root / "Artist" / "Fallback.mp3").write_bytes(b"not really an mp3")
+(scan_root / "Artist" / "ignored.txt").touch()
+original_interpreter = ipod_gui._tag_interpreter
+original_tag_python = ipod_gui.TAG_PYTHON
+original_reader = ipod_gui._TAG_READER
+try:
+    ipod_gui.TAG_PYTHON = None
+    ipod_gui._tag_interpreter = lambda: None
+    fallback = ipod_gui.scan_tracks(scan_root)
+    assert fallback == [
+        {
+            "path": "Artist/Fallback.mp3",
+            "title": "Fallback",
+            "size": len(b"not really an mp3"),
+        }
+    ], fallback
+
+    ipod_gui.TAG_PYTHON = sys.executable
+    ipod_gui._TAG_READER = """
+import json, sys, time
+print(json.dumps({"path": "Artist/Fallback.mp3", "title": "Tagged"}), flush=True)
+time.sleep(10)
+"""
+    streamed = []
+    started = time.monotonic()
+    records = ipod_gui.scan_tracks(scan_root, streamed.append, timeout=0.4)
+    elapsed = time.monotonic() - started
+    assert elapsed < 2, elapsed
+    assert records[0]["title"] == "Tagged", records
+    assert [record["title"] for record in streamed] == ["Fallback", "Tagged"], streamed
+finally:
+    ipod_gui._tag_interpreter = original_interpreter
+    ipod_gui.TAG_PYTHON = original_tag_python
+    ipod_gui._TAG_READER = original_reader
+
+
+class Selected:
+    def __init__(self, value):
+        self.value = value
+
+    def get_selected(self):
+        return self.value
+
+
+class VisibleView:
+    def __init__(self, name):
+        self.name = name
+
+    def get_visible_child_name(self):
+        return self.name
+
+
+class RefreshWindow:
+    _resolve_current_album = ipod_gui.IpodWindow._resolve_current_album
+
+    def __init__(self, visible):
+        old_track = ipod_gui.Track("old.mp3", {"album": "Album"}, ipod_gui.STATE_LIBRARY)
+        new_track = ipod_gui.Track("new.mp3", {"album": "Album"}, ipod_gui.STATE_LIBRARY)
+        self.current_album = ipod_gui.Album("Album", "Unknown artist")
+        self.current_album.add(old_track)
+        replacement = ipod_gui.Album("Album", "Unknown artist")
+        replacement.add(new_track)
+        self.library = type("Library", (), {"collections": lambda _self, _mode: [replacement]})()
+        self.group_mode = Selected(0)
+        self.views = VisibleView(visible)
+        self.current_playlist = None
+        self.repaints = 0
+        self.shown = []
+
+    def _populate_albums(self):
+        self.repaints += 1
+
+    def _show_album(self, album):
+        self.current_album = album
+        self.shown.append(album)
+
+    def _show_playlist(self, name):
+        self.shown.append(name)
+
+    def show_view(self, name):
+        self.views.name = name
+
+
+library_refresh = RefreshWindow("library")
+ipod_gui.IpodWindow._refresh_current_view(library_refresh)
+assert not library_refresh.shown, "a library repaint reopened stale album detail"
+
+album_refresh = RefreshWindow("album")
+stale_album = album_refresh.current_album
+ipod_gui.IpodWindow._refresh_current_view(album_refresh)
+assert album_refresh.current_album is not stale_album, "album detail kept stale tracks"
+assert album_refresh.shown == [album_refresh.current_album], album_refresh.shown
+
+disconnected_scan = type(
+    "DisconnectedScan",
+    (),
+    {"tag_generation": 3, "mount_point": None},
+)()
+assert not ipod_gui.IpodWindow._apply_device_track_batch(
+    disconnected_scan, 3, "/media/iPod", []
+), "a disconnected device scan was applied"
 
 # ----------------------------------------------------------------- playlist
 
