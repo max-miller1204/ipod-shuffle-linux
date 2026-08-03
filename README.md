@@ -93,21 +93,45 @@ Owning a virtualenv sidesteps both that and PEP 668's externally-managed-environ
 Or launch **iPod Shuffle** from the desktop's app grid; `install.sh` puts the entry there once the GTK dependencies are available.
 The entry embeds the checkout's location, so if you move the repository, re-run `./install.sh` to update it.
 
-![The iPod Shuffle app showing device information, actions, and the track list](docs/screenshot.png)
+![The Shuffle app showing the album grid, playlists and the connected device](docs/screenshot.png)
 
-The window detects the iPod automatically, and appears and updates as the device is plugged in or unmounted.
-It shows real song titles and artists rather than the scrambled filenames stored on the device, and every operation streams its output into the Output pane so nothing happens invisibly.
+The window is library-first: your music is the app, and the device operations live in one **Device & Settings** view rather than leading the window.
+It detects the iPod automatically, appearing and updating as the device is plugged in or unmounted, and it shows real song titles, artists and embedded cover art rather than the scrambled filenames stored on the device.
 
-Each track in the list has a delete button, which removes that one song and rebuilds the database.
-**Add Playlist** picks an M3U or PLS file, copies the tracks it references, and keeps them grouped under the playlist's name, switching spoken playlist names on so the result can be found again on a device with no screen.
-A **Playlists** section lists each playlist on the device; expand one to see its songs with their real titles, or use its delete button to remove the playlist while leaving the songs in place.
-**Add from YouTube** asks for a link, offering whatever is already on the clipboard, and downloads it as MP3 into `~/Music/youtube` before copying it onto the device.
-When `yt-dlp` can report the files it fetched, only the tracks that download produced are copied, so pasting a second link does not push a growing library back onto a 2GB device, and pasting a link you have already fetched reports that there is nothing new rather than doing it again.
+Your own music folders are indexed alongside whatever is on the iPod, so **Your Library** shows both together as one album grid.
+A coloured marker on every album and track says which of three states it is in, and that marker means the same thing everywhere it appears:
 
-That button is insensitive when a download could not succeed, and says which piece is missing: `yt-dlp`, `ffmpeg`, or a JavaScript runtime.
+| Marker | State | Meaning |
+| --- | --- | --- |
+| Filled | On iPod | Synced, and plays on the device |
+| Hollow | In library | On this computer, not yet synced |
+| Dashed | Previewed only | Downloaded just so it could be heard, never added |
+
+Nothing creates the third state yet; it arrives with preview playback.
+An album counts as *On iPod* only when all of it is, because a half-synced album badged otherwise would be a lie the shuffle gives you no way to investigate.
+
+Adding no longer copies immediately.
+Queueing an album or a track shows it as pending space in the storage meter, and one **Sync** button commits the batch, so a session's worth of changes costs a single database rebuild instead of one per track.
+The copy reports each file as it lands, which a 2GB device over USB 2.0 badly needed: the progress bar, the file list and the raw script output all sit in a bar above the player.
+
+The grid groups by album or by artist, and swaps for a sortable table of every track: click a column to sort by title, album, state or length.
+
+Local music folders are configurable under **Device & Settings**, which is also where the sync options, **Rebuild database**, **Wipe** and **Eject** live.
+**Add playlist file…** picks an M3U or PLS file and queues it with the tracks it references; **Sync** copies the tracks and keeps them grouped under the playlist's name, switching spoken playlist names on so the result can be found again on a device with no screen.
+The **Playlists** view marks which playlists the device can announce (`◉`) and which it cannot (`◌`), since on a screenless player a spoken name is the only identity a playlist has.
+Tracks there can be dragged into a new order, which rewrites the list on the device and rebuilds the database, so the order survives unplugging.
+That view is deliberately not sortable: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
+
+**Add from YouTube…** asks for a link, offering whatever is already on the clipboard, and downloads it as MP3 into `~/Music/youtube` before queueing it for the next sync.
+When `yt-dlp` can report the files it fetched, only the tracks that download produced are queued, so pasting a second link does not push a growing library back onto a 2GB device, and pasting a link you have already fetched reports that there is nothing new rather than doing it again.
+
+That button explains itself when a download could not succeed, and says which piece is missing: `yt-dlp`, `ffmpeg`, or a JavaScript runtime.
 Checking beforehand is worth the trouble because every one of those failures otherwise appears several steps later as something else, most memorably as `HTTP Error 403` on every track but the oldest.
 
-The buttons map onto the same scripts documented below, so the two interfaces cannot drift apart.
+The interface follows the system light and dark preference, and folds its sidebar away below 780px.
+Search and preview playback are the next things to land; the player bar along the bottom is present but idle until then.
+
+Device-changing actions run the same scripts documented below, so their copy and database rules are shared with the command line.
 
 ## Usage
 
@@ -270,8 +294,8 @@ Then rebuild:
 
 Hand-placed files like this are left alone by the automatic upkeep above, except that a rebuild simply skips entries it can no longer resolve.
 
-**From the GUI,** using the Playlists dropdown under Options for the folder and tag groupings, or **Add Playlist** to pick an M3U or PLS file.
-Either choice switches spoken playlist names on automatically, for the reason above.
+**From the GUI,** using **Playlist grouping** under **Device & Settings** for the folder and tag groupings, or **Add playlist file…** to pick an M3U or PLS file.
+Either choice switches spoken playlist names on automatically, for the reason above; the playlist file and its tracks join the staged queue until you press **Sync**.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
 
@@ -335,7 +359,7 @@ The ID is also included in each filename so separate videos with the same artist
 
 It copies the tracks this run downloaded, not the contents of the output folder.
 That folder is a growing library, so the difference is between adding one song and pushing a year of downloads back onto a 2GB device.
-`yt-dlp` names each file it fetched, and `--new-tracks FILE` writes those paths out for another tool to act on, which is how the GUI knows what to copy.
+`yt-dlp` names each file it fetched, and `--new-tracks FILE` writes those paths out for another tool to act on, which is how the GUI knows what to queue.
 A `yt-dlp` too old to report them says so and falls back to syncing every artist folder, deleting that file rather than leaving a stale one behind for its reader to trust.
 
 To sync existing downloads later while keeping each artist at the playlist level:
