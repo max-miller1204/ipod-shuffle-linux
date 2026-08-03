@@ -221,9 +221,8 @@ assert "changed" in replaced_removal.toasts[-1], replaced_removal.toasts
 
 # ---------------------------------------------------------------- log output
 
-# The scripts colour their output for a terminal, and a text view shows the
-# escape sequences literally, which is how the Output pane came to read
-# "[36m==>[0m Removed 1 track(s)".
+# The scripts colour their output for a terminal, and the GUI's log view would
+# show the escape sequences literally as "[36m==>[0m Removed 1 track(s)".
 coloured = "\x1b[36m==>\x1b[0m Removed 1 track(s)\n"
 assert ipod_gui.strip_ansi(coloured) == "==> Removed 1 track(s)\n", coloured
 assert ipod_gui.strip_ansi("plain\n") == "plain\n"
@@ -865,7 +864,7 @@ ipod_gui.IpodWindow._on_youtube_response(
 assert rejected_window.commands == [], rejected_window.commands
 assert rejected_window.toasts, "a rejected link said nothing"
 
-# What the download reported is exactly what gets copied. Anything else in the
+# What the download reported is exactly what gets queued. Anything else in the
 # library, downloaded on an earlier day, stays where it is.
 library = Path(tempfile.mkdtemp())
 downloaded = library / "New Artist" / "New Song [abc].mp3"
@@ -893,14 +892,14 @@ assert len(window.commands) == 1, window.commands
 assert not new_tracks.exists(), "the track list outlived the sync that read it"
 
 # An empty list means the video had been downloaded before, so there is
-# nothing to copy and nothing to report as added.
+# nothing to queue and nothing to report as added.
 empty = Path(tempfile.mkstemp()[1])
 outcome = ipod_gui.IpodWindow._sync_downloaded(window, empty)
 assert isinstance(outcome, str), outcome
 assert "Already downloaded" in outcome, outcome
 
 # A missing list means yt-dlp could not say, and the artist folders are then
-# the closest honest answer rather than silently copying nothing.
+# the closest honest answer rather than silently queueing nothing.
 fallback = ipod_gui.fetched_sources(library / "never-written", library)
 assert sorted(fallback) == sorted(
     [str(library / "New Artist"), str(library / "Old Artist")]

@@ -117,13 +117,13 @@ The copy reports each file as it lands, which a 2GB device over USB 2.0 badly ne
 The grid groups by album or by artist, and swaps for a sortable table of every track: click a column to sort by title, album, state or length.
 
 Local music folders are configurable under **Device & Settings**, which is also where the sync options, **Rebuild database**, **Wipe** and **Eject** live.
-**Add playlist file…** picks an M3U or PLS file, copies the tracks it references, and keeps them grouped under the playlist's name, switching spoken playlist names on so the result can be found again on a device with no screen.
+**Add playlist file…** picks an M3U or PLS file and queues it with the tracks it references; **Sync** copies the tracks and keeps them grouped under the playlist's name, switching spoken playlist names on so the result can be found again on a device with no screen.
 The **Playlists** view marks which playlists the device can announce (`◉`) and which it cannot (`◌`), since on a screenless player a spoken name is the only identity a playlist has.
 Tracks there can be dragged into a new order, which rewrites the list on the device and rebuilds the database, so the order survives unplugging.
 That view is deliberately not sortable: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
 
-**Add from YouTube…** asks for a link, offering whatever is already on the clipboard, and downloads it as MP3 into `~/Music/youtube` before copying it onto the device.
-When `yt-dlp` can report the files it fetched, only the tracks that download produced are copied, so pasting a second link does not push a growing library back onto a 2GB device, and pasting a link you have already fetched reports that there is nothing new rather than doing it again.
+**Add from YouTube…** asks for a link, offering whatever is already on the clipboard, and downloads it as MP3 into `~/Music/youtube` before queueing it for the next sync.
+When `yt-dlp` can report the files it fetched, only the tracks that download produced are queued, so pasting a second link does not push a growing library back onto a 2GB device, and pasting a link you have already fetched reports that there is nothing new rather than doing it again.
 
 That button explains itself when a download could not succeed, and says which piece is missing: `yt-dlp`, `ffmpeg`, or a JavaScript runtime.
 Checking beforehand is worth the trouble because every one of those failures otherwise appears several steps later as something else, most memorably as `HTTP Error 403` on every track but the oldest.
@@ -131,7 +131,7 @@ Checking beforehand is worth the trouble because every one of those failures oth
 The interface follows the system light and dark preference, and folds its sidebar away below 780px.
 Search and preview playback are the next things to land; the player bar along the bottom is present but idle until then.
 
-The buttons map onto the same scripts documented below, so the two interfaces cannot drift apart.
+Device-changing actions run the same scripts documented below, so their copy and database rules are shared with the command line.
 
 ## Usage
 
@@ -294,8 +294,8 @@ Then rebuild:
 
 Hand-placed files like this are left alone by the automatic upkeep above, except that a rebuild simply skips entries it can no longer resolve.
 
-**From the GUI,** using the Playlists dropdown under Options for the folder and tag groupings, or **Add Playlist** to pick an M3U or PLS file.
-Either choice switches spoken playlist names on automatically, for the reason above.
+**From the GUI,** using **Playlist grouping** under **Device & Settings** for the folder and tag groupings, or **Add playlist file…** to pick an M3U or PLS file.
+Either choice switches spoken playlist names on automatically, for the reason above; the playlist file and its tracks join the staged queue until you press **Sync**.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
 
@@ -359,7 +359,7 @@ The ID is also included in each filename so separate videos with the same artist
 
 It copies the tracks this run downloaded, not the contents of the output folder.
 That folder is a growing library, so the difference is between adding one song and pushing a year of downloads back onto a 2GB device.
-`yt-dlp` names each file it fetched, and `--new-tracks FILE` writes those paths out for another tool to act on, which is how the GUI knows what to copy.
+`yt-dlp` names each file it fetched, and `--new-tracks FILE` writes those paths out for another tool to act on, which is how the GUI knows what to queue.
 A `yt-dlp` too old to report them says so and falls back to syncing every artist folder, deleting that file rather than leaving a stale one behind for its reader to trust.
 
 To sync existing downloads later while keeping each artist at the playlist level:

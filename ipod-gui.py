@@ -2,9 +2,9 @@
 """GTK4 front end for the iPod shuffle 4G scripts.
 
 Drives ipod-sync.sh, ipod-remove.sh, ipod-wipe.sh and ipod-fetch.sh rather
-than reimplementing their logic, so the command line and the GUI cannot drift
-apart. Launch it via ./ipod-gui.sh, which picks an interpreter that has the
-GTK bindings.
+than reimplementing their device-changing logic, so their copy and database
+rules stay shared with the command line. Launch it via ./ipod-gui.sh, which
+picks an interpreter that has the GTK bindings.
 
 The interface is library-first: your music is the app, and the device
 operations live in one Device & Settings view rather than leading the window.
@@ -46,7 +46,7 @@ REMOVE_SCRIPT = SCRIPT_DIR / "ipod-remove.sh"
 FETCH_SCRIPT = SCRIPT_DIR / "ipod-fetch.sh"
 
 # Mirrors ipod-fetch.sh's default --output. Named here as well because the GUI
-# syncs out of the same folder once the download has finished.
+# queues newly downloaded tracks from that folder once the download finishes.
 YOUTUBE_LIBRARY = Path.home() / "Music" / "youtube"
 
 CACHE_DIR = Path(
@@ -691,13 +691,13 @@ def is_downloadable_url(text):
 
 
 def fetched_sources(list_path, library):
-    """What to copy onto the iPod after a download.
+    """What to queue after a download.
 
     ipod-fetch.sh writes the path of each newly downloaded track, so this is
     normally those tracks alone and nothing else the library already held.
     It deletes the file instead when its yt-dlp is too old to report them, and
-    the artist folders are then the closest honest answer. An empty list is
-    the third case and means the video had been downloaded before.
+    the artist folders are then the closest honest source set. An empty list
+    is the third case and means the video had been downloaded before.
     """
     try:
         lines = Path(list_path).read_text().splitlines()
@@ -4213,10 +4213,9 @@ class IpodWindow(Adw.ApplicationWindow):
 
         then, when given, is called on success and returns either the next
         command as (argv, busy_message, done_message) or a string to report as
-        the outcome when there is nothing further to do. That is how the
-        YouTube flow runs a download and a sync as one operation from the
-        user's point of view, deciding what to copy only once the download has
-        said what it produced.
+        the outcome when there is nothing further to do. The YouTube flow uses
+        this callback to queue only the tracks that a successful download says
+        it produced.
         """
         if any(part is None for part in argv):
             self._toast("Connect an iPod before running this action")
@@ -4498,9 +4497,9 @@ class IpodWindow(Adw.ApplicationWindow):
             self._toast("Enter a link starting with http:// or https://")
             return
 
-        # Written by the download and read by the sync that follows it, so
-        # only what this run actually fetched is copied over. Without it the
-        # whole library would go back onto the device every time.
+        # Written by the download and read when it completes, so only what this
+        # run actually fetched enters the queue. Without it the whole library
+        # would be queued every time.
         handle, new_tracks = tempfile.mkstemp(prefix="ipod-fetch-", suffix=".list")
         os.close(handle)
 
