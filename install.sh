@@ -188,8 +188,9 @@ desktop_exec_escape() {
 readonly APP_ID="io.github.max_miller1204.IpodShuffle"
 REPO_DIR="$(dirname "$(readlink -f "$0")")"
 readonly REPO_DIR
+apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+desktop_file="$apps_dir/$APP_ID.desktop"
 if find_gui_python >/dev/null 2>&1; then
-    apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
     icons_root="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
     mkdir -p "$apps_dir" "$icons_root/scalable/apps"
     cp "$REPO_DIR/desktop/$APP_ID.svg" "$icons_root/scalable/apps/$APP_ID.svg"
@@ -225,13 +226,21 @@ if find_gui_python >/dev/null 2>&1; then
         'Categories=AudioVideo;Audio;GTK;' \
         'Keywords=iPod;shuffle;music;player;sync;' \
         'StartupNotify=true' \
-        > "$apps_dir/$APP_ID.desktop"
+        > "$desktop_file"
     if command -v update-desktop-database >/dev/null; then
         update-desktop-database "$apps_dir" 2>/dev/null || true
     fi
     info "Desktop entry installed (look for iPod Shuffle in the app grid)"
 else
-    info "Desktop entry skipped until the GUI dependencies are installed"
+    if [[ -e "$desktop_file" ]]; then
+        rm -f -- "$desktop_file"
+        if command -v update-desktop-database >/dev/null; then
+            update-desktop-database "$apps_dir" 2>/dev/null || true
+        fi
+        info "Desktop entry removed because the GUI dependencies are unavailable"
+    else
+        info "Desktop entry skipped until the GUI dependencies are installed"
+    fi
 fi
 
 # ---------------------------------------------------------------- unprivileged

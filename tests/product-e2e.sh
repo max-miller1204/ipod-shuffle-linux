@@ -346,6 +346,22 @@ grep -Fxq 'Terminal=false' "$DESKTOP_FILE"
 test -s "$DESKTOP_DATA/icons/hicolor/scalable/apps/io.github.max_miller1204.IpodShuffle.svg"
 grep -Fq 'Desktop entry installed' "$EVIDENCE_DIR/install-desktop-entry.txt"
 
+NO_GUI_PYTHON="$TEST_ROOT/no-gui-python"
+mkdir -p "$NO_GUI_PYTHON"
+printf '%s\n' 'raise ImportError("GUI bindings hidden for test")' \
+    > "$NO_GUI_PYTHON/gi.py"
+if PYTHONPATH="$NO_GUI_PYTHON" XDG_DATA_HOME="$DESKTOP_DATA" \
+    IPOD_TOOLS_DIR="$INSTALL_BLOCKER" \
+    "$ROOT/install.sh" --no-system \
+    > "$EVIDENCE_DIR/install-desktop-entry-removed.txt" 2>&1; then
+    echo "installer unexpectedly continued past the blocked tools dir" >&2
+    exit 1
+fi
+test ! -e "$DESKTOP_FILE"
+test -s "$DESKTOP_DATA/icons/hicolor/scalable/apps/io.github.max_miller1204.IpodShuffle.svg"
+grep -Fq 'Desktop entry removed because the GUI dependencies are unavailable' \
+    "$EVIDENCE_DIR/install-desktop-entry-removed.txt"
+
 WEIRD_ROOT="$TEST_ROOT/checkout %f \"quoted\" \\slash \$cash \`tick\`"
 WEIRD_DESKTOP_DATA="$TEST_ROOT/xdg-data-weird"
 mkdir -p "$WEIRD_ROOT/desktop"
@@ -1470,6 +1486,7 @@ printf '%s\n' \
     "PASS: runtime probe reported absence instead of naming an uninstalled one" \
     "PASS: installer reported a missing runtime instead of offering a stale nodejs" \
     "PASS: installer generated the app-grid entry pointing at this checkout" \
+    "PASS: installer removed a stale launcher when GUI dependencies disappeared" \
     "PASS: desktop entry paths preserved reserved characters through Gio parsing" \
     "PASS: runtime probe rejected unsupported versions and accepted supported boundaries" \
     "PASS: old PATH yt-dlp fallback omitted its unsupported runtime option" \

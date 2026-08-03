@@ -34,11 +34,20 @@ jobs:
 
       # The suite's playlist check runs the real upstream builder against the
       # rewritten list a sync produces, which the fake builder cannot vouch
-      # for. Cloned directly because install.sh does more than this needs.
+      # for. This is the hardware-validated revision; bump it only after
+      # validating the replacement against real hardware.
       - name: Fetch upstream database builder
+        env:
+          IPOD_BUILDER_REVISION: a97a99ab8623f0eccc5adcb8ebbdb2e626c6c703
         run: |
-          git clone --depth 1 https://github.com/nims11/IPod-Shuffle-4g.git \
+          git clone --depth 1 --filter=blob:none --no-checkout \
+            https://github.com/nims11/IPod-Shuffle-4g.git \
             "${RUNNER_TEMP}/IPod-Shuffle-4g"
+          git -C "${RUNNER_TEMP}/IPod-Shuffle-4g" fetch --depth 1 origin \
+            "${IPOD_BUILDER_REVISION}"
+          git -C "${RUNNER_TEMP}/IPod-Shuffle-4g" checkout --detach FETCH_HEAD
+          test "$(git -C "${RUNNER_TEMP}/IPod-Shuffle-4g" rev-parse HEAD)" = \
+            "${IPOD_BUILDER_REVISION}"
 
       # Never run as root. The suite checks that a volume it cannot write to
       # produces a loud failure, and root ignores the permission bits that
