@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 13,
+  "revision": 14,
   "goals": [
     {
       "id": "goal-msdncj32-4e24ddce",
@@ -65,6 +65,14 @@
       "status": "open",
       "createdAt": "2026-08-03T20:12:13.620Z",
       "updatedAt": "2026-08-03T20:12:47.967Z"
+    },
+    {
+      "id": "goal-msdtp4gc-7359b5e9",
+      "title": "Let ipod-sync.sh copy symlinked music",
+      "description": "ipod-sync.sh:424 enumerates a source with 'find \"$src\" -type f -print0'. find does not dereference symlinks by default, so a symlinked audio file is -type l and is silently never copied, and a symlinked subdirectory is never descended. Symlinked library layouts are common, so this is a real long-standing limitation rather than a deliberate policy - it just was not visible before, because nothing counted what was about to be copied.\n\nVerified 2026-08-03: for a directory containing a symlink to an mp3, 'find -type f' returns nothing while Python's os.walk plus Path.is_file() counts the file.\n\nThe GUI redesign surfaced this as a mismatch (review-23 in the no-mistakes run merged as PR #11) because it counts queued tracks to drive a progress bar: counting a symlinked track the script then skips means the sync exits successfully with progress short of 100 percent. That was resolved by aligning the GUI DOWNWARD to the script - it now skips symlinks too - so the counts are honest. Making the script actually copy them is the better long-term answer and remains open.\n\nWork: switch to 'find -L' (or -follow) in the source enumeration, then add e2e coverage for the cases that makes newly reachable - a symlink loop, a broken symlink, a symlinked directory, and a symlink pointing outside the source tree - and decide whether a symlink escaping the selected folder should be copied at all. Remove the GUI-side symlink skip and its user-facing note at the same time, otherwise the two halves disagree again in the opposite direction.",
+      "status": "open",
+      "createdAt": "2026-08-03T22:50:56.844Z",
+      "updatedAt": "2026-08-03T22:50:56.844Z"
     }
   ]
 }
