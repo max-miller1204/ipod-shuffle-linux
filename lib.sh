@@ -42,6 +42,22 @@ warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
 
 die() { err "$*"; exit 1; }
 
+atomic_replace_lines() {
+    local target="$1" temporary
+    shift
+
+    temporary="$(mktemp "${target}.tmp.XXXXXX")" \
+        || die "Could not create a temporary file beside $target."
+    if ! printf '%s\n' "$@" > "$temporary"; then
+        rm -f -- "$temporary"
+        die "Could not write $target."
+    fi
+    if ! mv -f -- "$temporary" "$target"; then
+        rm -f -- "$temporary"
+        die "Could not replace $target."
+    fi
+}
+
 # List mount points of every mounted vfat filesystem, one per line.
 #
 # findmnt's raw output escapes spaces as \x20, and iPod names very often contain

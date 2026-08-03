@@ -181,7 +181,7 @@ COPY_TARGET=""
 # already on the device. The counters belong to the enclosing script.
 copy_track() {
     local source="$1" target="$2"
-    local source_parent source_grandparent candidate
+    local checksum_line checksum size candidate
     local collision_index=2
 
     COPY_TARGET="$target"
@@ -195,12 +195,14 @@ copy_track() {
         return 0
     fi
     if [[ -e "$COPY_TARGET" ]]; then
-        source_parent="$(basename -- "$(dirname -- "$source")")"
-        source_grandparent="$(basename -- "$(dirname -- "$(dirname -- "$source")")")"
-        [[ "$source_grandparent" != "/" ]] || source_grandparent="Root"
-        candidate="$MUSIC_DIR/$source_grandparent - $source_parent/$(basename -- "$target")"
+        checksum_line="$(cksum -- "$source")" \
+            || die "Could not checksum track for a distinct destination: $source"
+        checksum="${checksum_line%% *}"
+        checksum_line="${checksum_line#* }"
+        size="${checksum_line%% *}"
+        candidate="$MUSIC_DIR/Collision-$checksum-$size/$(basename -- "$target")"
         while [[ -e "$candidate" ]] && ! cmp -s -- "$source" "$candidate"; do
-            candidate="$MUSIC_DIR/$source_grandparent - $source_parent ($collision_index)/$(basename -- "$target")"
+            candidate="$MUSIC_DIR/Collision-$checksum-$size-$collision_index/$(basename -- "$target")"
             collision_index=$((collision_index + 1))
         done
         COPY_TARGET="$candidate"
@@ -290,9 +292,9 @@ PY
 # device mounting somewhere else next time.
 sync_playlist() {
     local list="$1"
-    local stem device_stem target entry dest
+    local stem device_stem target entry dest entries_file
     local added=0 unplayable=0
-    local -a lines=()
+    local -a lines=() entries=()
 
     stem="$(basename "$list")"
     stem="${stem%.*}"
@@ -310,7 +312,19 @@ sync_playlist() {
     fi
     target="$IPOD/$device_stem.m3u"
 
-    while IFS= read -r -d '' entry; do
+    entries_file="$(mktemp -t ipod-playlist-entries.XXXXXX)" \
+        || die "Could not create temporary storage for playlist entries."
+    if ! playlist_entries "$list" > "$entries_file"; then
+        rm -f -- "$entries_file"
+        die "Could not parse playlist: $list"
+    fi
+    if ! mapfile -d '' -t entries < "$entries_file"; then
+        rm -f -- "$entries_file"
+        die "Could not read parsed playlist entries: $list"
+    fi
+    rm -f -- "$entries_file"
+
+    for entry in "${entries[@]}"; do
         if [[ ! -f "$entry" ]]; then
             warn "Playlist '$stem': not found on this computer, skipped: $entry"
             continue
@@ -324,7 +338,7 @@ sync_playlist() {
         dest="$COPY_TARGET"
         lines+=("iPod_Control/Music${dest#"$MUSIC_DIR"}")
         added=$((added + 1))
-    done < <(playlist_entries "$list")
+    done
 
     if (( unplayable > 0 )); then
         warn "Playlist '$stem': skipped $unplayable file(s) the firmware cannot play. Convert them first, for example:"
@@ -339,7 +353,7 @@ sync_playlist() {
         fi
         return 0
     fi
-    printf '%s\n' "#EXTM3U" "${lines[@]}" > "$target"
+    atomic_replace_lines "$target" "#EXTM3U" "${lines[@]}"
     info "Playlist '$device_stem': $added track(s)"
 }
 

@@ -245,7 +245,7 @@ prune_playlists() {
             rm -f -- "$list"
             info "Removed playlist '$(basename -- "${list%.m3u}")': every track it listed is gone"
         else
-            printf '%s\n' "${kept[@]}" > "$list"
+            atomic_replace_lines "$list" "${kept[@]}"
             info "Playlist '$(basename -- "${list%.m3u}")': dropped $dropped removed track(s)"
         fi
     done

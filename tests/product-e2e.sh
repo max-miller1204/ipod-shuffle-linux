@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BASE_PATH="$PATH"
 
 # Defaults to a temporary directory so the suite can be run with no setup.
 # Set EVIDENCE_DIR to keep the artefacts somewhere durable for inspection.
@@ -690,27 +691,32 @@ fi
 
 mkdir -p \
     "$PLAYLIST_LIB/Artist A/Greatest Hits" \
-    "$PLAYLIST_LIB/Artist B/Greatest Hits"
+    "$PLAYLIST_LIB/Artist:B/Greatest Hits"
 printf 'artist a\n' > "$PLAYLIST_LIB/Artist A/Greatest Hits/01.mp3"
-printf 'artist b\n' > "$PLAYLIST_LIB/Artist B/Greatest Hits/01.mp3"
+printf 'artist b\n' > "$PLAYLIST_LIB/Artist:B/Greatest Hits/01.mp3"
 printf '%s\n' \
     "$PLAYLIST_LIB/Artist A/Greatest Hits/01.mp3" \
-    "$PLAYLIST_LIB/Artist B/Greatest Hits/01.mp3" \
+    "$PLAYLIST_LIB/Artist:B/Greatest Hits/01.mp3" \
     > "$PLAYLIST_LIB/Collisions.m3u"
+read -r collision_checksum collision_size _ \
+    < <(cksum -- "$PLAYLIST_LIB/Artist:B/Greatest Hits/01.mp3")
+collision_folder="Collision-$collision_checksum-$collision_size"
 "$ROOT/ipod-sync.sh" \
     --ipod "$PLAYLIST_IPOD" \
     "$PLAYLIST_LIB/Collisions.m3u" > "$EVIDENCE_DIR/playlist-collisions.txt" 2>&1
 diff -u <(printf '%s\n' \
     '#EXTM3U' \
     'iPod_Control/Music/Greatest Hits/01.mp3' \
-    'iPod_Control/Music/Artist B - Greatest Hits/01.mp3') \
+    "iPod_Control/Music/$collision_folder/01.mp3") \
     "$PLAYLIST_IPOD/Collisions.m3u"
 cmp -s \
     "$PLAYLIST_LIB/Artist A/Greatest Hits/01.mp3" \
     "$PLAYLIST_IPOD/iPod_Control/Music/Greatest Hits/01.mp3"
 cmp -s \
-    "$PLAYLIST_LIB/Artist B/Greatest Hits/01.mp3" \
-    "$PLAYLIST_IPOD/iPod_Control/Music/Artist B - Greatest Hits/01.mp3"
+    "$PLAYLIST_LIB/Artist:B/Greatest Hits/01.mp3" \
+    "$PLAYLIST_IPOD/iPod_Control/Music/$collision_folder/01.mp3"
+[[ "$collision_folder" =~ ^Collision-[0-9]+-[0-9]+$ ]]
+(( ${#collision_folder} <= 40 ))
 grep -Fq 'Destination already holds a different track' \
     "$EVIDENCE_DIR/playlist-collisions.txt"
 
@@ -728,6 +734,88 @@ printf '%s\n' "$PLAYLIST_LIB/Beach Boys/No Longer Here.mp3" \
 test ! -e "$PLAYLIST_IPOD/Changing.m3u"
 grep -Fq "Playlist 'Changing' references no playable local files; removed from the device." \
     "$EVIDENCE_DIR/playlist-changing-empty.txt"
+
+mkdir -p "$PLAYLIST_LIB/Parser"
+printf 'parser track\n' > "$PLAYLIST_LIB/Parser/New.mp3"
+printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Neil Young/Heart of Gold.mp3' \
+    > "$PLAYLIST_IPOD/Parser.m3u"
+printf '%s\n' \
+    "$PLAYLIST_LIB/Parser/New.mp3" \
+    'file://[' \
+    > "$PLAYLIST_LIB/Parser.m3u"
+if "$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/Parser.m3u" > "$EVIDENCE_DIR/playlist-parser-failure.txt" 2>&1; then
+    echo "ipod-sync.sh accepted a playlist its parser could not finish" >&2
+    exit 1
+fi
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Neil Young/Heart of Gold.mp3') \
+    "$PLAYLIST_IPOD/Parser.m3u"
+test ! -e "$PLAYLIST_IPOD/iPod_Control/Music/Parser/New.mp3"
+
+FAILING_MV_PATH="$TEST_ROOT/failing-mv-path"
+mkdir -p "$FAILING_MV_PATH"
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    "if [[ \"\${!#}\" == \"\$FAIL_MOVE_TARGET\" ]]; then exit 1; fi" \
+    "exec \"\$REAL_MV\" \"\$@\"" \
+    > "$FAILING_MV_PATH/mv"
+chmod +x "$FAILING_MV_PATH/mv"
+REAL_MV="$(command -v mv)"
+printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Neil Young/Heart of Gold.mp3' \
+    > "$PLAYLIST_IPOD/Atomic.m3u"
+printf '%s\n' "$PLAYLIST_LIB/Parser/New.mp3" > "$PLAYLIST_LIB/Atomic.m3u"
+if env PATH="$FAILING_MV_PATH:$BASE_PATH" \
+    FAIL_MOVE_TARGET="$PLAYLIST_IPOD/Atomic.m3u" \
+    REAL_MV="$REAL_MV" \
+    "$ROOT/ipod-sync.sh" \
+        --ipod "$PLAYLIST_IPOD" \
+        "$PLAYLIST_LIB/Atomic.m3u" \
+        > "$EVIDENCE_DIR/playlist-atomic-sync.txt" 2>&1; then
+    echo "ipod-sync.sh reported success after playlist replacement failed" >&2
+    exit 1
+fi
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Neil Young/Heart of Gold.mp3') \
+    "$PLAYLIST_IPOD/Atomic.m3u"
+test -z "$(find "$PLAYLIST_IPOD" -maxdepth 1 -name 'Atomic.m3u.tmp.*' -print -quit)"
+
+ATOMIC_REMOVE_IPOD="$TEST_ROOT/atomic-remove-target"
+mkdir -p \
+    "$ATOMIC_REMOVE_IPOD/iPod_Control/iTunes" \
+    "$ATOMIC_REMOVE_IPOD/iPod_Control/Music/Album" \
+    "$ATOMIC_REMOVE_IPOD/iPod_Control/Speakable"
+printf 'one\n' > "$ATOMIC_REMOVE_IPOD/iPod_Control/Music/Album/One.mp3"
+printf 'two\n' > "$ATOMIC_REMOVE_IPOD/iPod_Control/Music/Album/Two.mp3"
+printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Album/One.mp3' \
+    'iPod_Control/Music/Album/Two.mp3' \
+    > "$ATOMIC_REMOVE_IPOD/Atomic Remove.m3u"
+if env PATH="$FAILING_MV_PATH:$BASE_PATH" \
+    FAIL_MOVE_TARGET="$ATOMIC_REMOVE_IPOD/Atomic Remove.m3u" \
+    REAL_MV="$REAL_MV" \
+    "$ROOT/ipod-remove.sh" \
+        --ipod "$ATOMIC_REMOVE_IPOD" \
+        --yes \
+        'Album/One.mp3' \
+        > "$EVIDENCE_DIR/playlist-atomic-remove.txt" 2>&1; then
+    echo "ipod-remove.sh reported success after playlist replacement failed" >&2
+    exit 1
+fi
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Album/One.mp3' \
+    'iPod_Control/Music/Album/Two.mp3') \
+    "$ATOMIC_REMOVE_IPOD/Atomic Remove.m3u"
+test -z "$(find "$ATOMIC_REMOVE_IPOD" -maxdepth 1 -name 'Atomic Remove.m3u.tmp.*' -print -quit)"
 
 # A removed track leaves every list that names it, and a list that loses its
 # last track disappears rather than survive as a playlist that plays nothing.
@@ -1125,6 +1213,8 @@ printf '%s\n' \
     "PASS: the real database builder resolved every rewritten playlist entry" \
     "PASS: colliding playlist tracks kept distinct content and destinations" \
     "PASS: replacing a playlist with no playable tracks removed its stale device list" \
+    "PASS: parser failures preserved playlists and copied no partial results" \
+    "PASS: failed sync and removal rewrites preserved complete playlist files" \
     "PASS: removal pruned playlists and deleted one that lost every track" \
     "PASS: wipe backed up the playlists and cleared them from the volume root" \
     "PASS: sync --clear removed the playlists with the tracks they referenced" \
