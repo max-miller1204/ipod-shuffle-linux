@@ -959,6 +959,22 @@ added_after_queue = sync_source / "03 Added Later.mp3"
 added_after_queue.write_bytes(b"x" * 512)
 skipped_during_sync = sync_source / "04 Linked.mp3"
 skipped_during_sync.symlink_to(exact_track)
+skipped_source = Path(tempfile.mkdtemp()) / "Only Links"
+skipped_source.mkdir()
+removed_before_sync = skipped_source / "Removed.mp3"
+removed_before_sync.write_bytes(b"removed")
+removed_track = ipod_gui.Track(
+    removed_before_sync,
+    {"title": "Removed", "size": len(b"removed")},
+    ipod_gui.STATE_LIBRARY,
+)
+queue_window.library.tracks.append(removed_track)
+queue_window.pending.add(removed_track.path)
+queue_window.pending_sources[str(skipped_source)] = {removed_track.path}
+queue_window._merge_states()
+removed_before_sync.unlink()
+skipped_only_link = skipped_source / "Only Link.mp3"
+skipped_only_link.symlink_to(exact_track)
 command_ready = threading.Event()
 record_command = queue_window._run
 
@@ -993,9 +1009,16 @@ assert staged[separator + 1:] == [str(sync_source)], staged
 assert queue_window.sync_total == len(queued_paths) + 2, queue_window.sync_total
 assert str(added_after_queue) in queue_window.pending
 assert str(skipped_during_sync) not in queue_window.pending
-assert queue_window.pending_skipped_symlinks == {str(sync_source): 1}
+assert str(skipped_source) not in queue_window.pending_sources
+assert queue_window.pending_skipped_symlinks == {
+    str(skipped_source): 1,
+    str(sync_source): 1,
+}
 assert ipod_gui.IpodWindow._pending_symlink_note(queue_window) == (
-    " · 1 symlinked item skipped"
+    " · 2 symlinked items skipped"
+)
+assert queue_window.toasts[-1] == (
+    "2 symlinked items skipped because links are not copied"
 )
 
 # The queue is only cleared once the copy has actually succeeded, which is

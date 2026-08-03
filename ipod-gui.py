@@ -3789,11 +3789,17 @@ class IpodWindow(Adw.ApplicationWindow):
             self._toast("Could not identify this iPod, so nothing was queued")
             return 0
         before = self._pending_change_count()
+        retained_skipped = {
+            source: count
+            for source, count in self.pending_skipped_symlinks.items()
+            if source not in self.pending_sources
+        }
         if replace:
             self.pending.clear()
             self.pending_sources.clear()
             self.pending_records.clear()
             self.pending_skipped_symlinks.clear()
+            self.pending_skipped_symlinks.update(retained_skipped)
         if not self.pending_sources:
             self.pending_device_identity = self.device_identity
         elif self.pending_device_identity != self.device_identity:
@@ -3804,18 +3810,22 @@ class IpodWindow(Adw.ApplicationWindow):
             self.pending_device_identity = self.device_identity
 
         for source, tracks in sources.items():
+            source = str(source)
             members = set()
             for track in tracks:
                 members.add(track.path)
                 self.pending.add(track.path)
                 self.pending_records[track.path] = self._record_for_track(track)
             if members:
-                self.pending_sources[str(source)] = members
-                count = (skipped_symlinks or {}).get(str(source), 0)
-                if count:
-                    self.pending_skipped_symlinks[str(source)] = count
-                else:
-                    self.pending_skipped_symlinks.pop(str(source), None)
+                self.pending_sources[source] = members
+            else:
+                self.pending_sources.pop(source, None)
+        for source, count in (skipped_symlinks or {}).items():
+            source = str(source)
+            if count:
+                self.pending_skipped_symlinks[source] = count
+            else:
+                self.pending_skipped_symlinks.pop(source, None)
         owned = (
             set().union(*self.pending_sources.values())
             if self.pending_sources
@@ -3826,11 +3836,6 @@ class IpodWindow(Adw.ApplicationWindow):
             path: record
             for path, record in self.pending_records.items()
             if path in self.pending
-        }
-        self.pending_skipped_symlinks = {
-            source: count
-            for source, count in self.pending_skipped_symlinks.items()
-            if source in self.pending_sources
         }
         if not self.pending_sources:
             self.pending_device_identity = None
@@ -3888,6 +3893,7 @@ class IpodWindow(Adw.ApplicationWindow):
             if path in self.pending
         }
         if not self.pending_sources:
+            self.pending_skipped_symlinks.clear()
             self.pending_device_identity = None
         self._merge_states()
         self._populate_device_summary()
@@ -4018,8 +4024,15 @@ class IpodWindow(Adw.ApplicationWindow):
             if skipped:
                 message += f"; {plural(skipped, 'symlinked item')} skipped"
             self._toast(message)
+            self.pending_skipped_symlinks.clear()
             return False
         self._set_busy(False)
+        skipped = sum(skipped_symlinks.values())
+        if skipped:
+            self._toast(
+                f"{plural(skipped, 'symlinked item')} skipped because links "
+                "are not copied"
+            )
         self._launch_pending_sync()
         return False
 
