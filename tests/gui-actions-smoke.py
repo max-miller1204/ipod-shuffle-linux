@@ -129,17 +129,22 @@ class FakeWindow:
     _clear_pending = ipod_gui.IpodWindow._clear_pending
     _audio_files = ipod_gui.IpodWindow._audio_files
     _pending_track = ipod_gui.IpodWindow._pending_track
+    _pending_copy_tracks = ipod_gui.IpodWindow._pending_copy_tracks
+    _pending_change_count = ipod_gui.IpodWindow._pending_change_count
     _queue_sources = ipod_gui.IpodWindow._queue_sources
     _queue_paths = ipod_gui.IpodWindow._queue_paths
     _queue_playlist = ipod_gui.IpodWindow._queue_playlist
     _update_device_controls = ipod_gui.IpodWindow._update_device_controls
+    _confirmed_device = ipod_gui.IpodWindow._confirmed_device
 
 
 # ------------------------------------------------------------------ removal
 
 window = FakeWindow()
 relpath = "Road Trip/Disc 1/01 - Highway.mp3"
-ipod_gui.IpodWindow._on_remove_response(window, None, "remove", relpath)
+ipod_gui.IpodWindow._on_remove_response(
+    window, None, "remove", relpath, window.device_identity
+)
 
 removal = window.commands[0]
 assert removal[0].endswith("ipod-remove.sh"), removal
@@ -156,8 +161,20 @@ assert removal[-2:] == ["--", relpath], removal
 # Anything other than the destructive response must run nothing at all.
 for answer in ("cancel", "close"):
     quiet = FakeWindow()
-    ipod_gui.IpodWindow._on_remove_response(quiet, None, answer, relpath)
+    ipod_gui.IpodWindow._on_remove_response(
+        quiet, None, answer, relpath, quiet.device_identity
+    )
     assert quiet.commands == [], (answer, quiet.commands)
+
+disconnected_removal = FakeWindow()
+removed_device = disconnected_removal.device_identity
+disconnected_removal.mount_point = None
+disconnected_removal.device_identity = None
+ipod_gui.IpodWindow._on_remove_response(
+    disconnected_removal, None, "remove", relpath, removed_device
+)
+assert disconnected_removal.commands == [], disconnected_removal.commands
+assert "changed" in disconnected_removal.toasts[-1], disconnected_removal.toasts
 
 # ---------------------------------------------------------------- log output
 
@@ -247,8 +264,11 @@ class FolderDiscoveryWindow:
         self.worker_thread = threading.get_ident()
         return [str(Path(path) / "song.mp3")]
 
-    def _queue_paths(self, paths):
-        self.queued = list(paths)
+    def _pending_track(self, path):
+        return str(path)
+
+    def _queue_sources(self, sources):
+        self.queued = sources
 
     def _toast(self, message):
         raise AssertionError(message)
@@ -277,7 +297,9 @@ assert discovery_window.worker_thread != main_thread, "folder walked on GTK thre
 assert discovery_window.queued is None, "folder queued before the GLib boundary"
 callback, callback_args = scheduled[0]
 callback(*callback_args)
-assert discovery_window.queued == ["/music/song.mp3"], discovery_window.queued
+assert discovery_window.queued == {
+    "/music": ["/music/song.mp3"]
+}, discovery_window.queued
 assert not discovery_window.discovering_sources, "folder discovery stayed active"
 
 
@@ -536,14 +558,26 @@ for attr in (
     setattr(queued_window, attr, FakeWidget())
 queued_window.youtube_unavailable = None
 queued_window.speech_engine_available = True
-queued_window.pending = {"/home/alex/Music/one.mp3": object()}
+queued_track = ipod_gui.Track(
+    "/home/alex/Music/one.mp3",
+    {"title": "one"},
+    ipod_gui.STATE_LIBRARY,
+)
+queued_window.pending = {queued_track.path: queued_track}
+queued_window.pending_sources = {queued_track.path: {queued_track.path}}
 ipod_gui.IpodWindow._set_busy(queued_window, False)
 assert queued_window.sync_button.sensitive, "queued changes could not be synced"
 
 # -------------------------------------------------------- playlist removal
 
 playlist_removal = FakeWindow()
-ipod_gui.IpodWindow._on_playlist_remove_response(playlist_removal, None, "remove", "twizzy")
+ipod_gui.IpodWindow._on_playlist_remove_response(
+    playlist_removal,
+    None,
+    "remove",
+    "twizzy",
+    playlist_removal.device_identity,
+)
 
 playlist_rm = playlist_removal.commands[0]
 assert playlist_rm[0].endswith("ipod-remove.sh"), playlist_rm
@@ -554,8 +588,24 @@ assert playlist_rm[-2:] == ["--", "twizzy"], playlist_rm
 
 for answer in ("cancel", "close"):
     quiet = FakeWindow()
-    ipod_gui.IpodWindow._on_playlist_remove_response(quiet, None, answer, "twizzy")
+    ipod_gui.IpodWindow._on_playlist_remove_response(
+        quiet, None, answer, "twizzy", quiet.device_identity
+    )
     assert quiet.commands == [], (answer, quiet.commands)
+
+disconnected_playlist_removal = FakeWindow()
+removed_device = disconnected_playlist_removal.device_identity
+disconnected_playlist_removal.mount_point = None
+disconnected_playlist_removal.device_identity = None
+ipod_gui.IpodWindow._on_playlist_remove_response(
+    disconnected_playlist_removal,
+    None,
+    "remove",
+    "twizzy",
+    removed_device,
+)
+assert disconnected_playlist_removal.commands == []
+assert "changed" in disconnected_playlist_removal.toasts[-1]
 
 # The rows the window shows come from the m3u files at the volume root, with
 # entries under the music folder rewritten to match the track list's keys so
@@ -652,14 +702,30 @@ queue_window = FakeWindow()
 queue_window.sync_files = []
 queue_window.sync_total = 0
 queued_paths = {
-    "/home/alex/Music/Kova/Nightbus/01 Nightbus.mp3": object(),
-    "/home/alex/Music/-Dashed Title.mp3": object(),
+    path: ipod_gui.Track(
+        path,
+        {"title": Path(path).stem, "size": size},
+        ipod_gui.STATE_LIBRARY,
+    )
+    for path, size in (
+        ("/home/alex/Music/Kova/Nightbus/01 Nightbus.mp3", 1024),
+        ("/home/alex/Music/-Dashed Title.mp3", 2048),
+    )
 }
+already_copied = ipod_gui.Track(
+    "/home/alex/Music/Kova/Nightbus/02 Dawn.mp3",
+    {"title": "Dawn", "size": 4096},
+    ipod_gui.STATE_LIBRARY,
+)
+already_copied.on_ipod = True
 queue_window.pending = dict(queued_paths)
+queue_window.pending[already_copied.path] = already_copied
 queue_window.pending_sources = {
-    path: {path} for path in queued_paths
+    "/home/alex/Music": set(queue_window.pending)
 }
 queue_window.pending_device_identity = queue_window.device_identity
+assert queue_window._pending_change_count() == len(queued_paths)
+assert sum(track.size for track in queue_window._pending_copy_tracks()) == 3072
 ipod_gui.IpodWindow.on_sync_pending(queue_window, None)
 
 staged = queue_window.commands[0]
@@ -667,17 +733,45 @@ assert staged[0].endswith("ipod-sync.sh"), staged
 assert staged[1:3] == ["--ipod", queue_window.mount_point], staged
 # Everything after -- is a path, because a track title can begin with a dash.
 separator = staged.index("--")
-assert sorted(staged[separator + 1:]) == sorted(queued_paths), staged
+assert staged[separator + 1:] == ["/home/alex/Music"], staged
 assert queue_window.sync_total == len(queued_paths), queue_window.sync_total
 
 # The queue is only cleared once the copy has actually succeeded, which is
 # what the then callback is for.
-assert queue_window.pending == queued_paths, "queue emptied before the sync ran"
+assert set(queue_window.pending) == {
+    *queued_paths,
+    already_copied.path,
+}, "queue emptied before the sync ran"
 cleared = queue_window.then()
 assert queue_window.pending == {}, "queue survived a successful sync"
 assert queue_window.pending_sources == {}, "sync sources survived a successful sync"
 assert queue_window.pending_device_identity is None, "queue stayed device-bound"
 assert isinstance(cleared, str), cleared
+
+
+class RunGuardWindow:
+    def __init__(self):
+        self.toasts = []
+
+    def _toast(self, message):
+        self.toasts.append(message)
+
+    def _clear_log(self):
+        raise AssertionError("invalid command cleared the log")
+
+    def _set_busy(self, *_args):
+        raise AssertionError("invalid command made the window busy")
+
+
+run_guard = RunGuardWindow()
+started = ipod_gui.IpodWindow._run(
+    run_guard,
+    ["ipod-sync.sh", "--ipod", None],
+    "Running",
+    "Done",
+)
+assert started is False
+assert run_guard.toasts == ["Connect an iPod before running this action"]
 
 # An empty queue must not launch a script at all.
 idle_window = FakeWindow()

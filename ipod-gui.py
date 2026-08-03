@@ -97,6 +97,7 @@ TAG_PYTHON = None  # resolved lazily on first use
 # Kept in step with the canonical SUPPORTED_EXT in lib.sh. The GUI cannot
 # source shell, so a test asserts that this necessary copy has not drifted.
 AUDIO_EXTENSIONS = {".mp3", ".m4a", ".m4b", ".m4p", ".aa", ".wav"}
+PLAYLIST_EXTENSIONS = {".m3u", ".pls"}
 
 # The scripts colour their output for a terminal. A text view has no idea what
 # to do with the escape sequences, so every line arrived as literal noise:
@@ -2679,14 +2680,15 @@ class IpodWindow(Adw.ApplicationWindow):
             self.device_banner.append(mount)
         self.device_banner.set_visible(True)
 
-        queued_bytes = sum(track.size for track in self.pending.values())
-        if self.pending:
+        queued_bytes = sum(track.size for track in self._pending_copy_tracks())
+        changes = self._pending_change_count()
+        if self.pending_sources:
             self.queued_row.set_visible(True)
             self.queued_label.set_text(
                 f"{human_size(queued_bytes)} queued — reconnect the same iPod"
             )
             self.sync_button.set_label(
-                f"Sync {plural(len(self.pending), 'change')}"
+                f"Sync {plural(changes, 'change')}"
             )
         else:
             self.queued_row.set_visible(False)
@@ -2711,7 +2713,8 @@ class IpodWindow(Adw.ApplicationWindow):
             "scrambled codes, so back up first."
         )
 
-        queued_bytes = sum(track.size for track in self.pending.values())
+        queued_bytes = sum(track.size for track in self._pending_copy_tracks())
+        changes = self._pending_change_count()
         try:
             usage = shutil.disk_usage(self.mount_point)
             used_fraction = usage.used / usage.total if usage.total else 0
@@ -2725,12 +2728,12 @@ class IpodWindow(Adw.ApplicationWindow):
             self.device_free.set_text("size unknown")
             self._set_settings_figures(None, queued_bytes, total_tracks, False)
 
-        if self.pending:
+        if self.pending_sources:
             self.queued_row.set_visible(True)
             self.queued_label.set_text(
                 f"+{human_size(queued_bytes)} queued to sync"
             )
-            self.sync_button.set_label(f"Sync {plural(len(self.pending), 'change')}")
+            self.sync_button.set_label(f"Sync {plural(changes, 'change')}")
             self.sync_button.set_sensitive(not self.busy)
         else:
             self.queued_row.set_visible(False)
@@ -2765,7 +2768,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self.playlist_voiceover.set_sensitive(
             enabled and self.speech_engine_available
         )
-        self.sync_button.set_sensitive(queue_enabled and bool(self.pending))
+        self.sync_button.set_sensitive(queue_enabled and bool(self.pending_sources))
 
     def _set_settings_figures(self, usage, queued_bytes, total_tracks, over):
         child = self.settings_figures.get_first_child()
@@ -2816,7 +2819,11 @@ class IpodWindow(Adw.ApplicationWindow):
             self.playlist_rail.append(self._rail_row(name, entries, compact=True))
             self.playlist_list.append(self._rail_row(name, entries, compact=False))
 
-        if self.playlists and self.current_playlist is None:
+        playlist_names = {name for name, _entries in self.playlists}
+        if not self.playlists:
+            self.current_playlist = None
+            self._clear_playlist_detail()
+        elif self.current_playlist not in playlist_names:
             self.current_playlist = self.playlists[0][0]
         if self.current_playlist is not None:
             self._show_playlist(self.current_playlist)
@@ -2972,6 +2979,9 @@ class IpodWindow(Adw.ApplicationWindow):
         remove.add_css_class("sf-button")
         remove.set_margin_start(12)
         remove.connect("clicked", self.on_remove_playlist, name)
+        remove.set_sensitive(
+            bool(self.mount_point) and self.device_identity is not None and not self.busy
+        )
         self.playlist_voice_note.append(remove)
 
         by_relpath = {track.relpath: track for track in self.device_tracks}
@@ -2983,6 +2993,26 @@ class IpodWindow(Adw.ApplicationWindow):
                               relpath=relpath)
             resolved.append(track)
         fill_tracks(self.playlist_tracks, resolved)
+
+    def _clear_playlist_detail(self):
+        self.playlist_heading.set_text(
+            "No playlists" if self.mount_point else "No iPod connected"
+        )
+        child = self.playlist_voice_note.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.playlist_voice_note.remove(child)
+            child = nxt
+        self.playlist_voice_note.append(
+            label(
+                "Add a playlist to this iPod"
+                if self.mount_point
+                else "Connect an iPod to manage its playlists",
+                "sf-body",
+                "sf-dim",
+            )
+        )
+        fill_tracks(self.playlist_tracks, [])
 
     # ---------------------------------------------------------- library scan
 
@@ -3362,6 +3392,23 @@ class IpodWindow(Adw.ApplicationWindow):
             size = 0
         return Track(path, {"title": Path(path).stem, "size": size}, STATE_LIBRARY)
 
+    def _pending_copy_tracks(self):
+        return [
+            track
+            for track in self.pending.values()
+            if not track.on_ipod
+            and Path(track.path).suffix.lower() in AUDIO_EXTENSIONS
+        ]
+
+    def _pending_change_count(self):
+        copy_paths = {track.path for track in self._pending_copy_tracks()}
+        playlist_sources = {
+            source
+            for source in self.pending_sources
+            if Path(source).suffix.lower() in PLAYLIST_EXTENSIONS
+        }
+        return len(copy_paths) + len(playlist_sources)
+
     def _queue_sources(self, sources, show_toast=True):
         if not self.mount_point:
             self._toast("Connect an iPod to queue tracks")
@@ -3376,7 +3423,7 @@ class IpodWindow(Adw.ApplicationWindow):
             self.pending_sources.clear()
             self.pending_device_identity = self.device_identity
 
-        before = set(self.pending)
+        before = self._pending_change_count()
         for source, tracks in sources.items():
             members = set()
             for track in tracks:
@@ -3396,7 +3443,7 @@ class IpodWindow(Adw.ApplicationWindow):
             self.pending_device_identity = None
         self._populate_device_summary()
         self._refresh_current_view()
-        added = len(set(self.pending) - before)
+        added = max(0, self._pending_change_count() - before)
         if show_toast:
             self._toast(
                 f"{plural(added, 'change')} queued" if added else "Already queued"
@@ -3462,11 +3509,10 @@ class IpodWindow(Adw.ApplicationWindow):
             self._toast("Queued changes belong to a different iPod")
             return
         paths = sorted(self.pending_sources)
-        changes = len(self.pending)
+        copy_tracks = self._pending_copy_tracks()
+        changes = self._pending_change_count()
         self.sync_files = [Path(p).name for p in paths]
-        self.sync_total = sum(
-            Path(path).suffix.lower() in AUDIO_EXTENSIONS for path in self.pending
-        )
+        self.sync_total = len(copy_tracks)
         self._run(
             [
                 str(SYNC_SCRIPT),
@@ -3625,6 +3671,9 @@ class IpodWindow(Adw.ApplicationWindow):
         user's point of view, deciding what to copy only once the download has
         said what it produced.
         """
+        if any(part is None for part in argv):
+            self._toast("Connect an iPod before running this action")
+            return False
         if clear:
             self._clear_log()
         self._set_busy(True, busy_message)
@@ -3643,11 +3692,12 @@ class IpodWindow(Adw.ApplicationWindow):
                     for line in proc.stdout:
                         GLib.idle_add(self._log, line)
                 code = proc.wait()
-            except OSError as exc:
+            except (OSError, TypeError, ValueError) as exc:
                 GLib.idle_add(self._log, f"failed to run: {exc}\n")
             GLib.idle_add(self._finish, code, done_message, then)
 
         threading.Thread(target=worker, daemon=True).start()
+        return True
 
     def _finish(self, code, done_message, then=None):
         if code == 0 and then is not None:
@@ -3700,12 +3750,15 @@ class IpodWindow(Adw.ApplicationWindow):
                 self._finish_music_folder_discovery,
                 generation,
                 device_identity,
+                path,
                 files,
             )
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _finish_music_folder_discovery(self, generation, device_identity, files):
+    def _finish_music_folder_discovery(
+        self, generation, device_identity, path, files
+    ):
         if generation != self.source_generation:
             return False
         self.discovering_sources = False
@@ -3716,7 +3769,9 @@ class IpodWindow(Adw.ApplicationWindow):
         if not files:
             self._toast("No supported audio found in that folder")
             return False
-        self._queue_paths(files)
+        self._queue_sources(
+            {str(path): [self._pending_track(item) for item in files]}
+        )
         return False
 
     def on_add_folder(self, _button):
@@ -3875,6 +3930,9 @@ class IpodWindow(Adw.ApplicationWindow):
         )
 
     def on_remove_track(self, _button, relpath):
+        if not self.mount_point or self.device_identity is None:
+            self._toast("Connect an iPod before removing tracks")
+            return
         name = self.track_names.get(relpath, Path(relpath).name)
         dialog = Adw.AlertDialog(
             heading="Remove this track?",
@@ -3889,11 +3947,15 @@ class IpodWindow(Adw.ApplicationWindow):
         dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
-        dialog.connect("response", self._on_remove_response, relpath)
+        dialog.connect(
+            "response", self._on_remove_response, relpath, self.device_identity
+        )
         dialog.present(self)
 
-    def _on_remove_response(self, _dialog, response, relpath):
+    def _on_remove_response(self, _dialog, response, relpath, device_identity):
         if response != "remove":
+            return
+        if not self._confirmed_device(device_identity):
             return
         self._run(
             [
@@ -3910,6 +3972,9 @@ class IpodWindow(Adw.ApplicationWindow):
         )
 
     def on_remove_playlist(self, _button, name):
+        if not self.mount_point or self.device_identity is None:
+            self._toast("Connect an iPod before removing playlists")
+            return
         dialog = Adw.AlertDialog(
             heading="Remove this playlist?",
             body=(
@@ -3923,11 +3988,20 @@ class IpodWindow(Adw.ApplicationWindow):
         dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
-        dialog.connect("response", self._on_playlist_remove_response, name)
+        dialog.connect(
+            "response",
+            self._on_playlist_remove_response,
+            name,
+            self.device_identity,
+        )
         dialog.present(self)
 
-    def _on_playlist_remove_response(self, _dialog, response, name):
+    def _on_playlist_remove_response(
+        self, _dialog, response, name, device_identity
+    ):
         if response != "remove":
+            return
+        if not self._confirmed_device(device_identity):
             return
         self._run(
             [
@@ -3971,6 +4045,9 @@ class IpodWindow(Adw.ApplicationWindow):
         )
 
     def on_wipe(self, _button):
+        if not self.mount_point or self.device_identity is None:
+            self._toast("Connect an iPod before wiping it")
+            return
         total = count_tracks(self.mount_point)
         dialog = Adw.AlertDialog(
             heading="Wipe this iPod?",
@@ -3988,11 +4065,23 @@ class IpodWindow(Adw.ApplicationWindow):
         dialog.set_response_appearance("backup", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("backup")
         dialog.set_close_response("cancel")
-        dialog.connect("response", self._on_wipe_response)
+        dialog.connect("response", self._on_wipe_response, self.device_identity)
         dialog.present(self)
 
-    def _on_wipe_response(self, _dialog, response):
+    def _confirmed_device(self, device_identity):
+        if (
+            not self.mount_point
+            or self.device_identity is None
+            or self.device_identity != device_identity
+        ):
+            self._toast("The connected iPod changed, so the action was cancelled")
+            return False
+        return True
+
+    def _on_wipe_response(self, _dialog, response, device_identity):
         if response == "cancel":
+            return
+        if not self._confirmed_device(device_identity):
             return
         argv = [str(WIPE_SCRIPT), "--ipod", self.mount_point, "--yes"]
         if response == "backup":
