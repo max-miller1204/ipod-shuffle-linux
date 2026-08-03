@@ -95,6 +95,7 @@ class FakeWindow:
     def __init__(self):
         self.mount_point = "/media/alex/Alex's iPod"
         self.device_identity = "uuid:test-ipod"
+        self.busy = False
         self.discovering_sources = False
         self.source_generation = 0
         self._device_scan_active = False
@@ -119,6 +120,9 @@ class FakeWindow:
 
     def _toast(self, message):
         self.toasts.append(message)
+
+    def _set_busy(self, busy, message=""):
+        self.busy = busy
 
     def _sync_options(self):
         return ["--dir-playlists=1", "--playlist-voiceover"]
@@ -148,6 +152,9 @@ class FakeWindow:
     _queue_paths = ipod_gui.IpodWindow._queue_paths
     _queue_playlist = ipod_gui.IpodWindow._queue_playlist
     _unqueue_track = ipod_gui.IpodWindow._unqueue_track
+    _scan_queued_sources = ipod_gui.IpodWindow._scan_queued_sources
+    _finish_pending_source_scan = ipod_gui.IpodWindow._finish_pending_source_scan
+    _launch_pending_sync = ipod_gui.IpodWindow._launch_pending_sync
     _update_device_controls = ipod_gui.IpodWindow._update_device_controls
     _confirmed_device = ipod_gui.IpodWindow._confirmed_device
 
@@ -282,6 +289,24 @@ finally:
     ipod_gui._tag_interpreter = original_interpreter
     ipod_gui.TAG_PYTHON = original_tag_python
     ipod_gui._TAG_READER = original_reader
+
+_records, complete = ipod_gui.scan_tracks(scan_root / "missing")
+assert not complete, "a missing scan root was reported as complete"
+
+failed_stat_root = Path(tempfile.mkdtemp())
+(failed_stat_root / "vanished.mp3").symlink_to(
+    failed_stat_root / "does-not-exist.mp3"
+)
+_records, complete = ipod_gui.scan_tracks(failed_stat_root)
+assert not complete, "a discovered file stat failure was reported as complete"
+
+exact_track = scan_root / "Exact.mp3"
+exact_track.write_bytes(b"exact")
+unrelated = scan_root / "Artist" / "Unrelated.mp3"
+unrelated.write_bytes(b"unrelated")
+exact_records, complete = ipod_gui.scan_tracks(files=[exact_track])
+assert complete
+assert [record["path"] for record in exact_records] == [str(exact_track)]
 
 
 class FolderDiscoveryWindow:
@@ -852,19 +877,25 @@ assert sorted(fallback) == sorted(
 queue_window = FakeWindow()
 queue_window.sync_files = []
 queue_window.sync_total = 0
+sync_source = Path(tempfile.mkdtemp()) / "Music"
+sync_source.mkdir()
 queued_paths = {
-    path: ipod_gui.Track(
+    str(path): ipod_gui.Track(
         path,
         {"title": Path(path).stem, "size": size},
         ipod_gui.STATE_LIBRARY,
     )
     for path, size in (
-        ("/home/alex/Music/Kova/Nightbus/01 Nightbus.mp3", 1024),
-        ("/home/alex/Music/-Dashed Title.mp3", 2048),
+        (sync_source / "01 Nightbus.mp3", 1024),
+        (sync_source / "-Dashed Title.mp3", 2048),
     )
 }
+for path, track in queued_paths.items():
+    Path(path).write_bytes(b"x" * track.size)
+copied_path = sync_source / "02 Dawn.mp3"
+copied_path.write_bytes(b"x" * 4096)
 already_copied = ipod_gui.Track(
-    "/home/alex/Music/Kova/Nightbus/02 Dawn.mp3",
+    copied_path,
     {"title": "Dawn", "size": 4096},
     ipod_gui.STATE_LIBRARY,
 )
@@ -872,7 +903,7 @@ already_copied.on_ipod = True
 queue_window.library.tracks = [*queued_paths.values(), already_copied]
 queue_window.pending = {*queued_paths, already_copied.path}
 queue_window.pending_sources = {
-    "/home/alex/Music": set(queue_window.pending)
+    str(sync_source): set(queue_window.pending)
 }
 queue_window.pending_device_identity = queue_window.device_identity
 queue_window._merge_states()
@@ -887,32 +918,87 @@ queue_window.library.tracks = [*queued_paths.values(), replacement]
 queue_window._merge_states()
 assert queue_window._pending_change_count() == len(queued_paths) + 1
 assert sum(track.size for track in queue_window._pending_copy_tracks()) == 7168
+added_after_queue = sync_source / "03 Added Later.mp3"
+added_after_queue.write_bytes(b"x" * 512)
+command_ready = threading.Event()
+record_command = queue_window._run
+
+
+def record_preflight_command(argv, busy_message, done_message, then=None, clear=True):
+    record_command(argv, busy_message, done_message, then, clear)
+    command_ready.set()
+
+
+queue_window._run = record_preflight_command
 original_volume_identity = ipod_gui.volume_identity
+original_glib = ipod_gui.GLib
 ipod_gui.volume_identity = lambda _mount: queue_window.device_identity
+ipod_gui.GLib = type(
+    "ImmediateGLib",
+    (),
+    {"idle_add": staticmethod(lambda callback, *args: callback(*args))},
+)
 try:
     ipod_gui.IpodWindow.on_sync_pending(queue_window, None)
+    assert command_ready.wait(5), "queued sources were not re-read before sync"
 finally:
     ipod_gui.volume_identity = original_volume_identity
+    ipod_gui.GLib = original_glib
 
 staged = queue_window.commands[0]
 assert staged[0].endswith("ipod-sync.sh"), staged
 assert staged[1:3] == ["--ipod", queue_window.mount_point], staged
 # Everything after -- is a path, because a track title can begin with a dash.
 separator = staged.index("--")
-assert staged[separator + 1:] == ["/home/alex/Music"], staged
-assert queue_window.sync_total == len(queued_paths) + 1, queue_window.sync_total
+assert staged[separator + 1:] == [str(sync_source)], staged
+assert queue_window.sync_total == len(queued_paths) + 2, queue_window.sync_total
+assert str(added_after_queue) in queue_window.pending
 
 # The queue is only cleared once the copy has actually succeeded, which is
 # what the then callback is for.
 assert queue_window.pending == {
     *queued_paths,
     already_copied.path,
+    str(added_after_queue),
 }, "queue emptied before the sync ran"
 cleared = queue_window.then()
 assert queue_window.pending == set(), "queue survived a successful sync"
 assert queue_window.pending_sources == {}, "sync sources survived a successful sync"
 assert queue_window.pending_device_identity is None, "queue stayed device-bound"
 assert isinstance(cleared, str), cleared
+
+failed_sync = FakeWindow()
+failed_member = "/missing/source/song.mp3"
+failed_sync.pending = {failed_member}
+failed_sync.pending_sources = {"/missing/source": {failed_member}}
+failed_sync.pending_device_identity = failed_sync.device_identity
+failure_ready = threading.Event()
+original_toast = failed_sync._toast
+
+
+def record_failure(message):
+    original_toast(message)
+    failure_ready.set()
+
+
+failed_sync._toast = record_failure
+original_volume_identity = ipod_gui.volume_identity
+original_glib = ipod_gui.GLib
+ipod_gui.volume_identity = lambda _mount: failed_sync.device_identity
+ipod_gui.GLib = type(
+    "ImmediateGLib",
+    (),
+    {"idle_add": staticmethod(lambda callback, *args: callback(*args))},
+)
+try:
+    ipod_gui.IpodWindow.on_sync_pending(failed_sync, None)
+    assert failure_ready.wait(5), "failed source scan did not report its refusal"
+finally:
+    ipod_gui.volume_identity = original_volume_identity
+    ipod_gui.GLib = original_glib
+assert failed_sync.commands == [], failed_sync.commands
+assert not failed_sync.busy
+assert "cancelled" in failed_sync.toasts[-1]
 
 outside_window = FakeWindow()
 outside_track = ipod_gui.Track(

@@ -186,46 +186,67 @@ def art_path(path):
     return str(target)
 
 
-for current, dirs, files in os.walk(root):
-    dirs.sort()
-    for name in sorted(files):
-        path = Path(current, name)
-        if path.suffix.lower() not in suffixes:
-            continue
-        try:
-            size = path.stat().st_size
-        except OSError:
-            size = 0
-        relpath = str(path.relative_to(root))
-        fallback = {"path": relpath, "title": path.stem, "size": size}
-        sys.stdout.write(json.dumps(fallback) + "\n")
-        sys.stdout.flush()
-        if mutagen is None:
-            continue
-        try:
-            audio = mutagen.File(path, easy=True)
-        except Exception:
-            continue
-        if audio is None:
-            continue
-        record = {
-            "path": relpath,
-            "title": first(audio, "title"),
-            "artist": first(audio, "artist"),
-            "album": first(audio, "album"),
-            "albumartist": first(audio, "albumartist"),
-            "genre": first(audio, "genre"),
-            "track": first(audio, "tracknumber"),
-            "duration": float(getattr(getattr(audio, "info", None), "length", 0) or 0),
-            "size": size,
-            "art": art_path(path),
-        }
-        sys.stdout.write(json.dumps(record) + "\n")
-        sys.stdout.flush()
+def emit(path, key):
+    size = path.stat().st_size
+    fallback = {"path": key, "title": path.stem, "size": size}
+    sys.stdout.write(json.dumps(fallback) + "\n")
+    sys.stdout.flush()
+    if mutagen is None:
+        return
+    try:
+        audio = mutagen.File(path, easy=True)
+    except Exception:
+        return
+    if audio is None:
+        return
+    record = {
+        "path": key,
+        "title": first(audio, "title"),
+        "artist": first(audio, "artist"),
+        "album": first(audio, "album"),
+        "albumartist": first(audio, "albumartist"),
+        "genre": first(audio, "genre"),
+        "track": first(audio, "tracknumber"),
+        "duration": float(getattr(getattr(audio, "info", None), "length", 0) or 0),
+        "size": size,
+        "art": art_path(path),
+    }
+    sys.stdout.write(json.dumps(record) + "\n")
+    sys.stdout.flush()
+
+
+def walk_error(error):
+    raise error
+
+
+try:
+    if len(sys.argv) > 4 and sys.argv[4] == "exact":
+        for line in sys.stdin:
+            value = json.loads(line)
+            if not isinstance(value, str):
+                raise ValueError
+            path = Path(value)
+            if path.suffix.lower() not in suffixes:
+                continue
+            if not path.is_file():
+                raise OSError
+            emit(path, value)
+    else:
+        if not root.is_dir():
+            raise OSError
+        for current, dirs, files in os.walk(root, onerror=walk_error):
+            dirs.sort()
+            for name in sorted(files):
+                path = Path(current, name)
+                if path.suffix.lower() not in suffixes:
+                    continue
+                emit(path, str(path.relative_to(root)))
+except (OSError, TypeError, ValueError):
+    sys.exit(2)
 """
 
 
-def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
+def scan_tracks(root=None, on_record=None, timeout=900, cancelled=None, files=None):
     """Read tags for every supported file under root.
 
     Returns (records, complete), with each record path relative to root.
@@ -237,7 +258,13 @@ def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
     if TAG_PYTHON is None:
         TAG_PYTHON = _tag_interpreter()
 
-    root = Path(root)
+    exact_files = (
+        None
+        if files is None
+        else list(dict.fromkeys(str(path) for path in files))
+    )
+    exact_allowed = set(exact_files or ())
+    root = Path(root) if root is not None else Path(".")
     records = {}
 
     try:
@@ -249,7 +276,13 @@ def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
                 str(root),
                 str(ART_CACHE),
                 ",".join(sorted(AUDIO_EXTENSIONS)),
+                "exact" if exact_files is not None else "recursive",
             ],
+            stdin=(
+                subprocess.PIPE
+                if exact_files is not None
+                else subprocess.DEVNULL
+            ),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
@@ -260,6 +293,7 @@ def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
 
     output = queue.Queue()
     output_done = object()
+    input_failed = threading.Event()
 
     def read_output():
         try:
@@ -270,6 +304,21 @@ def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
             output.put(output_done)
 
     threading.Thread(target=read_output, daemon=True).start()
+    if exact_files is not None:
+        def write_input():
+            try:
+                for path in exact_files:
+                    proc.stdin.write(json.dumps(path) + "\n")
+                proc.stdin.flush()
+            except (OSError, ValueError):
+                input_failed.set()
+            finally:
+                try:
+                    proc.stdin.close()
+                except OSError:
+                    pass
+
+        threading.Thread(target=write_input, daemon=True).start()
     deadline = time.monotonic() + timeout
     complete = False
     try:
@@ -299,9 +348,14 @@ def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
             if not isinstance(relpath, str):
                 continue
             relative = Path(relpath)
+            invalid_recursive = (
+                exact_files is None
+                and (relative.is_absolute() or ".." in relative.parts)
+            )
+            invalid_exact = exact_files is not None and relpath not in exact_allowed
             if (
-                relative.is_absolute()
-                or ".." in relative.parts
+                invalid_recursive
+                or invalid_exact
                 or relative.suffix.lower() not in AUDIO_EXTENSIONS
             ):
                 continue
@@ -311,7 +365,7 @@ def scan_tracks(root, on_record=None, timeout=900, cancelled=None):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise subprocess.TimeoutExpired(proc.args, timeout)
-        complete = proc.wait(timeout=remaining) == 0
+        complete = proc.wait(timeout=remaining) == 0 and not input_failed.is_set()
     except subprocess.SubprocessError:
         if proc.poll() is None:
             proc.kill()
@@ -606,12 +660,12 @@ def fetched_sources(list_path, library):
     return [line.strip() for line in lines if line.strip()]
 
 
-def local_playlist_tracks(list_path):
+def read_local_playlist_tracks(list_path):
     path = Path(list_path)
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return []
+        return [], False
     if path.suffix.lower() == ".pls":
         numbered = []
         for line in lines:
@@ -646,7 +700,11 @@ def local_playlist_tracks(list_path):
                 track = candidate
         if track.is_file() and track.suffix.lower() in AUDIO_EXTENSIONS:
             tracks.append(str(track.absolute()))
-    return tracks
+    return tracks, True
+
+
+def local_playlist_tracks(list_path):
+    return read_local_playlist_tracks(list_path)[0]
 
 
 def count_tracks(mount_point):
@@ -3606,27 +3664,17 @@ class IpodWindow(Adw.ApplicationWindow):
         return self._commit_queue_sources(sources, show_toast=show_toast)
 
     def _scan_pending_tracks(self, paths, generation):
-        grouped = {}
-        for path in paths:
-            grouped.setdefault(str(Path(path).parent), set()).add(str(path))
+        paths = set(str(path) for path in paths)
         enriched = {}
-        for parent, wanted in grouped.items():
-            records, complete = scan_tracks(
-                parent,
-                cancelled=lambda: generation != self.source_generation,
-            )
-            if not complete:
-                return {}, False
-            wanted_by_path = {
-                str(Path(path).absolute()): path for path in wanted
-            }
-            for record in records:
-                absolute = str(Path(parent, record["path"]).absolute())
-                original = wanted_by_path.get(absolute)
-                if original is not None:
-                    enriched[original] = Track(
-                        original, record, STATE_LIBRARY
-                    )
+        records, complete = scan_tracks(
+            files=paths,
+            cancelled=lambda: generation != self.source_generation,
+        )
+        if not complete:
+            return {}, False
+        for record in records:
+            path = record["path"]
+            enriched[path] = Track(path, record, STATE_LIBRARY)
         for path in paths:
             enriched.setdefault(path, self._pending_track(path))
         return enriched, True
@@ -3657,13 +3705,18 @@ class IpodWindow(Adw.ApplicationWindow):
         self._commit_queue_sources(resolved, show_toast=show_toast)
         return False
 
-    def _commit_queue_sources(self, sources, show_toast=True):
+    def _commit_queue_sources(self, sources, show_toast=True, replace=False):
         if not self.mount_point:
             self._toast("Connect an iPod to queue tracks")
             return 0
         if self.device_identity is None:
             self._toast("Could not identify this iPod, so nothing was queued")
             return 0
+        before = self._pending_change_count()
+        if replace:
+            self.pending.clear()
+            self.pending_sources.clear()
+            self.pending_records.clear()
         if not self.pending_sources:
             self.pending_device_identity = self.device_identity
         elif self.pending_device_identity != self.device_identity:
@@ -3672,7 +3725,6 @@ class IpodWindow(Adw.ApplicationWindow):
             self.pending_records.clear()
             self.pending_device_identity = self.device_identity
 
-        before = self._pending_change_count()
         for source, tracks in sources.items():
             members = set()
             for track in tracks:
@@ -3762,6 +3814,107 @@ class IpodWindow(Adw.ApplicationWindow):
             return
         if not self._confirmed_device(self.pending_device_identity):
             return
+        self.source_generation += 1
+        generation = self.source_generation
+        device_identity = self.device_identity
+        paths = sorted(self.pending_sources)
+        self.discovering_sources = True
+        self._set_busy(True, "Checking queued sources")
+
+        def worker():
+            sources, complete = self._scan_queued_sources(paths, generation)
+            GLib.idle_add(
+                self._finish_pending_source_scan,
+                generation,
+                device_identity,
+                sources,
+                complete,
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _scan_queued_sources(self, sources, generation):
+        refreshed = {}
+        for source in sources:
+            path = Path(source)
+            if path.is_dir():
+                records, complete = scan_tracks(
+                    path,
+                    cancelled=lambda: generation != self.source_generation,
+                )
+                tracks = [
+                    Track(path / record["path"], record, STATE_LIBRARY)
+                    for record in records
+                ]
+            elif path.suffix.lower() in PLAYLIST_EXTENSIONS:
+                members, complete = read_local_playlist_tracks(path)
+                if complete:
+                    records, complete = scan_tracks(
+                        files=members,
+                        cancelled=lambda: generation != self.source_generation,
+                    )
+                tracks = (
+                    [
+                        Track(record["path"], record, STATE_LIBRARY)
+                        for record in records
+                    ]
+                    if complete
+                    else []
+                )
+                if complete:
+                    try:
+                        size = path.stat().st_size
+                    except OSError:
+                        complete = False
+                    else:
+                        tracks.append(
+                            Track(
+                                path,
+                                {"title": path.stem, "size": size},
+                                STATE_LIBRARY,
+                            )
+                        )
+            elif path.suffix.lower() in AUDIO_EXTENSIONS:
+                records, complete = scan_tracks(
+                    files=[path],
+                    cancelled=lambda: generation != self.source_generation,
+                )
+                tracks = [
+                    Track(record["path"], record, STATE_LIBRARY)
+                    for record in records
+                ]
+            else:
+                tracks, complete = [], False
+            if not complete:
+                return {}, False
+            if tracks:
+                refreshed[source] = tracks
+        return refreshed, True
+
+    def _finish_pending_source_scan(
+        self, generation, device_identity, sources, complete
+    ):
+        if generation != self.source_generation:
+            self._set_busy(False)
+            return False
+        self.discovering_sources = False
+        if not complete:
+            self._set_busy(False)
+            self._toast("Could not re-read queued sources, so sync was cancelled")
+            return False
+        if not self._confirmed_device(device_identity):
+            self._set_busy(False)
+            return False
+        self._commit_queue_sources(sources, show_toast=False, replace=True)
+        if not self.pending_sources:
+            self._set_busy(False)
+            self._toast("Nothing remains in the queued sources")
+            return False
+        self._set_busy(False)
+        self._launch_pending_sync()
+        return False
+
+    def _launch_pending_sync(self):
         paths = sorted(self.pending_sources)
         copy_tracks, changes, _queued_bytes = self._pending_accounting()
         self.sync_files = [Path(p).name for p in paths]
