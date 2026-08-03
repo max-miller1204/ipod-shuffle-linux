@@ -151,6 +151,40 @@ fi
 #
 # Installed only when the GUI can actually run; a menu entry has no terminal
 # to explain a missing dependency in, so it should not exist before then.
+desktop_string_escape() {
+    local input="$1" output="" char
+    while [[ -n "$input" ]]; do
+        char="${input:0:1}"
+        input="${input:1}"
+        case "$char" in
+            \\) output+="\\\\" ;;
+            $'\n') output+='\n' ;;
+            $'\t') output+='\t' ;;
+            $'\r') output+='\r' ;;
+            *) output+="$char" ;;
+        esac
+    done
+    printf '%s' "$output"
+}
+
+desktop_exec_escape() {
+    local input="$1" output="" char
+    while [[ -n "$input" ]]; do
+        char="${input:0:1}"
+        input="${input:1}"
+        case "$char" in
+            \\) output+="\\\\\\\\" ;;
+            \"|\`|'$') output+="\\\\$char" ;;
+            '%') output+='%%' ;;
+            $'\n') output+='\n' ;;
+            $'\t') output+='\t' ;;
+            $'\r') output+='\r' ;;
+            *) output+="$char" ;;
+        esac
+    done
+    printf '"%s"' "$output"
+}
+
 readonly APP_ID="io.github.max_miller1204.IpodShuffle"
 REPO_DIR="$(dirname "$(readlink -f "$0")")"
 readonly REPO_DIR
@@ -171,13 +205,20 @@ if find_gui_python >/dev/null 2>&1; then
         gtk-update-icon-cache -f -t "$icons_root" >/dev/null 2>&1 || true
     fi
     touch "$icons_root"
+    gui_path="$REPO_DIR/ipod-gui.sh"
+    desktop_exec="$(desktop_exec_escape "$gui_path")"
+    if [[ "$gui_path" == *%* ]]; then
+        desktop_runner="$(command -v env)"
+        desktop_exec="$desktop_runner $desktop_exec"
+    fi
+    desktop_tryexec="$(desktop_string_escape "$gui_path")"
     printf '%s\n' \
         '[Desktop Entry]' \
         'Name=iPod Shuffle' \
         'GenericName=iPod Manager' \
         'Comment=Load music onto an iPod shuffle without iTunes' \
-        "Exec=\"$REPO_DIR/ipod-gui.sh\"" \
-        "TryExec=$REPO_DIR/ipod-gui.sh" \
+        "Exec=$desktop_exec" \
+        "TryExec=$desktop_tryexec" \
         "Icon=$APP_ID" \
         'Terminal=false' \
         'Type=Application' \

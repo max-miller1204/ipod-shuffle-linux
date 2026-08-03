@@ -346,6 +346,55 @@ grep -Fxq 'Terminal=false' "$DESKTOP_FILE"
 test -s "$DESKTOP_DATA/icons/hicolor/scalable/apps/io.github.max_miller1204.IpodShuffle.svg"
 grep -Fq 'Desktop entry installed' "$EVIDENCE_DIR/install-desktop-entry.txt"
 
+WEIRD_ROOT="$TEST_ROOT/checkout %f \"quoted\" \\slash \$cash \`tick\`"
+WEIRD_DESKTOP_DATA="$TEST_ROOT/xdg-data-weird"
+mkdir -p "$WEIRD_ROOT/desktop"
+cp \
+    "$ROOT/install.sh" \
+    "$ROOT/lib.sh" \
+    "$ROOT/ipod-gui.sh" \
+    "$WEIRD_ROOT/"
+cp "$ROOT/desktop/io.github.max_miller1204.IpodShuffle.svg" \
+    "$WEIRD_ROOT/desktop/"
+if XDG_DATA_HOME="$WEIRD_DESKTOP_DATA" IPOD_TOOLS_DIR="$INSTALL_BLOCKER" \
+    "$WEIRD_ROOT/install.sh" --no-system \
+    > "$EVIDENCE_DIR/install-desktop-entry-escaped.txt" 2>&1; then
+    echo "installer unexpectedly continued past the blocked tools dir" >&2
+    exit 1
+fi
+WEIRD_DESKTOP_FILE="$WEIRD_DESKTOP_DATA/applications/io.github.max_miller1204.IpodShuffle.desktop"
+WEIRD_LAUNCH_MARKER="$TEST_ROOT/weird-desktop-launched"
+printf '%s\n' \
+    '#!/bin/sh' \
+    "printf '%s\\n' launched > \"\$WEIRD_LAUNCH_MARKER\"" \
+    > "$WEIRD_ROOT/ipod-gui.sh"
+chmod +x "$WEIRD_ROOT/ipod-gui.sh"
+WEIRD_ENV_PATH="$(command -v env)"
+export WEIRD_LAUNCH_MARKER
+/usr/bin/python3 - \
+    "$WEIRD_DESKTOP_FILE" \
+    "$WEIRD_ROOT/ipod-gui.sh" \
+    "$WEIRD_ENV_PATH" \
+    "$WEIRD_LAUNCH_MARKER" <<'PY'
+import pathlib
+import sys
+import time
+
+from gi.repository import Gio
+
+entry = Gio.DesktopAppInfo.new_from_filename(sys.argv[1])
+assert entry is not None
+assert entry.get_executable() == sys.argv[3], entry.get_executable()
+assert entry.get_string("TryExec") == sys.argv[2], entry.get_string("TryExec")
+assert entry.launch([], None)
+marker = pathlib.Path(sys.argv[4])
+for _ in range(200):
+    if marker.exists():
+        break
+    time.sleep(0.01)
+assert marker.read_text(encoding="utf-8") == "launched\n"
+PY
+
 # js_runtime invokes these test doubles indirectly by candidate name.
 # shellcheck disable=SC2317,SC2329
 (
@@ -798,6 +847,27 @@ grep -Fq "$PLAYLIST_LIB/casemix.m3u" \
     "$EVIDENCE_DIR/playlist-case-collision.txt"
 grep -Fq "both become 'CaseMix.m3u'" \
     "$EVIDENCE_DIR/playlist-case-collision.txt"
+
+mkdir -p "$PLAYLIST_LIB/Unicode First" "$PLAYLIST_LIB/Unicode Second"
+printf 'unicode first track\n' > "$PLAYLIST_LIB/Unicode First/First.mp3"
+printf 'unicode second track\n' > "$PLAYLIST_LIB/Unicode Second/Second.mp3"
+printf '%s\n' "$PLAYLIST_LIB/Unicode First/First.mp3" \
+    > "$PLAYLIST_LIB/ÄMIX.m3u"
+printf '%s\n' "$PLAYLIST_LIB/Unicode Second/Second.mp3" \
+    > "$PLAYLIST_LIB/ämix.m3u"
+LC_ALL=C "$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/ÄMIX.m3u" \
+    "$PLAYLIST_LIB/ämix.m3u" \
+    > "$EVIDENCE_DIR/playlist-locale-case-collision.txt" 2>&1
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Unicode First/First.mp3') \
+    "$PLAYLIST_IPOD/ÄMIX.m3u"
+test ! -e "$PLAYLIST_IPOD/ämix.m3u"
+test ! -e "$PLAYLIST_IPOD/iPod_Control/Music/Unicode Second/Second.mp3"
+grep -Fq "both become 'ÄMIX.m3u'" \
+    "$EVIDENCE_DIR/playlist-locale-case-collision.txt"
 
 mkdir -p \
     "$PLAYLIST_LIB/Artist A/Greatest Hits" \
@@ -1337,6 +1407,7 @@ printf '%s\n' \
     "PASS: trailing FAT-rejected playlist characters became underscores" \
     "PASS: colliding sanitized playlist names kept the first list and skipped the second" \
     "PASS: case-only playlist collisions kept the first list and its casing" \
+    "PASS: playlist case folding stayed stable across locale and Unicode casing" \
     "PASS: the real database builder resolved every rewritten playlist entry" \
     "PASS: colliding playlist tracks kept distinct content and destinations" \
     "PASS: replacing a playlist with no playable tracks removed its stale device list" \
@@ -1358,6 +1429,7 @@ printf '%s\n' \
     "PASS: runtime probe reported absence instead of naming an uninstalled one" \
     "PASS: installer reported a missing runtime instead of offering a stale nodejs" \
     "PASS: installer generated the app-grid entry pointing at this checkout" \
+    "PASS: desktop entry paths preserved reserved characters through Gio parsing" \
     "PASS: runtime probe rejected unsupported versions and accepted supported boundaries" \
     "PASS: old PATH yt-dlp fallback omitted its unsupported runtime option" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
