@@ -97,7 +97,7 @@ class FakeWindow:
         self.device_identity = "uuid:test-ipod"
         self.discovering_sources = False
         self.pending_device_identity = None
-        self.pending = {}
+        self.pending = set()
         self.pending_sources = {}
         self.commands = []
         self.toasts = []
@@ -134,6 +134,7 @@ class FakeWindow:
     _queue_sources = ipod_gui.IpodWindow._queue_sources
     _queue_paths = ipod_gui.IpodWindow._queue_paths
     _queue_playlist = ipod_gui.IpodWindow._queue_playlist
+    _unqueue_track = ipod_gui.IpodWindow._unqueue_track
     _update_device_controls = ipod_gui.IpodWindow._update_device_controls
     _confirmed_device = ipod_gui.IpodWindow._confirmed_device
 
@@ -142,9 +143,14 @@ class FakeWindow:
 
 window = FakeWindow()
 relpath = "Road Trip/Disc 1/01 - Highway.mp3"
-ipod_gui.IpodWindow._on_remove_response(
-    window, None, "remove", relpath, window.device_identity
-)
+original_volume_identity = ipod_gui.volume_identity
+ipod_gui.volume_identity = lambda _mount: window.device_identity
+try:
+    ipod_gui.IpodWindow._on_remove_response(
+        window, None, "remove", relpath, window.device_identity
+    )
+finally:
+    ipod_gui.volume_identity = original_volume_identity
 
 removal = window.commands[0]
 assert removal[0].endswith("ipod-remove.sh"), removal
@@ -175,6 +181,22 @@ ipod_gui.IpodWindow._on_remove_response(
 )
 assert disconnected_removal.commands == [], disconnected_removal.commands
 assert "changed" in disconnected_removal.toasts[-1], disconnected_removal.toasts
+
+replaced_removal = FakeWindow()
+original_volume_identity = ipod_gui.volume_identity
+ipod_gui.volume_identity = lambda _mount: "uuid:replacement-ipod"
+try:
+    ipod_gui.IpodWindow._on_remove_response(
+        replaced_removal,
+        None,
+        "remove",
+        relpath,
+        replaced_removal.device_identity,
+    )
+finally:
+    ipod_gui.volume_identity = original_volume_identity
+assert replaced_removal.commands == [], replaced_removal.commands
+assert "changed" in replaced_removal.toasts[-1], replaced_removal.toasts
 
 # ---------------------------------------------------------------- log output
 
@@ -429,7 +451,7 @@ class SelectionWindow:
         self.discovering_sources = False
         self.source_generation = 0
         self.pending_device_identity = "uuid:A"
-        self.pending = {queued.path: queued}
+        self.pending = {queued.path}
         self.pending_sources = {queued.path: {queued.path}}
         self.tag_generation = 0
         self._device_scan_tracks = {}
@@ -461,7 +483,7 @@ try:
     ipod_gui.IpodWindow._select_mount(identity_window, "/media/B")
 finally:
     ipod_gui.volume_identity = original_volume_identity
-assert identity_window.pending == {}, identity_window.pending
+assert identity_window.pending == set(), identity_window.pending
 assert identity_window.pending_sources == {}, identity_window.pending_sources
 assert identity_window.toasts and "different iPod" in identity_window.toasts[-1]
 
@@ -479,7 +501,7 @@ assert playlist_window.commands == [], playlist_window.commands
 assert playlist_window.pending_sources == {
     str(playlist_path): {str(playlist_path), str(playlist_track)}
 }, playlist_window.pending_sources
-assert set(playlist_window.pending) == {
+assert playlist_window.pending == {
     str(playlist_path),
     str(playlist_track),
 }, playlist_window.pending
@@ -493,6 +515,22 @@ ipod_gui.IpodWindow._add_playlist(silent_window, playlist_path)
 assert not silent_window.playlist_voiceover.active, "voiceover flipped without an engine"
 assert not silent_window.commands, "a playlist was synced without spoken names"
 assert silent_window.toasts == ["No speech engine installed"], silent_window.toasts
+
+folder_window = FakeWindow()
+folder_members = [
+    ipod_gui.Track(
+        f"/music/Album/{name}.mp3",
+        {"title": name},
+        ipod_gui.STATE_LIBRARY,
+    )
+    for name in ("One", "Two")
+]
+folder_window.library.tracks = folder_members
+folder_window._queue_sources({"/music/Album": folder_members})
+folder_window._unqueue_track(folder_members[0])
+assert folder_window.pending_sources == {}, folder_window.pending_sources
+assert folder_window.pending == set(), folder_window.pending
+assert "whole folder" in folder_window.toasts[-1], folder_window.toasts
 
 # Coming out of an operation must not enable a control this machine cannot
 # support. _set_busy re-applies the capability gating on the way out, and the
@@ -522,7 +560,7 @@ for attr in (
     setattr(busy_window, attr, FakeWidget())
 busy_window.youtube_unavailable = None
 busy_window.speech_engine_available = False
-busy_window.pending = {}
+busy_window.pending = set()
 
 ipod_gui.IpodWindow._set_busy(busy_window, False)
 assert not busy_window.playlist_button.sensitive, "busy reset enabled Add Playlist"
@@ -563,7 +601,7 @@ queued_track = ipod_gui.Track(
     {"title": "one"},
     ipod_gui.STATE_LIBRARY,
 )
-queued_window.pending = {queued_track.path: queued_track}
+queued_window.pending = {queued_track.path}
 queued_window.pending_sources = {queued_track.path: {queued_track.path}}
 ipod_gui.IpodWindow._set_busy(queued_window, False)
 assert queued_window.sync_button.sensitive, "queued changes could not be synced"
@@ -571,13 +609,18 @@ assert queued_window.sync_button.sensitive, "queued changes could not be synced"
 # -------------------------------------------------------- playlist removal
 
 playlist_removal = FakeWindow()
-ipod_gui.IpodWindow._on_playlist_remove_response(
-    playlist_removal,
-    None,
-    "remove",
-    "twizzy",
-    playlist_removal.device_identity,
-)
+original_volume_identity = ipod_gui.volume_identity
+ipod_gui.volume_identity = lambda _mount: playlist_removal.device_identity
+try:
+    ipod_gui.IpodWindow._on_playlist_remove_response(
+        playlist_removal,
+        None,
+        "remove",
+        "twizzy",
+        playlist_removal.device_identity,
+    )
+finally:
+    ipod_gui.volume_identity = original_volume_identity
 
 playlist_rm = playlist_removal.commands[0]
 assert playlist_rm[0].endswith("ipod-remove.sh"), playlist_rm
@@ -718,15 +761,28 @@ already_copied = ipod_gui.Track(
     ipod_gui.STATE_LIBRARY,
 )
 already_copied.on_ipod = True
-queue_window.pending = dict(queued_paths)
-queue_window.pending[already_copied.path] = already_copied
+queue_window.library.tracks = [*queued_paths.values(), already_copied]
+queue_window.pending = {*queued_paths, already_copied.path}
 queue_window.pending_sources = {
     "/home/alex/Music": set(queue_window.pending)
 }
 queue_window.pending_device_identity = queue_window.device_identity
 assert queue_window._pending_change_count() == len(queued_paths)
 assert sum(track.size for track in queue_window._pending_copy_tracks()) == 3072
-ipod_gui.IpodWindow.on_sync_pending(queue_window, None)
+replacement = ipod_gui.Track(
+    already_copied.path,
+    {"title": "Dawn", "size": 4096},
+    ipod_gui.STATE_LIBRARY,
+)
+queue_window.library.tracks = [*queued_paths.values(), replacement]
+assert queue_window._pending_change_count() == len(queued_paths) + 1
+assert sum(track.size for track in queue_window._pending_copy_tracks()) == 7168
+original_volume_identity = ipod_gui.volume_identity
+ipod_gui.volume_identity = lambda _mount: queue_window.device_identity
+try:
+    ipod_gui.IpodWindow.on_sync_pending(queue_window, None)
+finally:
+    ipod_gui.volume_identity = original_volume_identity
 
 staged = queue_window.commands[0]
 assert staged[0].endswith("ipod-sync.sh"), staged
@@ -734,16 +790,16 @@ assert staged[1:3] == ["--ipod", queue_window.mount_point], staged
 # Everything after -- is a path, because a track title can begin with a dash.
 separator = staged.index("--")
 assert staged[separator + 1:] == ["/home/alex/Music"], staged
-assert queue_window.sync_total == len(queued_paths), queue_window.sync_total
+assert queue_window.sync_total == len(queued_paths) + 1, queue_window.sync_total
 
 # The queue is only cleared once the copy has actually succeeded, which is
 # what the then callback is for.
-assert set(queue_window.pending) == {
+assert queue_window.pending == {
     *queued_paths,
     already_copied.path,
 }, "queue emptied before the sync ran"
 cleared = queue_window.then()
-assert queue_window.pending == {}, "queue survived a successful sync"
+assert queue_window.pending == set(), "queue survived a successful sync"
 assert queue_window.pending_sources == {}, "sync sources survived a successful sync"
 assert queue_window.pending_device_identity is None, "queue stayed device-bound"
 assert isinstance(cleared, str), cleared
@@ -775,7 +831,7 @@ assert run_guard.toasts == ["Connect an iPod before running this action"]
 
 # An empty queue must not launch a script at all.
 idle_window = FakeWindow()
-idle_window.pending = {}
+idle_window.pending = set()
 idle_window.pending_sources = {}
 idle_window.sync_files = []
 idle_window.sync_total = 0

@@ -1526,7 +1526,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self.device_tracks = []
         self._device_scan_tracks = {}
         self._library_scan_tracks = {}
-        self.pending = {}
+        self.pending = set()
         self.pending_sources = {}
         self.pending_device_identity = None
         self.sync_files = []
@@ -2634,7 +2634,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self.track_names = {}
         if (
             mount_point is not None
-            and self.pending
+            and self.pending_sources
             and self.pending_device_identity != identity
         ):
             self.pending.clear()
@@ -3065,6 +3065,8 @@ class IpodWindow(Adw.ApplicationWindow):
             return False
         self.library.tracks = list(self._library_scan_tracks.values())
         self._merge_states()
+        if self.mount_point:
+            self._populate_device_summary()
         self._refresh_current_view()
         self._populate_folders()
         return False
@@ -3079,6 +3081,11 @@ class IpodWindow(Adw.ApplicationWindow):
         generation = self.tag_generation
         mount_point = self.mount_point
         self._device_scan_tracks = {}
+        self.device_tracks = []
+        self.track_names = {}
+        self._merge_states()
+        if self.pending_sources:
+            self._populate_device_summary()
 
         def worker():
             music = Path(mount_point, "iPod_Control", "Music")
@@ -3138,9 +3145,12 @@ class IpodWindow(Adw.ApplicationWindow):
         return False
 
     def _finish_device_scan(self, generation, mount_point):
-        return self._apply_device_track_batch(
+        result = self._apply_device_track_batch(
             generation, mount_point, [], scan_complete=True
         )
+        if generation == self.tag_generation and mount_point == self.mount_point:
+            self._populate_device_summary()
+        return result
 
     def _apply_device_tracks(self, generation, records, mount_point=None):
         captured_mount = self.mount_point if mount_point is None else mount_point
@@ -3393,12 +3403,14 @@ class IpodWindow(Adw.ApplicationWindow):
         return Track(path, {"title": Path(path).stem, "size": size}, STATE_LIBRARY)
 
     def _pending_copy_tracks(self):
-        return [
-            track
-            for track in self.pending.values()
-            if not track.on_ipod
-            and Path(track.path).suffix.lower() in AUDIO_EXTENSIONS
-        ]
+        tracks = []
+        for path in self.pending:
+            if Path(path).suffix.lower() not in AUDIO_EXTENSIONS:
+                continue
+            track = self._pending_track(path)
+            if not track.on_ipod:
+                tracks.append(track)
+        return tracks
 
     def _pending_change_count(self):
         copy_paths = {track.path for track in self._pending_copy_tracks()}
@@ -3416,7 +3428,7 @@ class IpodWindow(Adw.ApplicationWindow):
         if self.device_identity is None:
             self._toast("Could not identify this iPod, so nothing was queued")
             return 0
-        if not self.pending:
+        if not self.pending_sources:
             self.pending_device_identity = self.device_identity
         elif self.pending_device_identity != self.device_identity:
             self.pending.clear()
@@ -3427,8 +3439,8 @@ class IpodWindow(Adw.ApplicationWindow):
         for source, tracks in sources.items():
             members = set()
             for track in tracks:
-                self.pending[track.path] = track
                 members.add(track.path)
+                self.pending.add(track.path)
             if members:
                 self.pending_sources[str(source)] = members
         owned = (
@@ -3436,10 +3448,8 @@ class IpodWindow(Adw.ApplicationWindow):
             if self.pending_sources
             else set()
         )
-        self.pending = {
-            path: pending for path, pending in self.pending.items() if path in owned
-        }
-        if not self.pending:
+        self.pending.intersection_update(owned)
+        if not self.pending_sources:
             self.pending_device_identity = None
         self._populate_device_summary()
         self._refresh_current_view()
@@ -3477,36 +3487,30 @@ class IpodWindow(Adw.ApplicationWindow):
             for source, members in self.pending_sources.items()
             if key in members
         ]
-        converted = set()
+        removed_directory = False
         for source in affected:
             members = self.pending_sources.pop(source)
-            if source != key:
-                converted.update(
-                    member
-                    for member in members
-                    if member != key
-                    and Path(member).suffix.lower() in AUDIO_EXTENSIONS
-                )
-        for member in converted:
-            self.pending_sources.setdefault(member, {member})
+            removed_directory = removed_directory or source not in members
         owned = (
             set().union(*self.pending_sources.values())
             if self.pending_sources
             else set()
         )
-        self.pending = {
-            path: pending for path, pending in self.pending.items() if path in owned
-        }
-        if not self.pending:
+        self.pending.intersection_update(owned)
+        if not self.pending_sources:
             self.pending_device_identity = None
         self._populate_device_summary()
         self._refresh_current_view()
+        if removed_directory:
+            self._toast("The whole folder was removed from the queue")
 
     def on_sync_pending(self, _button):
         if not self.pending_sources or not self.mount_point:
             return
         if self.pending_device_identity != self.device_identity:
             self._toast("Queued changes belong to a different iPod")
+            return
+        if not self._confirmed_device(self.pending_device_identity):
             return
         paths = sorted(self.pending_sources)
         copy_tracks = self._pending_copy_tracks()
@@ -4069,11 +4073,10 @@ class IpodWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def _confirmed_device(self, device_identity):
-        if (
-            not self.mount_point
-            or self.device_identity is None
-            or self.device_identity != device_identity
-        ):
+        current_identity = (
+            volume_identity(self.mount_point) if self.mount_point else None
+        )
+        if device_identity is None or current_identity != device_identity:
             self._toast("The connected iPod changed, so the action was cancelled")
             return False
         return True
