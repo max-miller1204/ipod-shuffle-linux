@@ -740,6 +740,15 @@ printf '%s\n' "$PLAYLIST_LIB/Neil Young/Heart of Gold.mp3" > "$control_playlist"
 test -f "$PLAYLIST_IPOD/Control_Name_.m3u"
 grep -Fq 'characters FAT rejects' "$EVIDENCE_DIR/playlist-control-name.txt"
 
+printf '%s\n' "$PLAYLIST_LIB/Neil Young/Heart of Gold.mp3" \
+    > "$PLAYLIST_LIB/mix..m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/mix..m3u" > "$EVIDENCE_DIR/playlist-trailing-dot.txt" 2>&1
+test -f "$PLAYLIST_IPOD/mix_.m3u"
+test ! -e "$PLAYLIST_IPOD/mix.m3u"
+grep -Fq "it will be called 'mix_'" "$EVIDENCE_DIR/playlist-trailing-dot.txt"
+
 mkdir -p "$PLAYLIST_LIB/First Collision" "$PLAYLIST_LIB/Second Collision"
 printf 'first playlist track\n' > "$PLAYLIST_LIB/First Collision/First.mp3"
 printf 'second playlist track\n' > "$PLAYLIST_LIB/Second Collision/Second.mp3"
@@ -764,6 +773,31 @@ grep -Fq "$PLAYLIST_LIB/Rock?2026.m3u" \
     "$EVIDENCE_DIR/playlist-name-collision.txt"
 grep -Fq "both become 'Rock_2026.m3u'" \
     "$EVIDENCE_DIR/playlist-name-collision.txt"
+
+mkdir -p "$PLAYLIST_LIB/Case First" "$PLAYLIST_LIB/Case Second"
+printf 'case first track\n' > "$PLAYLIST_LIB/Case First/First.mp3"
+printf 'case second track\n' > "$PLAYLIST_LIB/Case Second/Second.mp3"
+printf '%s\n' "$PLAYLIST_LIB/Case First/First.mp3" \
+    > "$PLAYLIST_LIB/CaseMix.m3u"
+printf '%s\n' "$PLAYLIST_LIB/Case Second/Second.mp3" \
+    > "$PLAYLIST_LIB/casemix.m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/CaseMix.m3u" \
+    "$PLAYLIST_LIB/casemix.m3u" \
+    > "$EVIDENCE_DIR/playlist-case-collision.txt" 2>&1
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Case First/First.mp3') \
+    "$PLAYLIST_IPOD/CaseMix.m3u"
+test ! -e "$PLAYLIST_IPOD/casemix.m3u"
+test ! -e "$PLAYLIST_IPOD/iPod_Control/Music/Case Second/Second.mp3"
+grep -Fq "$PLAYLIST_LIB/CaseMix.m3u" \
+    "$EVIDENCE_DIR/playlist-case-collision.txt"
+grep -Fq "$PLAYLIST_LIB/casemix.m3u" \
+    "$EVIDENCE_DIR/playlist-case-collision.txt"
+grep -Fq "both become 'CaseMix.m3u'" \
+    "$EVIDENCE_DIR/playlist-case-collision.txt"
 
 mkdir -p \
     "$PLAYLIST_LIB/Artist A/Greatest Hits" \
@@ -1300,7 +1334,9 @@ printf '%s\n' \
     "PASS: the voiceover warning followed the effective options, not the command line alone" \
     "PASS: a FAT-hostile playlist name was adjusted and the change announced" \
     "PASS: control characters in playlist names became FAT-safe underscores" \
+    "PASS: trailing FAT-rejected playlist characters became underscores" \
     "PASS: colliding sanitized playlist names kept the first list and skipped the second" \
+    "PASS: case-only playlist collisions kept the first list and its casing" \
     "PASS: the real database builder resolved every rewritten playlist entry" \
     "PASS: colliding playlist tracks kept distinct content and destinations" \
     "PASS: replacing a playlist with no playable tracks removed its stale device list" \

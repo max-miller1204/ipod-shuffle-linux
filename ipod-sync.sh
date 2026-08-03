@@ -186,6 +186,7 @@ skipped=0
 duplicates=0
 COPY_TARGET=""
 declare -A PLAYLIST_TARGET_SOURCES=()
+declare -A PLAYLIST_TARGET_NAMES=()
 
 # Copy one track, unless it is a format the firmware cannot decode or is
 # already on the device. The counters belong to the enclosing script.
@@ -302,7 +303,8 @@ PY
 # device mounting somewhere else next time.
 sync_playlist() {
     local list="$1"
-    local stem device_stem target pls_target entry dest entries_file existing_target
+    local stem device_stem reservation_key trailing_underscores=""
+    local target pls_target entry dest entries_file existing_target
     local added=0 unplayable=0 removed=0
     local -a lines=() entries=()
 
@@ -315,7 +317,9 @@ sync_playlist() {
     device_stem="${device_stem//[\\\/:*?\"<>|]/_}"
     while [[ "$device_stem" == *[.\ ] ]]; do
         device_stem="${device_stem%?}"
+        trailing_underscores+="_"
     done
+    device_stem+="$trailing_underscores"
     [[ -n "$device_stem" ]] || die "Playlist file has no usable name: $list"
     if [[ "$device_stem" != "$stem" ]]; then
         warn "Playlist name contains characters FAT rejects;" \
@@ -323,8 +327,9 @@ sync_playlist() {
     fi
     target="$IPOD/$device_stem.m3u"
     pls_target="$IPOD/$device_stem.pls"
-    if [[ -n "${PLAYLIST_TARGET_SOURCES[$device_stem]+present}" ]]; then
-        warn "Playlist files '${PLAYLIST_TARGET_SOURCES[$device_stem]}' and '$list' both become '$device_stem.m3u' on the device; skipped '$list'."
+    reservation_key="${device_stem,,}"
+    if [[ -n "${PLAYLIST_TARGET_SOURCES[$reservation_key]+present}" ]]; then
+        warn "Playlist files '${PLAYLIST_TARGET_SOURCES[$reservation_key]}' and '$list' both become '${PLAYLIST_TARGET_NAMES[$reservation_key]}' on the device; skipped '$list'."
         return 0
     fi
 
@@ -376,7 +381,8 @@ sync_playlist() {
     fi
     atomic_replace_lines "$target" "#EXTM3U" "${lines[@]}"
     rm -f -- "$pls_target"
-    PLAYLIST_TARGET_SOURCES["$device_stem"]="$list"
+    PLAYLIST_TARGET_SOURCES["$reservation_key"]="$list"
+    PLAYLIST_TARGET_NAMES["$reservation_key"]="$device_stem.m3u"
     info "Playlist '$device_stem': $added track(s)"
 }
 
