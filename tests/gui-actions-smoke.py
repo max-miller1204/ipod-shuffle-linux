@@ -63,9 +63,13 @@ class FakeWidget:
         self.revealed = False
         self.spinning = False
         self.fraction = 0.0
+        self.active = False
 
     def set_sensitive(self, value):
         self.sensitive = value
+
+    def set_active(self, value):
+        self.active = value
 
     def set_visible(self, value):
         self.visible = value
@@ -108,16 +112,33 @@ class FakeWindow:
         self._pending_track_index = {}
         self._library_by_path = {}
         self.commands = []
+        self.busy_messages = []
+        self.on_failure = None
         self.toasts = []
         self.track_names = {}
+        self.youtube_unavailable = None
+        # Collected as the YouTube rows are built, exactly like _busy_widgets,
+        # so a new Add button cannot be forgotten by the capability gating.
+        self.search_add_buttons = []
         self.library = type("Library", (), {"tracks": [], "device_only": []})()
         self.device_tracks = []
         self.speech_engine_available = True
         self.playlist_voiceover = FakeSwitch()
 
-    def _run(self, argv, busy_message, done_message, then=None, clear=True):
+    def _run(
+        self,
+        argv,
+        busy_message,
+        done_message,
+        then=None,
+        clear=True,
+        on_failure=None,
+    ):
         self.commands.append(argv)
         self.then = then
+        self.on_failure = on_failure
+        self.busy_messages.append(busy_message)
+        return True
 
     def _toast(self, message):
         self.toasts.append(message)
@@ -158,6 +179,8 @@ class FakeWindow:
     _launch_pending_sync = ipod_gui.IpodWindow._launch_pending_sync
     _update_device_controls = ipod_gui.IpodWindow._update_device_controls
     _confirmed_device = ipod_gui.IpodWindow._confirmed_device
+    _can_download = ipod_gui.IpodWindow._can_download
+    _start_youtube_download = ipod_gui.IpodWindow._start_youtube_download
 
 
 # ------------------------------------------------------------------ removal
@@ -904,6 +927,377 @@ fallback = ipod_gui.fetched_sources(library / "never-written", library)
 assert sorted(fallback) == sorted(
     [str(library / "New Artist"), str(library / "Old Artist")]
 ), fallback
+
+# ------------------------------------------------------------------- search
+#
+# The search field queries two sources at once, and the two halves fail
+# independently: metadata needs only yt-dlp, while the download needs ffmpeg
+# and a JavaScript runtime as well. Getting that gating wrong either blanks a
+# working search or offers an Add that dies with HTTP 403 several steps later.
+
+phrase_search = ipod_gui.youtube_search_command("/venv/yt-dlp", "bohemian rhapsody")
+assert phrase_search[0] == "/venv/yt-dlp", phrase_search
+assert phrase_search[-1] == "ytsearch3:bohemian rhapsody", phrase_search
+# Without this yt-dlp resolves every hit's media URLs, turning a one-second
+# list of titles into half a minute of work nobody asked for.
+assert "--flat-playlist" in phrase_search, phrase_search
+assert "--dump-json" in phrase_search, phrase_search
+# The separator has to come last, or a query beginning with a dash is read as
+# an option.
+assert phrase_search[-2] == "--", phrase_search
+
+# A pasted link is looked up as itself. Searching for it would return whatever
+# YouTube makes of the URL as a phrase, which is never the linked video.
+link = "https://www.youtube.com/watch?v=abc"
+assert ipod_gui.youtube_search_command("/venv/yt-dlp", f"  {link}  ")[-1] == link
+assert ipod_gui.youtube_search_target("queen", limit=5) == "ytsearch5:queen"
+# A linked playlist is capped to the same shortlist a search returns, so
+# pasting an album link cannot flood the section.
+capped = ipod_gui.youtube_search_command("/venv/yt-dlp", link, limit=2)
+assert capped[capped.index("--playlist-items") + 1] == "1-2", capped
+
+parsed_results = ipod_gui.parse_search_results(
+    [
+        json.dumps(
+            {
+                "id": "fJ9rUzIMcZQ",
+                "title": "Bohemian Rhapsody",
+                "url": "https://www.youtube.com/watch?v=fJ9rUzIMcZQ",
+                "duration": 360,
+                "channel": "Queen Official",
+            }
+        ),
+        "WARNING: something yt-dlp wanted to mention",
+        json.dumps({"id": "onlyanid", "title": "No URL", "duration": "bad"}),
+        json.dumps(["not", "an", "object"]),
+        json.dumps({"title": "Unreachable", "url": "not-a-link"}),
+        "",
+    ]
+)
+assert [r.title for r in parsed_results] == ["Bohemian Rhapsody", "No URL"], [
+    r.title for r in parsed_results
+]
+assert parsed_results[0].uploader == "Queen Official", parsed_results[0].uploader
+assert parsed_results[0].duration == 360.0, parsed_results[0].duration
+# An entry that carries only an id still becomes the watch URL ipod-fetch.sh
+# would have been given anyway, rather than being dropped.
+assert parsed_results[1].url == "https://www.youtube.com/watch?v=onlyanid"
+assert parsed_results[1].duration == 0.0, parsed_results[1].duration
+assert parsed_results[1].uploader == "YouTube", parsed_results[1].uploader
+
+# The skeleton reserves exactly as many rows as the search can return, so the
+# layout cannot jump at the moment the results land.
+assert ipod_gui.YOUTUBE_SEARCH_RESULTS == 3, ipod_gui.YOUTUBE_SEARCH_RESULTS
+flood = ipod_gui.parse_search_results(
+    [json.dumps({"id": f"id{n}", "title": str(n)}) for n in range(9)]
+)
+assert len(flood) == ipod_gui.YOUTUBE_SEARCH_RESULTS, len(flood)
+
+
+def stub_yt_dlp(script):
+    """A yt-dlp stand-in, so no test here depends on the network."""
+    path = Path(tempfile.mkdtemp()) / "yt-dlp"
+    path.write_text(f"#!/bin/sh\n{script}\n", encoding="utf-8")
+    path.chmod(0o755)
+    return str(path)
+
+
+original_lib_output = ipod_gui.lib_function_output
+found_line = json.dumps({"id": "abc", "title": "Found", "duration": 12})
+for script, expected_results, expected_reached, why in (
+    (f"echo '{found_line}'", ["Found"], True, "a working search"),
+    # Exit 0 having printed nothing is how yt-dlp reports no matches, and
+    # exit 1 is how it reports not reaching YouTube at all. Collapsing the two
+    # makes the user retype a query that was perfectly fine.
+    ("exit 0", [], True, "a search with no matches"),
+    ("echo 'ERROR: unable to download' >&2; exit 1", [], False, "an offline search"),
+):
+    ipod_gui.lib_function_output = lambda _name, s=script: stub_yt_dlp(s)
+    try:
+        found, reached = ipod_gui.search_youtube("anything", timeout=20)
+    finally:
+        ipod_gui.lib_function_output = original_lib_output
+    assert [r.title for r in found] == expected_results, why
+    assert reached is expected_reached, why
+
+# With no yt-dlp at all there is nothing to run, and that is a failure to
+# reach YouTube rather than an empty result set.
+ipod_gui.lib_function_output = lambda _name: None
+try:
+    missing_found, missing_reached = ipod_gui.search_youtube("anything")
+finally:
+    ipod_gui.lib_function_output = original_lib_output
+assert missing_found == [] and missing_reached is False
+
+# Searching survives what downloading cannot. yt-dlp reads metadata without
+# ffmpeg and without a JavaScript runtime; only the media URL is signed.
+original_succeeds = ipod_gui.lib_function_succeeds
+original_which = ipod_gui.shutil.which
+ipod_gui.lib_function_succeeds = lambda name: name == "yt_dlp_bin"
+ipod_gui.shutil.which = lambda _name: None
+try:
+    assert ipod_gui.youtube_search_unavailable_reason() is None, "search over-gated"
+    download_reason = ipod_gui.youtube_unavailable_reason()
+finally:
+    ipod_gui.lib_function_succeeds = original_succeeds
+    ipod_gui.shutil.which = original_which
+assert download_reason and "ffmpeg" in download_reason, download_reason
+
+ipod_gui.lib_function_succeeds = lambda _name: False
+try:
+    assert "yt-dlp" in (ipod_gui.youtube_search_unavailable_reason() or "")
+finally:
+    ipod_gui.lib_function_succeeds = original_succeeds
+
+# The local half. Every word has to match, in any order, across title, artist
+# and album, because a phrase match would need whatever order the tagger used.
+search_library = [
+    ipod_gui.Track(
+        "/music/queen/bohemian.mp3",
+        {"title": "Bohemian Rhapsody", "artist": "Queen", "album": "A Night At The Opera"},
+        ipod_gui.STATE_LIBRARY,
+    ),
+    ipod_gui.Track(
+        "/music/queen/love.mp3",
+        {"title": "Somebody To Love", "artist": "Queen", "album": "A Day At The Races"},
+        ipod_gui.STATE_IPOD,
+    ),
+    ipod_gui.Track(
+        "/music/other/rain.mp3",
+        {"title": "Rain", "artist": "Someone Else", "album": "Weather"},
+        ipod_gui.STATE_LIBRARY,
+    ),
+]
+assert [t.title for t in ipod_gui.local_search_matches(search_library, "queen rhapsody")] == [
+    "Bohemian Rhapsody"
+]
+assert [t.title for t in ipod_gui.local_search_matches(search_library, "QUEEN")] == [
+    "Somebody To Love",
+    "Bohemian Rhapsody",
+], "artist matches were not ordered by album"
+# A track that lives only on the device is still findable, or music copied
+# from another machine would be invisible to the one field that searches.
+assert ipod_gui.local_search_matches(search_library, "races")[0].state == ipod_gui.STATE_IPOD
+assert ipod_gui.local_search_matches(search_library, "   ") == []
+assert ipod_gui.local_search_matches(search_library, "queen rain") == []
+
+# Adding a result runs the same download the dialog does, and refuses in every
+# case where it could not finish.
+result_window = FakeWindow()
+found_result = ipod_gui.SearchResult(
+    title="Bohemian Rhapsody",
+    uploader="Queen Official",
+    duration=360.0,
+    url=link,
+    video_id="abc",
+)
+result_window._set_search_note = lambda text: result_window.notes.append(text)
+result_window.notes = []
+ipod_gui.IpodWindow._download_result(result_window, found_result)
+result_fetch = result_window.commands[-1]
+assert result_fetch[0].endswith("ipod-fetch.sh"), result_fetch
+assert result_fetch[-1] == link, result_fetch
+# A search result is one video. Without this a hit that carries a list=
+# parameter would download the whole playlist behind it.
+assert "--single" in result_fetch, result_fetch
+assert "Bohemian Rhapsody" in result_window.busy_messages[-1], result_window.busy_messages
+result_list = Path(result_fetch[result_fetch.index("--new-tracks") + 1])
+assert result_list.exists(), "the download had no list file to report into"
+
+for attribute, value, why in (
+    ("mount_point", None, "no iPod connected"),
+    ("device_identity", None, "an iPod that has not been identified"),
+    ("busy", True, "a script already running"),
+    ("discovering_sources", True, "a queue still being scanned"),
+    ("youtube_unavailable", "ffmpeg is not installed", "a missing dependency"),
+):
+    refusing = FakeWindow()
+    refusing._set_search_note = lambda _text: None
+    setattr(refusing, attribute, value)
+    assert not ipod_gui.IpodWindow._can_download(refusing), why
+    ipod_gui.IpodWindow._download_result(refusing, found_result)
+    assert refusing.commands == [], why
+
+# A download refused before it started must not leave its list file behind.
+refused_run = FakeWindow()
+refused_run._run = lambda *_a, **_k: False
+refused_fetch = ipod_gui.IpodWindow._start_youtube_download(
+    refused_run, link, single=True, busy_message="Downloading"
+)
+refused_list = Path(refused_fetch[refused_fetch.index("--new-tracks") + 1])
+assert not refused_list.exists(), "a refused download left its list file behind"
+
+
+class FailureWindow:
+    """Enough of the window for _finish to report a failure against."""
+
+    def __init__(self):
+        self.sync_total = 1
+        self.toasts = []
+        self.failures = 0
+        self.details_toggle = FakeWidget()
+        self.sync_revealer = FakeWidget()
+
+    def _set_busy(self, _busy):
+        pass
+
+    def _toast(self, message):
+        self.toasts.append(message)
+
+    def refresh(self):
+        pass
+
+    def _rescan_library(self):
+        pass
+
+
+# A download that dies part-way has to say so where the user is looking, which
+# is the row they pressed Add on; the toast has gone by the time they look back.
+failure_window = FailureWindow()
+ipod_gui.IpodWindow._finish(
+    failure_window,
+    1,
+    "Downloaded",
+    on_failure=lambda: setattr(
+        failure_window, "failures", failure_window.failures + 1
+    ),
+)
+assert failure_window.failures == 1, "a failed download reported nothing inline"
+assert failure_window.details_toggle.active, "a failure left Details closed"
+assert failure_window.sync_revealer.revealed, "a failure hid the script output"
+assert failure_window.toasts and "exit 1" in failure_window.toasts[-1]
+
+# Success must not fire it, or every finished download would claim to have
+# failed as well.
+success_window = FailureWindow()
+ipod_gui.IpodWindow._finish(
+    success_window,
+    0,
+    "Downloaded",
+    on_failure=lambda: setattr(
+        success_window, "failures", success_window.failures + 1
+    ),
+)
+assert success_window.failures == 0, "a successful download reported a failure"
+
+
+class SearchEntry:
+    def __init__(self, text=""):
+        self.text = text
+
+    def get_text(self):
+        return self.text
+
+    def set_text(self, value):
+        self.text = value
+
+
+class SearchWindow:
+    """Enough of the window to drive the search without a display."""
+
+    def __init__(self, unavailable=None):
+        self.search_entry = SearchEntry()
+        self.search_query = ""
+        self.search_generation = 0
+        self.search_results = []
+        self.search_loading = False
+        self.search_note = ""
+        self.search_add_buttons = []
+        self._search_timeout = None
+        self.youtube_search_unavailable = unavailable
+        self.views = VisibleView("library")
+        self.shown = []
+        self.painted = 0
+
+    def show_view(self, name):
+        self.shown.append(name)
+        self.views.name = name
+
+    def _paint_local_results(self):
+        self.painted += 1
+
+    def _paint_youtube_section(self):
+        pass
+
+    def _start_youtube_search(self, _generation, _query):
+        # Never reached without a main loop; named so scheduling it does not
+        # depend on the network being there.
+        return False
+
+    _on_search_changed = ipod_gui.IpodWindow._on_search_changed
+    _clear_search = ipod_gui.IpodWindow._clear_search
+    _cancel_search_timeout = ipod_gui.IpodWindow._cancel_search_timeout
+    _set_search_note = ipod_gui.IpodWindow._set_search_note
+    _finish_youtube_search = ipod_gui.IpodWindow._finish_youtube_search
+    _navigate = ipod_gui.IpodWindow._navigate
+
+
+typing = SearchWindow()
+typing.search_entry.set_text("bohemian")
+typing._on_search_changed(typing.search_entry)
+assert typing.views.name == "search", typing.shown
+# The library is already in memory, so it filters on the keystroke rather than
+# waiting for the network half.
+assert typing.painted == 1, typing.painted
+# YouTube costs a round trip, so it is scheduled rather than run.
+assert typing._search_timeout is not None, "the YouTube search was not deferred"
+scheduled = typing.search_generation
+
+typing.search_entry.set_text("bohemian r")
+typing._on_search_changed(typing.search_entry)
+assert typing.search_generation != scheduled, "a keystroke reused a stale generation"
+
+# A result for a query the user has moved on from must not land.
+typing._finish_youtube_search(scheduled, [found_result], True)
+assert typing.search_results == [], "a stale search overwrote the current one"
+typing._finish_youtube_search(typing.search_generation, [found_result], True)
+assert typing.search_results == [found_result]
+assert typing.search_note == "", typing.search_note
+assert not typing.search_loading
+
+# Reaching YouTube and finding nothing is not the same as not reaching it, and
+# each says so in the section rather than in a toast.
+typing._finish_youtube_search(typing.search_generation, [], True)
+assert "No YouTube results" in typing.search_note, typing.search_note
+typing._finish_youtube_search(typing.search_generation, [], False)
+assert "Could not reach YouTube" in typing.search_note, typing.search_note
+
+# Emptying the field puts the library back rather than leaving stale results
+# behind a field that no longer explains them.
+typing.search_entry.set_text("")
+typing._on_search_changed(typing.search_entry)
+assert typing.views.name == "library", typing.shown
+assert typing.search_results == [] and typing.search_query == ""
+assert typing._search_timeout is None, "a search stayed scheduled after clearing"
+
+# One letter matches most of a library and would spend a round trip per
+# keystroke, so it says so instead of searching.
+brief = SearchWindow()
+brief.search_entry.set_text("q")
+brief._on_search_changed(brief.search_entry)
+assert brief._search_timeout is None, "a one-letter query searched YouTube"
+assert "Type a little more" in brief.search_note, brief.search_note
+assert brief.painted == 1, "the library was not searched for a short query"
+
+# With no yt-dlp the YouTube half says so in place of its rows, and the local
+# half carries on: gating the whole field on it would blank a working search.
+ungated = SearchWindow(unavailable="yt-dlp is not installed - run ./install.sh")
+ungated.search_entry.set_text("bohemian")
+ungated._on_search_changed(ungated.search_entry)
+assert ungated._search_timeout is None, "a search ran without yt-dlp"
+assert "yt-dlp is not installed" in ungated.search_note, ungated.search_note
+assert "still searched" in ungated.search_note, ungated.search_note
+assert ungated.painted == 1, "the local half was gated on the remote half"
+
+# Following a sidebar row ends the search, or the next keystroke would reopen a
+# view the user had just navigated away from.
+navigating = SearchWindow()
+navigating.search_entry.set_text("bohemian")
+navigating._on_search_changed(navigating.search_entry)
+navigating._navigate("playlists")
+assert navigating.views.name == "playlists", navigating.shown
+assert navigating.search_entry.get_text() == "", "the field kept a spent query"
+assert navigating.search_query == "" and navigating.search_results == []
 
 # --------------------------------------------------------------- staged sync
 #

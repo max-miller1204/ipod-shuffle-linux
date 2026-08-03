@@ -1,14 +1,14 @@
 {
   "version": 1,
-  "revision": 14,
+  "revision": 15,
   "goals": [
     {
       "id": "goal-msdncj32-4e24ddce",
       "title": "Dual-source search: local library plus YouTube",
       "description": "Design frames 1f, 1g and 1h. One search field querying two sources at once: the indexed local music folders (instant, already available via LibraryIndex in ipod-gui.py) and YouTube via 'yt-dlp ytsearch --flat-playlist --dump-json'. Local results paint immediately; YouTube results arrive 1-3s later into a reserved three-row skeleton so the layout never jumps. Nothing exists for the YouTube half today: 'grep -rn ytsearch' returns zero hits and is_downloadable_url() rejects a bare phrase. Note that youtube_unavailable_reason() is too strict to gate search on its own, because metadata search works without a JavaScript runtime; only the media download 403s. Reuse yt_dlp_bin and yt_dlp_supports from lib.sh. Design all five failure states: no JS runtime, ffmpeg missing, rate-limited or offline, download failed mid-fetch, and no results from either source. Each must be stated inline in place of the section that cannot load, never as a toast.",
-      "status": "open",
+      "status": "active",
       "createdAt": "2026-08-03T19:53:11.582Z",
-      "updatedAt": "2026-08-03T19:53:11.582Z"
+      "updatedAt": "2026-08-03T22:58:53.196Z"
     },
     {
       "id": "goal-msdnd27v-e6e6bf5d",
