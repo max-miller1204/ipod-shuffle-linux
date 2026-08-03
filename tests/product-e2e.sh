@@ -869,6 +869,29 @@ test ! -e "$PLAYLIST_IPOD/iPod_Control/Music/Unicode Second/Second.mp3"
 grep -Fq "both become 'ΟΣ.m3u'" \
     "$EVIDENCE_DIR/playlist-locale-case-collision.txt"
 
+mkdir -p "$PLAYLIST_LIB/Sharp S" "$PLAYLIST_LIB/Plain SS"
+printf 'sharp s track\n' > "$PLAYLIST_LIB/Sharp S/Sharp.mp3"
+printf 'plain ss track\n' > "$PLAYLIST_LIB/Plain SS/Plain.mp3"
+printf '%s\n' "$PLAYLIST_LIB/Sharp S/Sharp.mp3" \
+    > "$PLAYLIST_LIB/Straße.m3u"
+printf '%s\n' "$PLAYLIST_LIB/Plain SS/Plain.mp3" \
+    > "$PLAYLIST_LIB/Strasse.m3u"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    "$PLAYLIST_LIB/Straße.m3u" \
+    "$PLAYLIST_LIB/Strasse.m3u" \
+    > "$EVIDENCE_DIR/playlist-simple-case-folding.txt" 2>&1
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Sharp S/Sharp.mp3') \
+    "$PLAYLIST_IPOD/Straße.m3u"
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Plain SS/Plain.mp3') \
+    "$PLAYLIST_IPOD/Strasse.m3u"
+test -f "$PLAYLIST_IPOD/iPod_Control/Music/Sharp S/Sharp.mp3"
+test -f "$PLAYLIST_IPOD/iPod_Control/Music/Plain SS/Plain.mp3"
+
 mkdir -p \
     "$PLAYLIST_LIB/Artist A/Greatest Hits" \
     "$PLAYLIST_LIB/Artist:B/Greatest Hits"
@@ -1424,6 +1447,7 @@ printf '%s\n' \
     "PASS: colliding sanitized playlist names kept the first list and skipped the second" \
     "PASS: case-only playlist collisions kept the first list and its casing" \
     "PASS: playlist case folding stayed stable across locale and Unicode casing" \
+    "PASS: one-to-one case folding preserved expansion-distinct playlist names" \
     "PASS: long playlist names used bounded atomic temporary files" \
     "PASS: the real database builder resolved every rewritten playlist entry" \
     "PASS: colliding playlist tracks kept distinct content and destinations" \

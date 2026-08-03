@@ -328,7 +328,15 @@ sync_playlist() {
     target="$IPOD/$device_stem.m3u"
     pls_target="$IPOD/$device_stem.pls"
     reservation_key="$(python3 -c \
-        'import sys; sys.stdout.write(sys.argv[1].casefold())' "$device_stem")" \
+        'import sys
+def simple_fold(char):
+    folded = char.casefold()
+    if len(folded) == 1:
+        return folded
+    lowered = char.lower()
+    return lowered if len(lowered) == 1 else char
+sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
+        "$device_stem")" \
         || die "Could not case-fold playlist name: $device_stem"
     if [[ -n "${PLAYLIST_TARGET_SOURCES[$reservation_key]+present}" ]]; then
         warn "Playlist files '${PLAYLIST_TARGET_SOURCES[$reservation_key]}' and '$list' both become '${PLAYLIST_TARGET_NAMES[$reservation_key]}' on the device; skipped '$list'."
