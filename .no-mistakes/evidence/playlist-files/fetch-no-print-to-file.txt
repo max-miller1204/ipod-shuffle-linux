@@ -1,0 +1,15 @@
+[33mwarning:[0m This yt-dlp is too old to report which files it downloaded.
+[33mwarning:[0m Falling back to counting the output folder.
+[36m==>[0m Downloading as 256k MP3 into /tmp/tmp.8DzTbo3I58/youtube-old
+[ExtractAudio] Destination: /tmp/tmp.8DzTbo3I58/youtube-old/Test Artist/Test Track [testvideo].mp3
+[36m==>[0m Downloaded 1 track(s)
+[36m==>[0m /tmp/tmp.8DzTbo3I58/youtube-old now holds 2 track(s)
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.8DzTbo3I58/Alex's iPod
+[36m==>[0m Reusing saved options: --auto-dir-playlists 1 --playlist-voiceover
+[36m==>[0m Copied 1 file(s)
+[36m==>[0m Skipped 1 file(s) already on the iPod
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 3 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

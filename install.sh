@@ -22,8 +22,9 @@ usage() {
 Usage: ./install.sh [options]
 
 Installs the database builder and a virtualenv with its Python dependencies,
-offers compatible missing system packages, and reports a missing JavaScript
-runtime for manual installation.
+offers compatible missing system packages, installs the GUI's desktop entry
+when its dependencies are available, and reports a missing JavaScript runtime
+for manual installation.
 
 Options:
   -n, --no-system   Do not install system packages, only report them

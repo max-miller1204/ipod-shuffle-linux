@@ -1,0 +1,3 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.8DzTbo3I58/clear-target
+[31merror:[0m Aborted.

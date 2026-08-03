@@ -1,0 +1,9 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.8DzTbo3I58/effective-options-target
+[36m==>[0m Reusing saved options: --auto-dir-playlists -1
+[33mwarning:[0m Playlists without --playlist-voiceover will be unnamed on the device.
+[33mwarning:[0m With no screen, there is no way to tell them apart. Consider adding -p.
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 1 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

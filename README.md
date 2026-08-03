@@ -90,7 +90,7 @@ Owning a virtualenv sidesteps both that and PEP 668's externally-managed-environ
 ./ipod-gui.sh
 ```
 
-Or launch **iPod Shuffle** from the desktop's app grid; `install.sh` puts the entry there.
+Or launch **iPod Shuffle** from the desktop's app grid; `install.sh` puts the entry there once the GTK dependencies are available.
 The entry embeds the checkout's location, so if you move the repository, re-run `./install.sh` to update it.
 
 ![The iPod Shuffle app showing device information, actions, and the track list](docs/screenshot.png)
@@ -214,8 +214,9 @@ There are five ways to create them.
 ./ipod-sync.sh --playlist-voiceover ~/Music/mixtape.m3u
 ```
 
-The tracks the file references are copied onto the device, and a rewritten copy of the list is stored at the top of the iPod, which is where the database builder looks for playlist files on this and every later rebuild.
-The filename becomes the playlist's spoken name, so `mixtape.m3u` is announced as "mixtape".
+The tracks the file references are copied onto the device, and a rewritten M3U with root-relative entries is stored at the top of the iPod, which is where the database builder looks for playlist files on this and every later rebuild.
+A PLS input is converted to M3U there.
+The filename becomes the playlist's spoken name, so `mixtape.m3u` is announced as "mixtape"; characters FAT cannot store are changed to underscores with a warning.
 
 This is the compatibility path: export a playlist from Rhythmbox, Strawberry, Quod Libet, or anything else that writes M3U, and hand it over unchanged.
 Comments, blank lines, `file://` URIs, entries relative to the playlist file, and Windows path separators are all understood.
@@ -228,7 +229,7 @@ To delete one, keeping its songs:
 ./ipod-remove.sh --playlist mixtape
 ```
 
-Removing tracks with `ipod-remove.sh` rewrites these lists to drop what is gone, and a playlist that loses every track is removed with them.
+Removing tracks with `ipod-remove.sh` drops missing `iPod_Control/Music/` entries from these root lists while preserving hand-written lines in other forms, and a playlist that loses every track is removed with them.
 `--clear` and `ipod-wipe.sh` remove them along with the tracks they reference, and a wipe with `--backup` saves them under `Playlists/` first.
 
 **One playlist per folder:**

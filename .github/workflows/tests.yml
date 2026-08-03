@@ -55,8 +55,9 @@ jobs:
       - name: End-to-end suite
         run: |
           test "$(id -u)" -ne 0 || { echo "must not run as root" >&2; exit 1; }
+          tool_dir="${RUNNER_TEMP}/IPod-Shuffle-4g"
           EVIDENCE_DIR="${RUNNER_TEMP}/evidence" \
-            IPOD_REAL_DB_TOOL="${RUNNER_TEMP}/IPod-Shuffle-4g/ipod-shuffle-4g.py" \
+            IPOD_REAL_DB_TOOL="$tool_dir/ipod-shuffle-4g.py" \
             bash tests/product-e2e.sh
 
       - name: Upload evidence

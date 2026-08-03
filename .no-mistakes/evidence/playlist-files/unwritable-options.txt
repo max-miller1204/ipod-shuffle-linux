@@ -1,0 +1,5 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.8DzTbo3I58/Alex's iPod
+[36m==>[0m Rebuilding iTunesSD database
+mktemp: failed to create file via template ‘/tmp/tmp.8DzTbo3I58/Alex's iPod/iPod_Control/.sync-options.tmp.XXXXXX’: Permission denied
+[31merror:[0m Could not create a temporary options file on the iPod.

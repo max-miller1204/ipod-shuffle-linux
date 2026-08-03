@@ -1,0 +1,10 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.8DzTbo3I58/playlist-target
+[36m==>[0m Reusing saved options: --playlist-voiceover
+[36m==>[0m Playlist 'Straße': 1 track(s)
+[36m==>[0m Playlist 'Strasse': 1 track(s)
+[36m==>[0m Copied 2 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 8 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

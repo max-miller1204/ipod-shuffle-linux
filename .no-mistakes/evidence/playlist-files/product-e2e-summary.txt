@@ -1,0 +1,60 @@
+PASS: sync copied supported music while preserving source folders
+PASS: playlist flags used explicit upstream values and persisted across rebuild
+PASS: GUI restored playlist and voiceover choices and mapped them to CLI flags
+PASS: missing playlist voiceover produced a screenless-device warning
+PASS: saved directory and tag playlist options produced the voiceover warning
+PASS: sync --clear confirmed track and playlist deletion, including playlist-only devices
+PASS: --yes answered the Speakable prompt too, in all three scripts
+PASS: wipe backed up music/database and preserved Speakable plus Device state
+PASS: JSON mount detection retained a mount path containing spaces
+PASS: raw findmnt output stayed rejected, so \x20 escaping cannot return
+PASS: GUI refused to choose between two connected iPods
+PASS: unpersistable options failed loudly instead of reporting success
+PASS: unmount fell back to the UDisks2 gdbus Filesystem.Unmount method
+PASS: removal checked its database builder before deleting tracks
+PASS: unreadable saved options stopped removal and sync before changes
+PASS: removal listed the tracks and kept them when the prompt was declined
+PASS: removal deleted only the named track and rebuilt with saved options
+PASS: removal pruned emptied folders, which playlists would otherwise keep
+PASS: removal refused paths outside the music folder and the folder itself
+PASS: a single file synced into a folder named after the one it came from
+PASS: a track name starting with a dash stayed a path rather than a flag
+PASS: a playlist file synced its tracks and left a rewritten list at the volume root
+PASS: playlist entries kept their order, decoded file URIs, and dropped streams and misses
+PASS: a pls playlist reached the device as m3u, ordered by its numbered entries
+PASS: PLS replacement removed stale PLS spellings for valid and empty updates
+PASS: the voiceover warning followed the effective options, not the command line alone
+PASS: a FAT-hostile playlist name was adjusted and the change announced
+PASS: control characters in playlist names became FAT-safe underscores
+PASS: trailing FAT-rejected playlist characters became underscores
+PASS: colliding sanitized playlist names kept the first list and skipped the second
+PASS: case-only playlist collisions kept the first list and its casing
+PASS: playlist case folding stayed stable across locale and Unicode casing
+PASS: one-to-one case folding preserved expansion-distinct playlist names
+PASS: long playlist names used bounded atomic temporary files
+PASS: the real database builder resolved every rewritten playlist entry
+PASS: colliding playlist tracks kept distinct content and destinations
+PASS: replacing a playlist with no playable tracks removed its stale device list
+PASS: parser failures preserved playlists and copied no partial results
+PASS: failed sync and removal rewrites preserved complete playlist files
+PASS: removal pruned playlists and deleted one that lost every track
+PASS: wipe backed up the playlists and cleared them from the volume root
+PASS: sync --clear removed the playlists with the tracks they referenced
+PASS: uppercase playlist extensions were listed, pruned, backed up, and cleared
+PASS: a playlist was deleted by name, keeping every song it listed
+PASS: double-dot, extension-like M3U, and root PLS names deleted safely
+PASS: GUI add-playlist named the device, options and file, and switched spoken names on
+PASS: GUI playlist rows parsed the device lists and removal mapped to the script
+PASS: GUI removal and YouTube commands named the device, options and paths
+PASS: fetch requested playable MP3 with tags and vfat-safe filenames
+PASS: fetch copied only this run's downloads, not the whole output folder
+PASS: fetch reported new tracks for the GUI, and deleted a list it could not fill
+PASS: fetch handed artist folders to the sync when it could not name files
+PASS: fetch passed a JavaScript runtime, without which downloads 403
+PASS: runtime probe reported absence instead of naming an uninstalled one
+PASS: installer reported a missing runtime instead of offering a stale nodejs
+PASS: installer generated the app-grid entry pointing at this checkout
+PASS: installer removed a stale launcher when GUI dependencies disappeared
+PASS: desktop entry paths preserved reserved characters through Gio parsing
+PASS: runtime probe rejected unsupported versions and accepted supported boundaries
+PASS: old PATH yt-dlp fallback omitted its unsupported runtime option

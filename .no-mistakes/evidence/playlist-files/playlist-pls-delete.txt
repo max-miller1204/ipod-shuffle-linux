@@ -1,0 +1,6 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.8DzTbo3I58/playlist-target
+[36m==>[0m Removed 1 playlist(s); the songs they listed stay on the iPod.
+[36m==>[0m Rebuilding iTunesSD database
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

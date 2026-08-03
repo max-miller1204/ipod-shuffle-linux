@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# Remove individual tracks from an iPod shuffle 4G and rebuild its database.
+# Remove tracks or playlists from an iPod shuffle 4G and rebuild its database.
 #
 # Usage: ./ipod-remove.sh [options] <track> [more-tracks...]
+#        ./ipod-remove.sh --playlist <name> [more-names...]
 #
 # See README.md for the full workflow.
 
