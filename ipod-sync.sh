@@ -185,6 +185,7 @@ copied=0
 skipped=0
 duplicates=0
 COPY_TARGET=""
+declare -A PLAYLIST_TARGET_SOURCES=()
 
 # Copy one track, unless it is a format the firmware cannot decode or is
 # already on the device. The counters belong to the enclosing script.
@@ -322,6 +323,10 @@ sync_playlist() {
     fi
     target="$IPOD/$device_stem.m3u"
     pls_target="$IPOD/$device_stem.pls"
+    if [[ -n "${PLAYLIST_TARGET_SOURCES[$device_stem]+present}" ]]; then
+        warn "Playlist files '${PLAYLIST_TARGET_SOURCES[$device_stem]}' and '$list' both become '$device_stem.m3u' on the device; skipped '$list'."
+        return 0
+    fi
 
     entries_file="$(mktemp -t ipod-playlist-entries.XXXXXX)" \
         || die "Could not create temporary storage for playlist entries."
@@ -371,6 +376,7 @@ sync_playlist() {
     fi
     atomic_replace_lines "$target" "#EXTM3U" "${lines[@]}"
     rm -f -- "$pls_target"
+    PLAYLIST_TARGET_SOURCES["$device_stem"]="$list"
     info "Playlist '$device_stem': $added track(s)"
 }
 
