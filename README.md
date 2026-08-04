@@ -125,6 +125,7 @@ That view is deliberately not sortable: a playlist's order is the one thing you 
 The search field at the top of the window queries two sources at once.
 Your indexed music folders answer immediately, matching every word of the query in any order across title, artist and album, so "queen rhapsody" finds a track tagged *Bohemian Rhapsody* by *Queen*.
 For queries of at least two characters, YouTube answers a second or so later with up to three matches; a reserved three-row placeholder keeps the page steady while it waits.
+Each result is shown with the video's thumbnail as its cover, which arrives just behind the row itself.
 Hovering a result's artwork turns it into a play button, the same as a track you already have, and pressing it downloads that video into the preview cache and plays it.
 Once an iPod is connected, adding one of those results downloads it as MP3 and queues it, the same as pasting its link would.
 Pasting a link into the search field looks that link up rather than searching for its text, so you can see what a URL actually is before adding it.
@@ -188,6 +189,20 @@ Unlike every other **Add**, that works with nothing plugged in, because keeping 
 **Device & Settings** shows what the cache is holding and can empty it in one press.
 Past 512 MB, roughly seventy songs, the oldest previews are dropped as new ones arrive; whatever is playing is never one of them.
 Nothing in the cache is on the iPod, and nothing in it is lost by clearing it beyond having to download it again.
+
+### Artwork
+
+A track from your own library shows the cover art embedded in the file.
+A YouTube result has no file to read one out of, so it shows the video's thumbnail instead, fetched into `~/.cache/ipod-shuffle-linux/art` alongside the covers extracted from your own music.
+The results appear first and their artwork drops in a moment later, into placeholders that were already exactly its size, so nothing on the page moves when it lands.
+A thumbnail that cannot be fetched leaves that placeholder in place rather than an error: artwork is the one part of a result that is allowed to be missing.
+
+Thumbnails are cached under the video's id, which is also in the name of every file `ipod-fetch.sh` writes.
+A previewed track therefore keeps the artwork its search fetched, and so does the copy that keeping it moves into `~/Music/youtube`, without ever downloading the image again.
+
+None of it reaches the iPod.
+`ipod-fetch.sh` still passes `--no-embed-thumbnail`, because cover art is pure waste on a 2GB device with no screen; artwork exists only in the cache on this computer.
+Thumbnails are 16:9 and covers are square, so they are centre-cropped to fill, which is what happens to any embedded cover that is not square either.
 
 The interface follows the system light and dark preference, and folds its sidebar away below 780px.
 
@@ -622,6 +637,7 @@ The GUI checks call its methods unbound against a stand-in, so they exercise the
 PyGObject still has to be importable, because the module imports it at load time.
 Preview playback is checked the same way, against a stand-in pipeline whose messages the test delivers by hand: GStreamer only reports a track ending, or failing to decode, on a running main loop, and it is optional besides, so a suite that needed it installed would be skipped exactly where the state machine is least exercised.
 The preview cache is the exception: promoting, pruning and clearing are checked against real files in a temporary directory, because a promotion that leaves the file where it was would look identical in memory and lose the track at the next prune.
+Thumbnail fetching is checked against a local HTTP server rather than YouTube, so the suite covers the answers that matter - a missing image, an empty one, one larger than the cap, and a URL scheme that is not HTTP - without depending on the network or on a particular video still existing.
 
 `.github/workflows/tests.yml` runs the suite, `shellcheck`, and a Python syntax check on every push and pull request.
 

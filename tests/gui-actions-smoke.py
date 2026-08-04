@@ -11,6 +11,7 @@ called unbound against a stand-in that records what would have been run,
 which is the approach the other GUI checks use.
 """
 
+import http.server
 import importlib.util
 import json
 import os
@@ -1044,6 +1045,257 @@ flood = ipod_gui.parse_search_results(
 assert len(flood) == ipod_gui.YOUTUBE_SEARCH_RESULTS, len(flood)
 
 
+# ---------------------------------------------------------------- artwork
+#
+# A search result has no file to read a cover out of, so its artwork is the
+# video's thumbnail. Redirected at the real cache so that nothing here reads
+# or writes the one the user's own library fills.
+art_cache = Path(tempfile.mkdtemp()) / "art"
+ipod_gui.ART_CACHE = art_cache
+
+# The smallest size that still covers the largest square artwork is drawn at.
+# Below it the album page is visibly soft; above it a quarter of a megabyte is
+# downloaded to be shown at 36 pixels in a list of three.
+sizes = [
+    {"url": "https://i.ytimg.com/vi/x/default.jpg", "width": 120, "height": 90},
+    {"url": "https://i.ytimg.com/vi/x/hq.jpg", "width": 480, "height": 360},
+    {"url": "https://i.ytimg.com/vi/x/maxres.jpg", "width": 1280, "height": 720},
+]
+assert ipod_gui.YOUTUBE_ART_SIZE == 360, ipod_gui.YOUTUBE_ART_SIZE
+assert ipod_gui.thumbnail_from_entry({"thumbnails": sizes}).endswith("hq.jpg")
+assert ipod_gui.thumbnail_from_entry({"thumbnails": sizes}, want=90).endswith(
+    "default.jpg"
+)
+# A thumbnail is cropped to its short edge, so that is what has to clear the
+# target: judging by width would take the wide one here and then have 200
+# pixels to stretch across a 400 pixel square.
+assert ipod_gui.thumbnail_from_entry(
+    {
+        "thumbnails": [
+            {"url": "https://x.invalid/wide.jpg", "width": 450, "height": 200},
+            {"url": "https://x.invalid/square.jpg", "width": 900, "height": 900},
+        ]
+    },
+    want=400,
+).endswith("square.jpg")
+# Nothing big enough means the largest there is, rather than nothing at all.
+assert ipod_gui.thumbnail_from_entry({"thumbnails": sizes[:1]}).endswith(
+    "default.jpg"
+)
+# Sizes are not always reported, and yt-dlp lists its best last.
+assert ipod_gui.thumbnail_from_entry(
+    {"thumbnails": [{"url": "https://x.invalid/a.jpg"}, {"url": "https://x.invalid/b.jpg"}]}
+) == "https://x.invalid/b.jpg"
+assert (
+    ipod_gui.thumbnail_from_entry({"thumbnail": "https://x.invalid/only.jpg"})
+    == "https://x.invalid/only.jpg"
+)
+# Nothing usable is not a reason to break the result: it shows the placeholder.
+assert ipod_gui.thumbnail_from_entry({}) == ""
+assert ipod_gui.thumbnail_from_entry({"thumbnails": "not a list"}) == ""
+assert ipod_gui.thumbnail_from_entry({"thumbnails": [{"url": "/relative.jpg"}]}) == ""
+assert ipod_gui.thumbnail_from_entry({"thumbnail": "file:///etc/passwd"}) == ""
+
+thumbed = ipod_gui.parse_search_results(
+    [json.dumps({"id": "abc", "title": "Art", "thumbnails": sizes})]
+)
+assert thumbed[0].thumbnail.endswith("hq.jpg"), thumbed[0].thumbnail
+
+# The id arrives over the network and this is the only thing between it and a
+# filename, so it is a whitelist rather than an attempt at escaping.
+assert ipod_gui.youtube_art_file("dQw4w9WgXcQ", art_cache) == (
+    art_cache / "yt-dQw4w9WgXcQ.img"
+)
+for hostile in ("../../etc/passwd", "a/b", "", "  ", "a" * 65, "a;rm -rf ~"):
+    assert ipod_gui.youtube_art_file(hostile, art_cache) is None, hostile
+
+# The id ipod-fetch.sh writes into every filename is what lets a downloaded
+# file find the artwork the search already fetched. Read as the last bracketed
+# group, because a title can carry brackets of its own.
+assert ipod_gui.video_id_from_name("Song [Live] [dQw4w9WgXcQ].mp3") == "dQw4w9WgXcQ"
+assert ipod_gui.video_id_from_name("Song [Live].mp3") == "Live"
+assert ipod_gui.video_id_from_name("Ordinary Track.mp3") == ""
+assert ipod_gui.video_id_from_name("") == ""
+
+# Artwork wider than the square is what fills it: the short edge lands on the
+# square exactly and the frame clips the rest, which is the centre crop every
+# music player shows a video thumbnail as.
+assert ipod_gui.cover_pixel_size(1280, 720, 36) == 64, "16:9 was not cropped to fill"
+assert ipod_gui.cover_pixel_size(600, 600, 140) == 140, "a square cover was scaled up"
+assert ipod_gui.cover_pixel_size(300, 600, 36) == 72, "a tall cover was not filled"
+# Rounded up: a pixel short would show a hairline of the frame down one edge.
+assert ipod_gui.cover_pixel_size(101, 100, 100) == 101
+# A texture that reports nothing is drawn at the size asked for rather than
+# dividing by zero.
+assert ipod_gui.cover_pixel_size(0, 0, 36) == 36
+
+
+class ThumbnailServer(http.server.BaseHTTPRequestHandler):
+    """Serves the handful of answers a thumbnail fetch has to survive."""
+
+    bodies = {
+        "/thumb.jpg": b"\xff\xd8\xff" + b"jpeg" * 64,
+        "/huge.jpg": b"x" * 4096,
+        "/empty.jpg": b"",
+    }
+
+    def do_GET(self):
+        body = self.bodies.get(self.path)
+        if body is None:
+            self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args):
+        pass
+
+
+images = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ThumbnailServer)
+threading.Thread(target=images.serve_forever, daemon=True).start()
+image_host = f"http://127.0.0.1:{images.server_address[1]}"
+
+landed = art_cache / "yt-thumbtest.img"
+assert ipod_gui.fetch_thumbnail(f"{image_host}/thumb.jpg", landed) is True
+assert landed.read_bytes() == ThumbnailServer.bodies["/thumb.jpg"]
+
+# Every failure leaves the row showing its placeholder rather than an error the
+# user cannot act on, and leaves nothing half-written behind for the next paint
+# to try to load.
+missing_art = art_cache / "yt-missing.img"
+assert ipod_gui.fetch_thumbnail(f"{image_host}/gone.jpg", missing_art) is False
+assert ipod_gui.fetch_thumbnail(f"{image_host}/empty.jpg", missing_art) is False
+# A URL off the network is checked rather than trusted: urlopen is as happy to
+# read file:// as https://.
+assert ipod_gui.fetch_thumbnail("file:///etc/passwd", missing_art) is False
+assert ipod_gui.fetch_thumbnail("", missing_art) is False
+
+real_max = ipod_gui.THUMBNAIL_MAX_BYTES
+ipod_gui.THUMBNAIL_MAX_BYTES = 64
+try:
+    assert ipod_gui.fetch_thumbnail(f"{image_host}/huge.jpg", missing_art) is False
+finally:
+    ipod_gui.THUMBNAIL_MAX_BYTES = real_max
+assert not missing_art.exists(), "a failed fetch left a file behind"
+assert not list(art_cache.glob("*.part")), sorted(p.name for p in art_cache.iterdir())
+
+# An image is fetched once and then belongs to every later search, preview and
+# scan naming the same video, so a cached one is never asked for again.
+assert ipod_gui.youtube_art_path("thumbtest", art_cache) == str(landed)
+assert ipod_gui.youtube_art_path("notfetched", art_cache) is None
+assert ipod_gui.youtube_art_path("../escape", art_cache) is None
+assert (
+    ipod_gui.cache_thumbnail("thumbtest", "http://127.0.0.1:1/unreachable", art_cache)
+    == str(landed)
+), "a cached thumbnail was downloaded a second time"
+assert ipod_gui.cache_thumbnail("../escape", f"{image_host}/thumb.jpg", art_cache) is None
+assert ipod_gui.cache_thumbnail("second", f"{image_host}/thumb.jpg", art_cache) == str(
+    art_cache / "yt-second.img"
+)
+
+# What connects a result's artwork to the track it becomes. Embedded art still
+# wins: a file that carries its own cover is showing the album's, not the
+# video's.
+from_youtube = ipod_gui.Track(
+    "/music/youtube/Queen/Bohemian [thumbtest].mp3", {}, ipod_gui.STATE_LIBRARY
+)
+assert from_youtube.art == str(landed), from_youtube.art
+tagged_art = ipod_gui.Track(
+    "/music/youtube/Queen/Bohemian [thumbtest].mp3",
+    {"art": "/cache/art/abc.img"},
+    ipod_gui.STATE_LIBRARY,
+)
+assert tagged_art.art == "/cache/art/abc.img", tagged_art.art
+assert ipod_gui.Track("/music/ripped/track.mp3", {}, ipod_gui.STATE_LIBRARY).art is None
+# The bar names a preview before it has a file at all, and that must not send
+# an empty path looking for artwork.
+assert ipod_gui.Track("", {"title": "Fetching"}, ipod_gui.STATE_PREVIEW).art is None
+
+
+class ArtWindow:
+    """The parts of the window a search's thumbnail pass touches."""
+
+    _start_thumbnail_fetch = ipod_gui.IpodWindow._start_thumbnail_fetch
+    _finish_thumbnail_fetch = ipod_gui.IpodWindow._finish_thumbnail_fetch
+
+    def __init__(self):
+        self.search_generation = 7
+        self.painted = 0
+
+    def _paint_youtube_section(self):
+        self.painted += 1
+
+
+class ImmediateThread:
+    """Runs the worker where it was started.
+
+    The window hands its thumbnail pass to a thread it keeps no handle on, so
+    there is nothing to join; running it inline is what makes the check
+    deterministic rather than timed.
+    """
+
+    def __init__(self, target=None, args=(), kwargs=None, daemon=None):
+        self._target = target
+        self._args = args or ()
+        self._kwargs = kwargs or {}
+
+    def start(self):
+        self._target(*self._args, **self._kwargs)
+
+
+def result_with_art(video_id, path="/thumb.jpg"):
+    return ipod_gui.SearchResult(
+        video_id, "Uploader", 0, f"https://youtu.be/{video_id}", video_id,
+        f"{image_host}{path}",
+    )
+
+
+real_thread, real_idle = ipod_gui.threading.Thread, ipod_gui.GLib.idle_add
+ipod_gui.threading.Thread = ImmediateThread
+ipod_gui.GLib.idle_add = lambda callback, *args: callback(*args)
+try:
+    fetching = ArtWindow()
+    fetching._start_thumbnail_fetch(
+        fetching.search_generation,
+        [result_with_art("arrived"), result_with_art("alsohere")],
+    )
+    assert (art_cache / "yt-arrived.img").is_file()
+    assert (art_cache / "yt-alsohere.img").is_file()
+    # One repaint for the set rather than one per image: rebuilding the rows
+    # under the pointer would flicker the hover state of a button the user may
+    # already be reaching for.
+    assert fetching.painted == 1, fetching.painted
+
+    # Artwork that arrives for a query the user has already typed past must not
+    # repaint the results of the one they are looking at now.
+    stale_art = ArtWindow()
+    stale_art._start_thumbnail_fetch(stale_art.search_generation - 1, [result_with_art("stale")])
+    assert (art_cache / "yt-stale.img").is_file()
+    assert stale_art.painted == 0, stale_art.painted
+
+    # Nothing to fetch is not a repaint either: the rows already painted are
+    # showing the cached artwork.
+    cached_only = ArtWindow()
+    cached_only._start_thumbnail_fetch(cached_only.search_generation, [result_with_art("arrived")])
+    assert cached_only.painted == 0, cached_only.painted
+
+    # A result whose artwork cannot be fetched keeps its placeholder, and the
+    # rows are left alone rather than being rebuilt to show the same thing.
+    unreachable = ArtWindow()
+    unreachable._start_thumbnail_fetch(
+        unreachable.search_generation, [result_with_art("nothing", "/gone.jpg")]
+    )
+    assert unreachable.painted == 0, unreachable.painted
+    assert not (art_cache / "yt-nothing.img").exists()
+finally:
+    ipod_gui.threading.Thread = real_thread
+    ipod_gui.GLib.idle_add = real_idle
+    images.shutdown()
+
+
 def stub_yt_dlp(script):
     """A yt-dlp stand-in, so no test here depends on the network."""
     path = Path(tempfile.mkdtemp()) / "yt-dlp"
@@ -1265,6 +1517,7 @@ class SearchWindow:
         self.views = VisibleView("library")
         self.shown = []
         self.painted = 0
+        self.artwork_wanted = []
 
     def show_view(self, name):
         self.shown.append(name)
@@ -1280,6 +1533,11 @@ class SearchWindow:
         # Never reached without a main loop; named so scheduling it does not
         # depend on the network being there.
         return False
+
+    def _start_thumbnail_fetch(self, _generation, results):
+        # The pass itself is driven separately, against a local server. Here it
+        # only has to exist, so that landing results never reaches the network.
+        self.artwork_wanted.append([result.video_id for result in results])
 
     _on_search_changed = ipod_gui.IpodWindow._on_search_changed
     _clear_search = ipod_gui.IpodWindow._clear_search
@@ -1311,6 +1569,9 @@ typing._finish_youtube_search(typing.search_generation, [found_result], True)
 assert typing.search_results == [found_result]
 assert typing.search_note == "", typing.search_note
 assert not typing.search_loading
+# Artwork is asked for once the rows are up, so the titles are not held back
+# behind a set of images. A stale result asks for nothing at all.
+assert typing.artwork_wanted == [[found_result.video_id]], typing.artwork_wanted
 
 # Reaching YouTube and finding nothing is not the same as not reaching it, and
 # each says so in the section rather than in a toast.
@@ -2620,6 +2881,9 @@ print(
             "queued_after_fetch": sorted(window.pending_sources),
             "nothing_new_outcome": outcome,
             "unreported_download_sources": sorted(fallback),
+            "chosen_thumbnail": ipod_gui.thumbnail_from_entry({"thumbnails": sizes}),
+            "cached_artwork": sorted(path.name for path in art_cache.iterdir()),
+            "artwork_for_downloaded_file": from_youtube.art,
         },
         indent=2,
     )

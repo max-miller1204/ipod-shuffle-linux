@@ -1,0 +1,31 @@
+{
+  "measured_from": "cover-crop.png",
+  "cover_widths_px": {
+    "36": {
+      "placeholder": 36,
+      "square": 36,
+      "wide": 36,
+      "tall": 36
+    },
+    "140": {
+      "placeholder": 140,
+      "square": 140,
+      "wide": 140,
+      "tall": 140
+    },
+    "180": {
+      "placeholder": 180,
+      "square": 180,
+      "wide": 180,
+      "tall": 180
+    }
+  },
+  "wide_thumbnail_colours_at_180px": [
+    [
+      0,
+      192,
+      0
+    ]
+  ],
+  "wide_thumbnail_is_centre_cropped": true
+}
