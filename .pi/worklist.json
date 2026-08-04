@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 18,
+  "revision": 20,
   "goals": [
     {
       "id": "goal-msdncj32-4e24ddce",
@@ -22,9 +22,9 @@
       "id": "goal-msdnd2e9-5fc92066",
       "title": "Preview cache with promote-on-add",
       "description": "Previewing a YouTube result downloads it first (about 4s) rather than streaming: yt-dlp -g URLs are short-lived and IP-bound, seeking over HTTP is unreliable, and streaming throws the work away so Add would fetch a second time. Downloads land in a prunable cache, not straight into the library, so previewing twenty songs does not silently add twenty files to the user's music folder. Adding a previewed track promotes it into ~/Music/youtube and out of the cache. This is what finally creates the third track state, STATE_PREVIEW, which ipod-gui.py already defines and renders everywhere (dimmed artwork, dashed marker) but nothing currently produces. Wire up the Preview cache card in Device and Settings, which is present but shows 0 B and has its Clear button disabled.",
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-03T19:53:36.609Z",
-      "updatedAt": "2026-08-03T19:53:36.609Z"
+      "updatedAt": "2026-08-04T01:45:17.070Z"
     },
     {
       "id": "goal-msdnd2k9-b4ef7836",

@@ -1472,6 +1472,47 @@ args = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 assert "--print-to-file" not in args, args
 PY
 
+# Previewing a search result downloads it before playing it, which is a script,
+# a staging directory and a move rather than anything the in-memory GUI checks
+# can see. Driven against the same doubles, because the file landing in the
+# right place is the whole feature.
+PREVIEW_CACHE_DIR="$TEST_ROOT/preview-cache"
+PREVIEW_LIBRARY="$TEST_ROOT/preview-library"
+# These environment changes are confined to the subshell.
+# shellcheck disable=SC2030,SC2031
+(
+    PATH="$ROOT/tests/bin:$PATH"
+    export FAKE_YTDLP_RECORD="$EVIDENCE_DIR/yt-dlp-preview-invocation.json"
+    export IPOD_VENV_YT_DLP="$ROOT/tests/bin/yt-dlp"
+    /usr/bin/python3 "$ROOT/tests/gui-preview-fetch-smoke.py" \
+        "$PREVIEW_CACHE_DIR" "$PREVIEW_LIBRARY"
+) > "$EVIDENCE_DIR/gui-preview-fetch.json"
+
+test -f "$PREVIEW_CACHE_DIR/Test Artist/Test Track [testvideo].mp3"
+# The music folder is what the cache exists to keep out of this: a preview that
+# landed there would add a track nobody asked to keep.
+test ! -e "$PREVIEW_LIBRARY"
+
+/usr/bin/python3 - "$EVIDENCE_DIR/yt-dlp-preview-invocation.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+args = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+output = args[args.index("--output") + 1]
+archive = args[args.index("--download-archive") + 1]
+
+# A preview is one video, never the playlist a link happens to belong to.
+assert "--no-playlist" in args, args
+
+# Both paths point into the staging directory the GUI made for this download,
+# and neither into the cache itself. The archive is the reason: recorded in the
+# cache, it would mark a video as fetched in a folder it can be pruned out of,
+# and every later preview of that video would download nothing at all.
+assert "/preview-cache/.incoming/" in output, args
+assert "/preview-cache/.incoming/" in archive, args
+PY
+
 OLD_FETCH_OUT="$TEST_ROOT/old-yt-dlp"
 OLD_FETCH_RECORD="$EVIDENCE_DIR/old-yt-dlp-invocation.json"
 # These environment changes are confined to the subshell.
@@ -1560,6 +1601,7 @@ printf '%s\n' \
     "PASS: old PATH yt-dlp fallback omitted its unsupported runtime option" \
     "PASS: GStreamer probe answered per interpreter and its program still parses" \
     "PASS: GUI preview player tracked state, queue, seeking and decode failures" \
+    "PASS: GUI preview downloaded into the cache, played it, and kept it out of the library" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
 cat "$EVIDENCE_DIR/product-e2e-summary.txt"
