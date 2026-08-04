@@ -107,7 +107,7 @@ A coloured marker on every album and track says which of three states it is in, 
 | Hollow | In library | On this computer, not yet synced |
 | Dashed | Previewed only | Downloaded just so it could be heard, never added |
 
-Nothing creates the third state yet; it arrives with preview playback.
+Nothing creates the third state yet; it arrives with the preview cache, which will keep a downloaded track outside your music folder until you add it.
 An album counts as *On iPod* only when all of it is, because a half-synced album badged otherwise would be a lie the shuffle gives you no way to investigate.
 
 Adding no longer copies immediately.
@@ -147,8 +147,33 @@ When `yt-dlp` can report the files it fetched, only the tracks that download pro
 That button explains itself when a download could not succeed, and says which piece is missing: `yt-dlp`, `ffmpeg`, or a JavaScript runtime.
 Checking beforehand is worth the trouble because every one of those failures otherwise appears several steps later as something else, most memorably as `HTTP Error 403` on every track but the oldest.
 
+### Preview playback
+
+Hovering a track's artwork turns it into a play button, and pressing it plays that track through this computer's speakers.
+Nothing reaches the iPod.
+The shuffle has no way to be told what to play, so previewing is how you hear a track before deciding to spend 2GB of flash on it.
+
+The bar along the bottom of the window carries the transport, and says which of four things it is doing: nothing, opening a track, playing a file from your library, or playing something downloaded only so it could be heard.
+
+![The now-playing bar showing cover art, title, artist, transport controls and a timeline](docs/now-playing.png)
+
+Playing a row queues the rest of the list it was clicked in, in the order that list is displayed, so **next** walks the album or the sorted table you are looking at rather than jumping somewhere else in the library.
+**Previous** restarts the current track, unless you press it within the first three seconds, when it steps back one.
+The timeline can be dragged, the end of a track moves to the next one, and the end of the queue stops rather than looping back to the start.
+
+Preview playback needs GStreamer, which is a separate set of packages from the GTK bindings:
+
+```bash
+sudo apt install gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+```
+
+`plugins-base` carries the player itself, `plugins-good` the MP3 and WAV decoders and the connection to your sound card, and `plugins-bad` the AAC decoder the shuffle's `.m4a` files need.
+
+Without them the window still runs and everything else still works.
+The bar states what is missing in place of its controls rather than offering buttons that quietly do nothing, and a file GStreamer cannot decode is reported the same way, in GStreamer's own words, because those are what name the plugin you would have to install.
+
 The interface follows the system light and dark preference, and folds its sidebar away below 780px.
-Preview playback is the next thing to land; the player bar along the bottom is present but idle until then.
 
 Device-changing actions run the same scripts documented below, so their copy and database rules are shared with the command line.
 
@@ -579,6 +604,7 @@ The failed-write check is skipped when the suite runs as root because root ignor
 
 The GUI checks call its methods unbound against a stand-in, so they exercise the real logic without needing a display.
 PyGObject still has to be importable, because the module imports it at load time.
+Preview playback is checked the same way, against a stand-in pipeline whose messages the test delivers by hand: GStreamer only reports a track ending, or failing to decode, on a running main loop, and it is optional besides, so a suite that needed it installed would be skipped exactly where the state machine is least exercised.
 
 `.github/workflows/tests.yml` runs the suite, `shellcheck`, and a Python syntax check on every push and pull request.
 

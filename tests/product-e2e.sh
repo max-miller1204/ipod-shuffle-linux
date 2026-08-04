@@ -444,6 +444,57 @@ PY
 ) > "$EVIDENCE_DIR/js-runtime-versions.txt"
 grep -Fxq "versions validated" "$EVIDENCE_DIR/js-runtime-versions.txt"
 
+# gst_available probes through whichever interpreter find_gui_python names, so
+# stand-in interpreters decide the answer here. GStreamer is optional and is
+# not installed in CI, and a check that only ever saw one answer would pass
+# just as happily if the function had stopped probing anything at all.
+printf '#!/bin/sh\ncat >/dev/null\nexit 1\n' > "$TEST_ROOT/python-no-gst"
+printf '#!/bin/sh\ncat >/dev/null\nexit 0\n' > "$TEST_ROOT/python-with-gst"
+chmod +x "$TEST_ROOT/python-no-gst" "$TEST_ROOT/python-with-gst"
+
+# gst_available invokes this test double indirectly.
+# shellcheck disable=SC2317,SC2329
+(
+    source "$ROOT/lib.sh"
+
+    # No interpreter can drive GTK at all, so there is no window to play in.
+    find_gui_python() { return 1; }
+    if gst_available; then
+        echo "gst_available passed with no GTK interpreter" >&2
+        exit 1
+    fi
+
+    # The GUI's own interpreter, without the GStreamer bindings or plugins.
+    find_gui_python() { printf '%s' "$TEST_ROOT/python-no-gst"; }
+    if gst_available; then
+        echo "gst_available passed without GStreamer" >&2
+        exit 1
+    fi
+
+    find_gui_python() { printf '%s' "$TEST_ROOT/python-with-gst"; }
+    gst_available
+    echo "gstreamer probe validated"
+) > "$EVIDENCE_DIR/gst-available.txt"
+grep -Fxq "gstreamer probe validated" "$EVIDENCE_DIR/gst-available.txt"
+
+# The probe itself has to be a program, not just a heredoc that looks like one.
+# Nothing else can catch a syntax error in it: shellcheck sees an opaque string
+# and the function is expected to fail on most machines, so a broken probe
+# would withhold playback everywhere while looking exactly like an uninstalled
+# GStreamer.
+/usr/bin/python3 - "$ROOT/lib.sh" <<'PROBE_CHECK'
+import ast
+import re
+import sys
+from pathlib import Path
+
+body = Path(sys.argv[1]).read_text(encoding="utf-8")
+probe = re.search(r"<<'GST_PROBE'[^\n]*\n(.*?)\nGST_PROBE\n", body, re.DOTALL)
+assert probe, "gst_available no longer embeds a probe"
+ast.parse(probe.group(1))
+print("probe parses")
+PROBE_CHECK
+
 /usr/bin/python3 - "$DB_RECORD" "$IPOD" <<'PY'
 import json
 import sys
@@ -1507,6 +1558,8 @@ printf '%s\n' \
     "PASS: desktop entry paths preserved reserved characters through Gio parsing" \
     "PASS: runtime probe rejected unsupported versions and accepted supported boundaries" \
     "PASS: old PATH yt-dlp fallback omitted its unsupported runtime option" \
+    "PASS: GStreamer probe answered per interpreter and its program still parses" \
+    "PASS: GUI preview player tracked state, queue, seeking and decode failures" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
 cat "$EVIDENCE_DIR/product-e2e-summary.txt"

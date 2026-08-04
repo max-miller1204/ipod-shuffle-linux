@@ -1,22 +1,22 @@
 {
   "version": 1,
-  "revision": 15,
+  "revision": 18,
   "goals": [
     {
       "id": "goal-msdncj32-4e24ddce",
       "title": "Dual-source search: local library plus YouTube",
       "description": "Design frames 1f, 1g and 1h. One search field querying two sources at once: the indexed local music folders (instant, already available via LibraryIndex in ipod-gui.py) and YouTube via 'yt-dlp ytsearch --flat-playlist --dump-json'. Local results paint immediately; YouTube results arrive 1-3s later into a reserved three-row skeleton so the layout never jumps. Note that youtube_unavailable_reason() is too strict to gate search on its own, because metadata search works without a JavaScript runtime; only the media download 403s. Reuse yt_dlp_bin and yt_dlp_supports from lib.sh. Design all five failure states: no JS runtime, ffmpeg missing, rate-limited or offline, download failed mid-fetch, and no results from either source. Each must be stated inline in place of the section that cannot load, never as a toast.",
-      "status": "active",
+      "status": "done",
       "createdAt": "2026-08-03T19:53:11.582Z",
-      "updatedAt": "2026-08-03T22:58:53.196Z"
+      "updatedAt": "2026-08-04T00:02:12.240Z"
     },
     {
       "id": "goal-msdnd27v-e6e6bf5d",
       "title": "GStreamer preview playback and the live now-playing bar",
       "description": "The now-playing bar exists in ipod-gui.py in its idle state only; its transport controls are insensitive. Wire it to GStreamer playbin3 with position polled on a 250ms GLib timeout, per design frame 1n, which specifies all four bar states: idle, fetching, playing a local file, and playing a previewed track. Playback is preview only, on the computer's speakers, and never touches the iPod. Add a gst_available predicate to lib.sh modelled on find_gui_python - a separate function, because extending find_gui_python would make the whole GUI unavailable when GStreamer is missing - and reach it from the GUI through the existing lib_function_succeeds bridge. Adding system dependencies is approved, so this needs no further sign-off. Note python3-gi-cairo is still NOT required: the storage meter uses a CSS gradient rather than Cairo drawing, deliberately, because a missing converter would make the bar silently render as nothing.",
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-03T19:53:36.378Z",
-      "updatedAt": "2026-08-03T20:12:46.720Z"
+      "updatedAt": "2026-08-04T01:06:12.398Z"
     },
     {
       "id": "goal-msdnd2e9-5fc92066",

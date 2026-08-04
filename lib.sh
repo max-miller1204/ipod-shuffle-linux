@@ -341,6 +341,38 @@ PROBE
     return 1
 }
 
+# Whether this machine can play audio through GStreamer.
+#
+# The GUI previews a track on the computer's own speakers with playbin3, which
+# needs the GStreamer introspection typelib and the plugins that decode audio
+# and reach a sound card. Those are separate packages from the GTK4 bindings,
+# so a machine that runs the window perfectly well can still have no playback.
+#
+# Deliberately a second function rather than another clause inside
+# find_gui_python: that one decides whether the GUI can start at all, and
+# folding this into it would take the whole window away to withhold one
+# optional feature of it. Probed through the interpreter find_gui_python picks,
+# because that is the one the GUI will import from.
+#
+# Elements rather than the module alone: importing Gst succeeds with no plugins
+# installed at all, and the failure then arrives as silence on play rather than
+# as a missing dependency. Returns 0 when preview playback will work.
+gst_available() {
+    local python
+    python="$(find_gui_python)" || return 1
+    "$python" - <<'GST_PROBE' >/dev/null 2>&1
+import gi
+
+gi.require_version("Gst", "1.0")
+from gi.repository import Gst
+
+Gst.init(None)
+for element in ("playbin3", "autoaudiosink"):
+    if Gst.ElementFactory.make(element, None) is None:
+        raise SystemExit(1)
+GST_PROBE
+}
+
 # Where the playlist and voiceover options of the last sync are remembered.
 #
 # The database is regenerated from scratch every time, so any rebuild that does

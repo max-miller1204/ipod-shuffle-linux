@@ -1,0 +1,5 @@
+no GTK interpreter -> preview unavailable
+GTK interpreter without GStreamer -> preview unavailable
+GTK interpreter with valid probe -> preview available
+real environment -> playbin3 and autoaudiosink available
+embedded GStreamer probe -> valid Python
