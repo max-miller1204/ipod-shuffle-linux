@@ -1069,6 +1069,9 @@ assert download_reason and "ffmpeg" in download_reason, download_reason
 ipod_gui.lib_function_succeeds = lambda _name: False
 try:
     assert "yt-dlp" in (ipod_gui.youtube_search_unavailable_reason() or "")
+    assert ipod_gui.preview_unavailable_reason() == (
+        "GStreamer is not installed - see Preview playback in the README"
+    )
 finally:
     ipod_gui.lib_function_succeeds = original_succeeds
 
@@ -1987,7 +1990,7 @@ ipod_gui.gst = lambda: None
 silent = ipod_gui.PreviewPlayer(None)
 silent.play([first], 0)
 assert silent.state == ipod_gui.PLAY_IDLE, silent.state
-assert "GStreamer is not installed" in silent.error, silent.error
+assert silent.error == ipod_gui.GSTREAMER_UNAVAILABLE, silent.error
 assert silent._pipeline is None, "a player with no GStreamer built a pipeline"
 ipod_gui.gst = lambda: FakeGst
 
@@ -2173,10 +2176,12 @@ assert bar.playing_status.get_text() == ""
 
 # No GStreamer means the reason replaces the transport permanently, rather than
 # dead buttons that give no hint why pressing them does nothing.
-missing = BarWindow(unavailable="GStreamer is not installed - run ./install.sh")
+missing = BarWindow(unavailable=ipod_gui.GSTREAMER_UNAVAILABLE)
 missing._update_now_playing()
 assert missing.playing_stack.child_name == "message"
-assert "run ./install.sh" in missing.playing_message.get_text()
+assert missing.playing_message.get_text() == (
+    "GStreamer is not installed - see Preview playback in the README"
+)
 
 
 class FakeModel:

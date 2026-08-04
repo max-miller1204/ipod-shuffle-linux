@@ -712,6 +712,9 @@ def youtube_search_unavailable_reason():
     return None
 
 
+GSTREAMER_UNAVAILABLE = (
+    "GStreamer is not installed - see Preview playback in the README"
+)
 _GST = None
 _GST_LOADED = False
 
@@ -743,14 +746,14 @@ def gst():
 def preview_unavailable_reason():
     """Why preview playback is not possible here, or None if it is.
 
-    Asks lib.sh for the same reason the YouTube checks do: the installer and
-    the scripts have to agree with the window about what counts as installed.
+    Asks lib.sh for the same reason the YouTube checks do: the scripts and the
+    window have to agree about what counts as installed.
     The shell probe is also the stricter of the two available answers, because
     it makes the elements rather than only importing the module, and a
     GStreamer with no decoders imports perfectly and then plays silence.
     """
     if not lib_function_succeeds("gst_available"):
-        return "GStreamer is not installed - run ./install.sh"
+        return GSTREAMER_UNAVAILABLE
     return None
 
 
@@ -2111,7 +2114,7 @@ class PreviewPlayer:
     def _start(self, track):
         module = gst()
         if module is None:
-            self._fail(track, "GStreamer is not installed - run ./install.sh")
+            self._fail(track, GSTREAMER_UNAVAILABLE)
             return
 
         pipeline = self._ensure_pipeline()
