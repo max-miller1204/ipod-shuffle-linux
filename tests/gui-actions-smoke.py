@@ -13,6 +13,7 @@ which is the approach the other GUI checks use.
 
 import importlib.util
 import json
+import os
 import re
 import sys
 import tempfile
@@ -78,6 +79,9 @@ class FakeWidget:
     def set_text(self, value):
         self.text = value
 
+    def get_text(self):
+        return self.text
+
     def set_label(self, value):
         self.text = value
 
@@ -87,6 +91,9 @@ class FakeWidget:
     def set_fraction(self, value):
         self.fraction = value
 
+    def set_fractions(self, used, queued, over=False):
+        self.fractions = (used, queued, over)
+
     def set_tooltip_text(self, value):
         self.tooltip = value
 
@@ -95,6 +102,22 @@ class FakeWidget:
 
     def stop(self):
         self.spinning = False
+
+
+class FakeLibrary:
+    """The three lists the window reads tracks out of.
+
+    Instances rather than one shared class attribute each, because the preview
+    list is appended to as well as replaced, and a shared list would carry one
+    check's previews into the next one.
+    """
+
+    def __init__(self):
+        self.tracks = []
+        self.device_only = []
+        self.previews = []
+
+    all_tracks = ipod_gui.LibraryIndex.all_tracks
 
 
 class FakeWindow:
@@ -124,10 +147,13 @@ class FakeWindow:
         # Collected as the YouTube rows are built, exactly like _busy_widgets,
         # so a new Add button cannot be forgotten by the capability gating.
         self.search_add_buttons = []
-        self.library = type("Library", (), {"tracks": [], "device_only": []})()
+        self.library = FakeLibrary()
         self.device_tracks = []
         self.speech_engine_available = True
         self.playlist_voiceover = FakeSwitch()
+        self.cache_figure = FakeWidget()
+        self.cache_meter = FakeWidget()
+        self.cache_clear = FakeWidget()
 
     def _run(
         self,
@@ -186,6 +212,7 @@ class FakeWindow:
     _youtube_download_tooltip = ipod_gui.IpodWindow._youtube_download_tooltip
     _can_download = ipod_gui.IpodWindow._can_download
     _start_youtube_download = ipod_gui.IpodWindow._start_youtube_download
+    _populate_cache_card = ipod_gui.IpodWindow._populate_cache_card
 
 
 # ------------------------------------------------------------------ removal
@@ -2064,11 +2091,20 @@ class BarWindow:
         self.seek_elapsed = BarWidget()
         self.seek_total = BarWidget()
         self.playing_status = BarWidget()
+        self.preview_generation = 0
+        self._preview_process = None
+        self._preview_lock = threading.Lock()
+        self._preview_closed = False
         self.player = ipod_gui.PreviewPlayer(self._update_now_playing)
 
     _update_now_playing = ipod_gui.IpodWindow._update_now_playing
     _playing_status = ipod_gui.IpodWindow._playing_status
     play_from = ipod_gui.IpodWindow.play_from
+    _supersede_preview_fetch = ipod_gui.IpodWindow._supersede_preview_fetch
+    _cancel_preview_fetch = ipod_gui.IpodWindow._cancel_preview_fetch
+    _terminate_preview_process = staticmethod(
+        ipod_gui.IpodWindow._terminate_preview_process
+    )
 
 
 # The bar builds artwork and labels as it repaints, which needs a display it
@@ -2152,8 +2188,37 @@ assert not bar.transport_buttons["next"].sensitive
 # says so: mistaking one for a track already in the library is how a preview
 # gets lost when the cache is pruned.
 previewed = preview_track("Fetched", 120.0, ipod_gui.STATE_PREVIEW)
-bar.player.play([previewed], 0)
+
+# Before any of that, the download itself. It takes seconds rather than the
+# instant a local file takes, so the bar carries the wait - named, because a
+# bar that stays idle for four seconds reads as a play button that did nothing.
+bar.player.fetch(previewed)
+assert bar.player.state == ipod_gui.PLAY_FETCHING, bar.player.state
+assert bar.playing_title.get_text() == "Fetched"
 assert bar.playing_status.get_text() == "Fetching preview…", bar.playing_status.text
+# There is no pipeline yet, so there is nothing for the transport to do. Live
+# buttons over a file that does not exist would be the one thing worse than
+# waiting.
+assert not bar.transport_buttons["play"].sensitive, "transport live while fetching"
+assert not bar.transport_buttons["next"].sensitive
+assert bar.playing_stack.opacity < 1.0, "the fetching transport was not dimmed"
+assert not bar.seek_scale.sensitive
+bar.player.toggle()
+assert bar.player.state == ipod_gui.PLAY_FETCHING, "toggle disturbed a fetch"
+
+# A download that never arrives says so where the track was named, and takes
+# the queue with it: a play button offering a file that was never downloaded
+# fails again on every press.
+bar.player.fail(previewed, ipod_gui.PREVIEW_FAILED)
+assert bar.playing_stack.child_name == "message"
+assert "ipod-fetch.sh --update" in bar.playing_message.get_text()
+assert bar.player.queue == [], bar.player.queue
+assert not bar.transport_buttons["play"].sensitive
+
+bar.player.play([previewed], 0)
+# Opening, not fetching: the file is on disk by now, and this is the same
+# second any library track takes to start.
+assert bar.playing_status.get_text() == "Opening…", bar.playing_status.text
 assert ipod_gui.STATE_PREVIEW in bar.playing_state_dot.classes
 FakeGst.pipeline.bus.deliver(
     "message::state-changed",
@@ -2219,6 +2284,329 @@ queued.play_from(view, preview_track("Vanished"))
 assert len(queued.player.queue) == 1 and queued.player.index == 0
 
 ipod_gui.label, ipod_gui.make_cover = real_label, real_cover
+
+
+# ----------------------------------------------------------- preview cache
+#
+# Hearing a YouTube result downloads it, so previewing twenty songs would add
+# twenty files to the music folder if the download went straight there. It
+# goes to a prunable cache instead, and adding a previewed track is what moves
+# it out. Both halves of that are checked against real files: a promotion that
+# silently leaves the file in the cache loses it at the next prune.
+
+preview_cache = Path(tempfile.mkdtemp())
+preview_library = Path(tempfile.mkdtemp())
+ipod_gui.PREVIEW_CACHE = preview_cache
+ipod_gui.PREVIEW_INCOMING = preview_cache / ".incoming"
+ipod_gui.YOUTUBE_LIBRARY = preview_library
+
+
+def cache_file(relative, contents="audio", when=None):
+    path = preview_cache / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(contents, encoding="utf-8")
+    if when is not None:
+        os.utime(path, (when, when))
+    return path
+
+
+# The preview form takes no --new-tracks: it downloads into a directory of its
+# own, so what that directory holds afterwards is the report, and it works with
+# a yt-dlp too old to say what it fetched.
+preview_fetch = ipod_gui.fetch_command("https://youtu.be/abc", preview_cache)
+assert preview_fetch[0].endswith("ipod-fetch.sh"), preview_fetch
+assert preview_fetch[preview_fetch.index("--output") + 1] == str(preview_cache)
+assert "--new-tracks" not in preview_fetch, preview_fetch
+# Without this a link carrying a list= parameter previews a whole playlist.
+assert "--single" in preview_fetch, preview_fetch
+assert preview_fetch[-1] == "https://youtu.be/abc", preview_fetch
+
+old = cache_file("Queen/Bohemian Rhapsody [fJ9rUzIMcZQ].mp3", "x" * 40, when=1_000)
+new = cache_file("Nirvana/Lithium [abc123].mp3", "y" * 60, when=2_000)
+cache_file("Sleeves/cover.jpg", "not audio")
+cache_file(".incoming/tmp1/Half Downloaded [zzz].mp3", "partial")
+
+entries = ipod_gui.preview_cache_entries(preview_cache)
+assert [path for path, _size, _mtime in entries] == [old, new], entries
+# A download still running lives under .incoming and is not a preview yet;
+# counting it would put a half-written file in the grid and in the figures.
+assert all(".incoming" not in str(path) for path, _s, _m in entries), entries
+
+assert ipod_gui.cached_preview_path("abc123", preview_cache) == new
+assert ipod_gui.cached_preview_path("fJ9rUzIMcZQ", preview_cache) == old
+assert ipod_gui.cached_preview_path("", preview_cache) is None
+assert ipod_gui.cached_preview_path("nosuchid", preview_cache) is None
+# The id is matched as the text ipod-fetch.sh wrote into the filename, not as
+# a glob: "[abc123]" read as a pattern is a character class matching a file
+# named "1.mp3", and the cache would then hand back the wrong song.
+assert ipod_gui.cached_preview_path("a", preview_cache) is None
+assert ipod_gui.cached_preview_path("abc", preview_cache) is None
+
+# Oldest first, and only as far as it takes to get back under the limit.
+assert ipod_gui.prunable_previews(entries, 1000) == []
+assert ipod_gui.prunable_previews(entries, 60) == [old]
+assert ipod_gui.prunable_previews(entries, 0) == [old, new]
+# Never what is playing: the bar would be left naming a file that is gone.
+assert ipod_gui.prunable_previews(entries, 0, keep=[old]) == [new]
+
+assert ipod_gui.promote_destination(new, preview_cache, preview_library) == (
+    preview_library / "Nirvana" / "Lithium [abc123].mp3"
+)
+# A file that somehow sits outside the cache still lands somewhere sensible
+# rather than raising on the way out of it.
+assert ipod_gui.promote_destination(
+    "/elsewhere/Stray.mp3", preview_cache, preview_library
+) == preview_library / "Stray.mp3"
+
+
+class PreviewWindow:
+    """Enough of the window for the cache, its promotions and its card."""
+
+    def __init__(self, mount_point="/media/alex/Alex's iPod"):
+        self.mount_point = mount_point
+        self.device_identity = "uuid:test-ipod" if mount_point else None
+        self.busy = False
+        self.discovering_sources = False
+        self.source_generation = 0
+        self.scan_generation = 0
+        self.preview_generation = 0
+        self._preview_process = None
+        self._preview_lock = threading.Lock()
+        self._preview_closed = False
+        self._device_scan_active = False
+        self._device_snapshot_ready = True
+        self.pending = set()
+        self.pending_sources = {}
+        self.pending_records = {}
+        self.pending_skipped_symlinks = {}
+        self.pending_device_identity = None
+        self._pending_track_index = {}
+        self._library_by_path = {}
+        self._library_scan_tracks = {}
+        self.library = FakeLibrary()
+        self.device_tracks = []
+        self.toasts = []
+        self.repaints = 0
+        self.cache_figure = FakeWidget()
+        self.cache_meter = FakeWidget()
+        self.cache_clear = FakeWidget()
+        self.preview_unavailable = None
+        self.youtube_unavailable = None
+        self.player = ipod_gui.PreviewPlayer(lambda: None)
+
+    def _toast(self, message):
+        self.toasts.append(message)
+
+    def _refresh_current_view(self, scan_complete=True):
+        self.repaints += 1
+
+    def _populate_device_summary(self):
+        pass
+
+    def _update_now_playing(self):
+        pass
+
+    def _update_device_controls(self):
+        pass
+
+    _populate_cache_card = ipod_gui.IpodWindow._populate_cache_card
+    on_clear_cache = ipod_gui.IpodWindow.on_clear_cache
+    _promote_preview = ipod_gui.IpodWindow._promote_preview
+    _prune_preview_cache = ipod_gui.IpodWindow._prune_preview_cache
+    _forget_empty_preview_folders = staticmethod(
+        ipod_gui.IpodWindow._forget_empty_preview_folders
+    )
+    _finish_preview_fetch = ipod_gui.IpodWindow._finish_preview_fetch
+    _fail_preview_fetch = ipod_gui.IpodWindow._fail_preview_fetch
+    _apply_preview_scan = ipod_gui.IpodWindow._apply_preview_scan
+    _supersede_preview_fetch = ipod_gui.IpodWindow._supersede_preview_fetch
+    _cancel_preview_fetch = ipod_gui.IpodWindow._cancel_preview_fetch
+    _terminate_preview_process = staticmethod(
+        ipod_gui.IpodWindow._terminate_preview_process
+    )
+    _preview_track = ipod_gui.IpodWindow._preview_track
+    preview_result = ipod_gui.IpodWindow.preview_result
+    _preview_unavailable_reason = ipod_gui.IpodWindow._preview_unavailable_reason
+    _merge_states = ipod_gui.IpodWindow._merge_states
+    _queue_sources = ipod_gui.IpodWindow._queue_sources
+    _commit_queue_sources = ipod_gui.IpodWindow._commit_queue_sources
+    _pending_accounting = ipod_gui.IpodWindow._pending_accounting
+    _pending_change_count = ipod_gui.IpodWindow._pending_change_count
+    _pending_track = ipod_gui.IpodWindow._pending_track
+    _record_for_track = staticmethod(ipod_gui.IpodWindow._record_for_track)
+
+
+def previewed(path):
+    return ipod_gui.Track(
+        path,
+        {
+            "title": Path(path).stem,
+            "artist": Path(path).parent.name,
+            "size": Path(path).stat().st_size,
+        },
+        ipod_gui.STATE_PREVIEW,
+    )
+
+
+# A previewed track is in the grid like any other, which is what finally
+# produces the third state the whole window already knows how to draw.
+cache_window = PreviewWindow()
+cache_window.library.previews = [previewed(old), previewed(new)]
+assert len(cache_window.library.all_tracks()) == 2
+assert {t.state for t in cache_window.library.all_tracks()} == {
+    ipod_gui.STATE_PREVIEW
+}
+
+cache_window._populate_cache_card()
+assert cache_window.cache_figure.get_text() == "100 B · 2 files", (
+    cache_window.cache_figure.get_text()
+)
+assert cache_window.cache_clear.sensitive, "Clear offered nothing to clear"
+# A run in progress must not be able to delete files out from under itself.
+cache_window.busy = True
+cache_window._populate_cache_card()
+assert not cache_window.cache_clear.sensitive
+cache_window.busy = False
+
+# Adding a previewed track moves the file into the library and queues it, the
+# same one press does for a track that was already there.
+promote_window = PreviewWindow()
+kept = previewed(new)
+promote_window.library.previews = [kept]
+promote_window._merge_states()
+promote_window._promote_preview(kept)
+destination = preview_library / "Nirvana" / "Lithium [abc123].mp3"
+assert destination.is_file(), "the preview never reached the library"
+assert not new.exists(), "the preview was copied rather than moved"
+# The artist folder goes with the last file to leave it, or the cache fills up
+# with empty folders nothing will ever clear.
+assert not (preview_cache / "Nirvana").exists(), "an empty artist folder was left"
+assert kept.state == ipod_gui.STATE_LIBRARY, kept.state
+assert kept.path == str(destination), kept.path
+assert promote_window.library.previews == [], promote_window.library.previews
+assert [t.path for t in promote_window.library.tracks] == [str(destination)]
+assert promote_window.pending == {str(destination)}, promote_window.pending
+assert "queued for sync" in promote_window.toasts[-1], promote_window.toasts
+assert str(preview_library) in promote_window.toasts[-1], promote_window.toasts
+
+# Keeping a download is something you do to your own music folder, so it works
+# with nothing plugged in - and then says only what it did.
+detached = PreviewWindow(mount_point=None)
+alone = previewed(cache_file("Pixies/Debaser [pix1].mp3", "z" * 20))
+detached.library.previews = [alone]
+detached._merge_states()
+detached._promote_preview(alone)
+assert (preview_library / "Pixies" / "Debaser [pix1].mp3").is_file()
+assert detached.pending == set(), detached.pending
+assert detached.toasts[-1] == f"Kept in {ipod_gui.home_relative(preview_library)}"
+
+# The same video downloaded directly on an earlier day. The library copy is
+# the one to keep; the cached duplicate is dropped rather than written over it.
+existing = preview_library / "Queen" / "Bohemian Rhapsody [fJ9rUzIMcZQ].mp3"
+existing.parent.mkdir(parents=True, exist_ok=True)
+existing.write_text("the copy already kept", encoding="utf-8")
+duplicate_window = PreviewWindow()
+duplicate = previewed(old)
+duplicate_window.library.previews = [duplicate]
+duplicate_window._merge_states()
+duplicate_window._promote_preview(duplicate)
+assert existing.read_text(encoding="utf-8") == "the copy already kept"
+assert not old.exists(), "the cached duplicate was left behind"
+assert duplicate.path == str(existing), duplicate.path
+
+# Pruned, or cleared from another window, between the row being drawn and the
+# button being pressed.
+missing_window = PreviewWindow()
+gone = previewed(cache_file("Ghost/Vanished [g1].mp3"))
+Path(gone.path).unlink()
+missing_window.library.previews = [gone]
+missing_window._promote_preview(gone)
+assert missing_window.library.previews == []
+assert "no longer in the cache" in missing_window.toasts[-1], missing_window.toasts
+
+stale_scan = PreviewWindow()
+stale_scan.scan_generation = 1
+removed_during_scan = previewed(cache_file("Gone/Stale [old1].mp3"))
+Path(removed_during_scan.path).unlink()
+stale_scan._apply_preview_scan(1, [removed_during_scan])
+assert stale_scan.library.previews == [], stale_scan.library.previews
+
+# What a finished download does: index it, prune back under the limit, play it.
+landing = PreviewWindow()
+landed = cache_file("Blur/Song 2 [blur2].mp3", "b" * 30, when=3_000)
+stale = cache_file("Old/Filler [fill1].mp3", "c" * 90, when=500)
+landing.library.previews = [previewed(stale)]
+real_limit = ipod_gui.PREVIEW_CACHE_LIMIT
+ipod_gui.PREVIEW_CACHE_LIMIT = 50
+landing._finish_preview_fetch(
+    landing.preview_generation,
+    str(landed),
+    {"title": "Song 2", "artist": "Blur", "size": 30},
+)
+# The track that just arrived is over the limit only because it arrived, and
+# dropping the file the user is waiting to hear is the one deletion they would
+# notice.
+assert landed.is_file(), "the preview being played was pruned"
+assert not stale.exists(), "the oldest preview survived a full cache"
+assert [t.path for t in landing.library.previews] == [str(landed)]
+assert landing.player.track is landing.library.previews[0]
+assert landing.player.state == ipod_gui.PLAY_LOADING, landing.player.state
+ipod_gui.PREVIEW_CACHE_LIMIT = real_limit
+
+# A download the user has already moved on from must not take the bar back off
+# whatever they started instead.
+superseded = PreviewWindow()
+superseded._supersede_preview_fetch()
+assert (
+    superseded._finish_preview_fetch(0, str(landed), {"title": "Song 2"}) is False
+)
+assert superseded.player.track is None, superseded.player.track
+assert superseded.library.previews == [], superseded.library.previews
+assert superseded._fail_preview_fetch(0, kept, "boom") is False
+assert superseded.player.error is None
+
+# Playing a result already in the cache costs nothing: no download is started,
+# and the capability check says so by not asking for one.
+cached_window = PreviewWindow()
+result = ipod_gui.SearchResult("Song 2", "Blur", 120.0, "https://youtu.be/blur2", "blur2")
+cached_window.youtube_unavailable = "yt-dlp is not installed"
+assert cached_window._preview_unavailable_reason(result) is None
+cached_window.preview_result(result)
+assert cached_window.player.track is not None
+assert cached_window.player.track.path == str(landed), cached_window.player.track.path
+assert cached_window.library.previews[0].path == str(landed)
+
+# One that is not cached has to be downloaded first, so it needs everything a
+# download needs, and a disabled button that says why beats an Add that fails
+# several steps later.
+uncached = ipod_gui.SearchResult("Nothing", "Nobody", 0, "https://youtu.be/none", "none")
+assert cached_window._preview_unavailable_reason(uncached) == "yt-dlp is not installed"
+# No GStreamer means nothing can be previewed at all, cached or not.
+cached_window.preview_unavailable = ipod_gui.GSTREAMER_UNAVAILABLE
+assert cached_window._preview_unavailable_reason(result) == ipod_gui.GSTREAMER_UNAVAILABLE
+
+# Clearing throws the tree away rather than the files that are listed, so a
+# half-finished download goes with them, and stops a preview that is playing
+# rather than leaving the bar naming a file that no longer exists.
+clearing = PreviewWindow()
+clearing.library.previews = [previewed(landed)]
+clearing.player.play(clearing.library.previews, 0)
+assert clearing.player.track is not None
+clearing.on_clear_cache(None)
+assert not preview_cache.exists(), "the cache survived being cleared"
+assert clearing.library.previews == []
+assert clearing.player.track is None, "a cleared preview was left in the bar"
+# And out of the queue behind it, or the play button offers a file that has
+# just been deleted and fails on every press.
+assert clearing.player.queue == [], clearing.player.queue
+assert clearing.cache_figure.get_text() == "0 B · 0 files"
+assert not clearing.cache_clear.sensitive
+assert "freed" in clearing.toasts[-1], clearing.toasts
+
+# A cache that does not exist is a cache holding nothing, not an error: this is
+# every machine that has never previewed anything.
+assert ipod_gui.preview_cache_entries(preview_cache) == []
+assert ipod_gui.cached_preview_path("blur2", preview_cache) is None
 
 print(
     json.dumps(

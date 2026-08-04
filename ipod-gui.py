@@ -19,6 +19,7 @@ import json
 import os
 import queue
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -57,10 +58,29 @@ CONFIG_FILE = Path(
     os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config"
 ) / "ipod-shuffle-linux" / "config.json"
 
-# Where a track lives, which decides its marker in every view. "preview" is
-# defined here and rendered everywhere, but nothing creates one yet: it is the
-# state a track holds after being auto-downloaded purely so it could be heard,
-# which arrives with the preview cache.
+# Hearing a YouTube result costs a file: a yt-dlp media URL is short-lived and
+# bound to the address that asked for it, seeking over one is unreliable, and
+# streaming would throw the work away so that adding the track fetched it a
+# second time. The file lands here rather than in a music folder, because
+# previewing twenty songs must not add twenty of them to the library.
+PREVIEW_CACHE = CACHE_DIR / "previews"
+
+# Each download runs into a directory of its own under here and is moved into
+# the cache once it has finished. Downloading straight into the cache would
+# leave yt-dlp's --download-archive recording a video as fetched in a folder
+# it can be pruned out of, and the next preview of that video would then
+# download nothing at all.
+PREVIEW_INCOMING = PREVIEW_CACHE / ".incoming"
+
+# About seventy previews at the 256k bitrate this project downloads. Large
+# enough that an evening of listening never evicts anything, small enough that
+# a folder nobody ever looks at cannot grow without bound.
+PREVIEW_CACHE_LIMIT = 512 * 1024 * 1024
+
+# Where a track lives, which decides its marker in every view. "preview" is a
+# track downloaded purely so it could be heard: it sits in the preview cache
+# rather than in a music folder, and stays there until it is added, which moves
+# it into the library and out of the cache.
 STATE_IPOD = "ipod"
 STATE_LIBRARY = "library"
 STATE_PREVIEW = "preview"
@@ -715,6 +735,13 @@ def youtube_search_unavailable_reason():
 GSTREAMER_UNAVAILABLE = (
     "GStreamer is not installed - see Preview playback in the README"
 )
+
+# Said in the bar, where the track that will not arrive is already named, and
+# pointing at the log rather than repeating yt-dlp's own diagnosis badly.
+PREVIEW_FAILED = (
+    "Could not download that preview. Details has what yt-dlp reported; "
+    "./ipod-fetch.sh --update is the usual fix when downloads stop working."
+)
 _GST = None
 _GST_LOADED = False
 
@@ -965,6 +992,107 @@ def fetched_sources(list_path, library):
     except OSError:
         return sorted(str(p) for p in Path(library).glob("*") if p.is_dir())
     return [line.strip() for line in lines if line.strip()]
+
+
+def fetch_command(url, output, new_tracks=None, single=True):
+    """The ipod-fetch.sh invocation behind every download the GUI starts.
+
+    One builder keeps the shared flags consistent for the link dialog, a
+    search result's Add and a preview while letting each supply its output,
+    new-track manifest and playlist scope.
+    """
+    command = [str(FETCH_SCRIPT), "--output", str(output)]
+    if new_tracks is not None:
+        command += ["--new-tracks", str(new_tracks)]
+    if single:
+        command.append("--single")
+    command.append(url)
+    return command
+
+
+def preview_cache_entries(root):
+    """Every finished preview under root, as (path, size, mtime).
+
+    Oldest first, which is the order they are pruned in: a preview is written
+    once and never rewritten, so its mtime is when it was downloaded.
+
+    Read from the filesystem rather than from an index kept alongside it. The
+    files are the cache, so a cache that was pruned, cleared, or emptied by
+    hand cannot disagree with a record of what it is supposed to hold.
+    """
+    root = Path(root)
+    try:
+        candidates = sorted(root.rglob("*"))
+    except OSError:
+        return []
+    entries = []
+    for path in candidates:
+        # A download still in flight lives under .incoming and is not a
+        # preview yet; it is moved into place only once it has finished.
+        if any(part.startswith(".") for part in path.relative_to(root).parts):
+            continue
+        if path.suffix.lower() not in AUDIO_EXTENSIONS:
+            continue
+        try:
+            info = path.stat()
+        except OSError:
+            continue
+        if not path.is_file():
+            continue
+        entries.append((path, info.st_size, info.st_mtime))
+    entries.sort(key=lambda entry: (entry[2], str(entry[0])))
+    return entries
+
+
+def cached_preview_path(video_id, root):
+    """The already-downloaded file for a video id, or None.
+
+    ipod-fetch.sh puts the id in every filename it writes, so the cache can be
+    asked whether it holds a search result without keeping a second record of
+    which id became which file.
+    """
+    video_id = (video_id or "").strip()
+    if not video_id:
+        return None
+    marker = f"[{video_id}]"
+    for path, _size, _mtime in preview_cache_entries(root):
+        if marker in path.name:
+            return path
+    return None
+
+
+def prunable_previews(entries, limit, keep=()):
+    """Which cached previews to drop to bring the cache back under limit.
+
+    Oldest first, excluding paths the caller marks to keep. The window uses
+    that exclusion for the track being played and the one that just arrived.
+    """
+    kept = {str(path) for path in keep}
+    total = sum(size for _path, size, _mtime in entries)
+    dropped = []
+    for path, size, _mtime in entries:
+        if total <= limit:
+            break
+        if str(path) in kept:
+            continue
+        dropped.append(path)
+        total -= size
+    return dropped
+
+
+def promote_destination(source, cache_root, library_root):
+    """Where a previewed file belongs once it is kept.
+
+    The cache mirrors the artist folders ipod-fetch.sh writes, so keeping a
+    preview is a move that lands it exactly where downloading it in the first
+    place would have put it.
+    """
+    source = Path(source)
+    try:
+        relative = source.relative_to(cache_root)
+    except ValueError:
+        relative = Path(source.name)
+    return Path(library_root) / relative
 
 
 def read_local_playlist_tracks(list_path):
@@ -1283,11 +1411,16 @@ class LibraryIndex:
         # Kept apart from the scan results so a rescan can replace one without
         # disturbing the other.
         self.device_only = []
+        # Downloads sitting in the preview cache. A third list rather than
+        # tracks with a different state in the first, because the music folders
+        # and the cache are rescanned independently and neither may drop the
+        # other's tracks when it finishes.
+        self.previews = []
         self.roots = music_roots()
         self.generation = 0
 
     def all_tracks(self):
-        return self.tracks + self.device_only
+        return self.tracks + self.device_only + self.previews
 
     def albums(self):
         grouped = {}
@@ -1733,6 +1866,19 @@ def track_cell(window, track, number, column, view=None):
     action = Gtk.Button()
     action.add_css_class("sf-button")
     action.set_valign(Gtk.Align.CENTER)
+    if track.state == STATE_PREVIEW:
+        # Add still means "I want this track", but a previewed file is sitting
+        # in a cache that gets pruned, so here it has to move the file first.
+        # Offered with no iPod attached, unlike every other Add: keeping a
+        # download is something you do to your own music folder.
+        action.set_label("Add")
+        action.add_css_class("accent")
+        action.set_tooltip_text(
+            f"Move into {home_relative(YOUTUBE_LIBRARY)} and out of the "
+            "preview cache"
+        )
+        action.connect("clicked", lambda _b, t=track: window._promote_preview(t))
+        return action
     if track.on_ipod:
         action.set_label("Remove")
         action.connect(
@@ -1946,11 +2092,16 @@ class StorageMeter(Gtk.Box):
 # --------------------------------------------------------------------- player
 
 # What the now-playing bar is showing. "loading" is its own state rather than a
-# flavour of playing because the gap is real and visible: a flushing seek, a
-# track read over USB from the device, or a preview still being fetched all
-# leave the bar with a title and no timeline yet, and a seek bar that accepts
-# drags during that gap would silently drop them.
+# flavour of playing because the gap is real and visible: a flushing seek or a
+# track read over USB from the device leaves the bar with a title and no
+# timeline yet, and a seek bar that accepts drags during that gap would
+# silently drop them.
+#
+# "fetching" is the longer gap in front of that one, and separate from it
+# because there is no pipeline at all yet: the file is still being downloaded,
+# so there is nothing to pause, seek or step past for several seconds.
 PLAY_IDLE = "idle"
+PLAY_FETCHING = "fetching"
 PLAY_LOADING = "loading"
 PLAY_PLAYING = "playing"
 PLAY_PAUSED = "paused"
@@ -2030,8 +2181,41 @@ class PreviewPlayer:
         self.index = index
         self._start(tracks[index])
 
+    def fetch(self, track):
+        """Show a track that is still being downloaded before it can play.
+
+        The wait belongs in the bar rather than in a spinner elsewhere: the
+        download is happening because the user pressed play, and the bar is
+        where the result of pressing play appears.
+        """
+        self._teardown()
+        self.track = track
+        self.state = PLAY_FETCHING
+        self.error = None
+        self.position = 0.0
+        # From the search result, so the timeline is the right length before
+        # there is a file to ask. Corrected once the pipeline opens it.
+        self.duration = float(track.duration or 0)
+        self.queue = [track]
+        self.index = 0
+        self._changed()
+
+    def fail(self, track, message):
+        """Give up on a track that never became playable at all.
+
+        The queue goes with it: leaving the track in it would leave the play
+        button offering to start a file that was never downloaded.
+        """
+        self.queue = []
+        self.index = -1
+        self._fail(track, message)
+
     def toggle(self):
         """Pause what is playing, resume what is paused, restart what ended."""
+        if self.state == PLAY_FETCHING:
+            # Nothing exists to pause yet. The transport is insensitive while a
+            # download runs, so this is only reachable from the keyboard.
+            return
         if self.state in (PLAY_PLAYING, PLAY_LOADING):
             # Loading counts as playing here. The pipeline is already on its
             # way to PLAYING, pressing the button again means "no, stop", and
@@ -2078,6 +2262,29 @@ class PreviewPlayer:
         )
         self.position = target
         self._settle = SEEK_SETTLE_POLLS
+        self._changed()
+
+    def forget(self, paths):
+        """Drop tracks whose files have gone.
+
+        The queue is what previous and next walk and what the play button
+        resumes, so a pruned or cleared preview left in it is a control that
+        fails on every press.
+        """
+        paths = {str(path) for path in paths}
+        if self.track is not None and self.track.path in paths:
+            self.stop()
+        remaining = [track for track in self.queue if track.path not in paths]
+        if len(remaining) == len(self.queue):
+            return
+        current = self.queue[self.index] if 0 <= self.index < len(self.queue) else None
+        self.queue = remaining
+        if current in remaining:
+            self.index = remaining.index(current)
+        else:
+            # Whatever was current has gone. Play then starts the queue from
+            # the top rather than being a button that does nothing.
+            self.index = 0 if remaining else -1
         self._changed()
 
     def stop(self):
@@ -2325,6 +2532,13 @@ class IpodWindow(Adw.ApplicationWindow):
         self.search_add_buttons = []
         self._search_timeout = None
 
+        # Bumped whenever a preview is asked for, so a download that is still
+        # running when the next one starts cannot land in the bar behind it.
+        self.preview_generation = 0
+        self._preview_process = None
+        self._preview_lock = threading.Lock()
+        self._preview_closed = False
+
         self.library = LibraryIndex()
         self.device_tracks = []
         self._device_scan_tracks = {}
@@ -2401,11 +2615,17 @@ class IpodWindow(Adw.ApplicationWindow):
         # could stop.
         self.connect("close-request", self._on_close_request)
 
+        self._populate_cache_card()
         self.refresh()
         self._rescan_library()
 
     def _on_close_request(self, _window):
         self.player.shutdown()
+        # A download outlives the window that started it otherwise, writing
+        # into a cache nothing is left to show or prune.
+        with self._preview_lock:
+            self._preview_closed = True
+        self._supersede_preview_fetch()
         return False
 
     def _apply_theme(self):
@@ -2905,11 +3125,7 @@ class IpodWindow(Adw.ApplicationWindow):
         row = Gtk.Box(spacing=12)
         row.add_css_class("sf-track-row")
         row.add_css_class("sf-result-row")
-        # The generated placeholder rather than the video's thumbnail, which is
-        # a separate piece of work. Using the same placeholder a local track
-        # with no embedded cover gets keeps the two sections reading as one
-        # page instead of two widgets that happen to be stacked.
-        row.append(make_cover(None, 36, result.video_id or result.title, "small"))
+        row.append(self._preview_cover(result))
 
         text = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -2941,6 +3157,44 @@ class IpodWindow(Adw.ApplicationWindow):
         row.append(add)
         self.search_add_buttons.append(add)
         return row
+
+    def _preview_cover(self, result):
+        """A result's placeholder artwork, which plays it under the pointer.
+
+        The generated placeholder rather than the video's thumbnail, which is a
+        separate piece of work. Using the same placeholder a local track with
+        no embedded cover gets, behind the same hover-to-play button a library
+        row has, keeps the two halves of the page reading as one list rather
+        than as two widgets that happen to be stacked.
+        """
+        overlay = Gtk.Overlay(valign=Gtk.Align.CENTER)
+        overlay.set_child(make_cover(None, 36, result.video_id or result.title, "small"))
+        play = Gtk.Button(icon_name="media-playback-start-symbolic")
+        play.add_css_class("sf-cover-play")
+        play.set_size_request(36, 36)
+        reason = self._preview_unavailable_reason(result)
+        if reason:
+            play.set_sensitive(False)
+            play.set_tooltip_text(reason)
+        else:
+            play.set_tooltip_text(f"Preview {result.title} on this computer")
+        play.connect("clicked", lambda _b, r=result: self.preview_result(r))
+        overlay.add_overlay(play)
+        return overlay
+
+    def _preview_unavailable_reason(self, result):
+        """Why this result cannot be previewed, or None.
+
+        A result already in the cache needs nothing but GStreamer to play. One
+        that is not has to be downloaded first, so it needs everything a
+        download needs - and saying so on the button is the difference between
+        a disabled control and one that fails several steps later.
+        """
+        if self.preview_unavailable:
+            return self.preview_unavailable
+        if cached_preview_path(result.video_id, PREVIEW_CACHE) is not None:
+            return None
+        return self.youtube_unavailable
 
     def _youtube_download_tooltip(self):
         if self.youtube_unavailable:
@@ -3493,20 +3747,65 @@ class IpodWindow(Adw.ApplicationWindow):
         self.cache_clear = Gtk.Button(label="Clear")
         self.cache_clear.add_css_class("sf-button")
         self.cache_clear.set_sensitive(False)
+        self.cache_clear.connect("clicked", self.on_clear_cache)
         row.append(self.cache_clear)
         inner.append(row)
 
         inner.append(
             label(
-                "Adding a previewed track moves it into your library and out "
-                "of this cache. Nothing is cached yet - a search result is "
-                "downloaded only when you add it, until preview playback "
-                "lands.",
+                f"Adding a previewed track moves it into "
+                f"{home_relative(YOUTUBE_LIBRARY)} and out of this cache. Past "
+                f"{human_size(PREVIEW_CACHE_LIMIT)} the oldest previews are "
+                "dropped to make room; nothing here is on your iPod.",
                 "sf-caption",
                 wrap=True,
             )
         )
         return card
+
+    def _populate_cache_card(self):
+        previews = self.library.previews
+        total = sum(track.size for track in previews)
+        self.cache_figure.set_text(
+            f"{human_size(total)} · {plural(len(previews), 'file')}"
+        )
+        self.cache_meter.set_fractions(
+            total / PREVIEW_CACHE_LIMIT if PREVIEW_CACHE_LIMIT else 0.0, 0.0
+        )
+        self.cache_clear.set_sensitive(bool(previews) and not self.busy)
+
+    def on_clear_cache(self, _button):
+        """Throw the whole cache away.
+
+        No confirmation, unlike everything in the destructive card: nothing
+        here is on the iPod, nothing here is in a music folder, and every one
+        of these files can be downloaded again. The tree is removed rather than
+        the tracks that are listed, so anything a half-finished download left
+        behind goes with them.
+        """
+        previews = self.library.previews
+        freed = sum(track.size for track in previews)
+        removed = len(previews)
+        # Everything in the cache is about to go, including whatever the bar is
+        # playing out of it and anything queued behind that.
+        self.player.forget(track.path for track in previews)
+        # Generation as well as the process: a download that finished a moment
+        # ago has already handed its result to the main loop, and adding that
+        # file back would leave a track in the grid that was just deleted.
+        self._supersede_preview_fetch()
+        try:
+            shutil.rmtree(PREVIEW_CACHE)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            self._toast(f"Could not clear the preview cache: {exc}")
+            return
+        self.library.previews = []
+        self._populate_cache_card()
+        self._refresh_current_view()
+        self._toast(
+            f"Cleared {plural(removed, 'preview')} · {human_size(freed)} freed"
+        )
 
     def _build_destructive_card(self):
         card = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=11)
@@ -3785,6 +4084,10 @@ class IpodWindow(Adw.ApplicationWindow):
         next moves through the album or playlist on screen and in the order it
         is displayed in, which is what the user just sorted it into.
         """
+        # Whatever was being fetched is no longer what the bar is for. Without
+        # this it would arrive several seconds later and take the bar back off
+        # the track the user has just started.
+        self._supersede_preview_fetch()
         model = view.get_model()
         tracks = [model.get_item(i).track for i in range(model.get_n_items())]
         for index, candidate in enumerate(tracks):
@@ -3794,6 +4097,310 @@ class IpodWindow(Adw.ApplicationWindow):
         # Clicked in a view that has already been repainted out from under the
         # row. Playing the one track alone is better than refusing.
         self.player.play([track], 0)
+
+    def preview_result(self, result):
+        """Hear a YouTube result, downloading it into the cache if need be."""
+        if self.preview_unavailable:
+            return
+        cached = cached_preview_path(result.video_id, PREVIEW_CACHE)
+        if cached is not None:
+            self._supersede_preview_fetch()
+            self.player.play([self._preview_track(cached)], 0)
+            return
+        if self.youtube_unavailable:
+            return
+        self._start_preview_fetch(result)
+
+    def _preview_track(self, path):
+        """The Track for a cached file, indexing it if the scan has not.
+
+        A file can be in the cache without being in the list - it was
+        downloaded while the scan that would have found it was already
+        running - and refusing to play it then would be refusing to play a
+        file that is right there.
+        """
+        path = str(path)
+        for track in self.library.previews:
+            if track.path == path:
+                return track
+        try:
+            size = Path(path).stat().st_size
+        except OSError:
+            size = 0
+        track = Track(path, {"title": Path(path).stem, "size": size}, STATE_PREVIEW)
+        self.library.previews.append(track)
+        return track
+
+    def _start_preview_fetch(self, result):
+        """Download one result into the cache, then play it.
+
+        Deliberately not run through _run: that marks the whole window busy for
+        the several seconds a download takes, and previewing needs neither an
+        iPod attached nor the rest of the window to stop working. The only
+        thing it locks is the bar it is filling.
+        """
+        self._supersede_preview_fetch()
+        generation = self.preview_generation
+        # Named from the search result, so the bar says what is arriving rather
+        # than staying blank until it has. Replaced by the real thing, tags and
+        # all, once the file is on disk.
+        pending = Track(
+            "",
+            {
+                "title": result.title,
+                "artist": result.uploader,
+                "duration": result.duration,
+            },
+            STATE_PREVIEW,
+        )
+        self.player.fetch(pending)
+        threading.Thread(
+            target=self._preview_fetch_worker,
+            args=(result, generation, pending),
+            daemon=True,
+        ).start()
+
+    def _preview_fetch_worker(self, result, generation, pending):
+        """Fetch one result into the cache. Runs off the main loop."""
+        try:
+            PREVIEW_INCOMING.mkdir(parents=True, exist_ok=True)
+            staging = Path(tempfile.mkdtemp(dir=PREVIEW_INCOMING))
+        except OSError as exc:
+            GLib.idle_add(
+                self._fail_preview_fetch,
+                generation,
+                pending,
+                f"Could not write to the preview cache: {exc}",
+            )
+            return
+        try:
+            self._run_preview_fetch(
+                fetch_command(result.url, staging), generation, pending, staging
+            )
+        finally:
+            # Whatever it left behind goes with it, finished or interrupted.
+            # A partial download kept under .incoming would be counted by
+            # nothing and cleared by nothing short of emptying the cache.
+            shutil.rmtree(staging, ignore_errors=True)
+
+    def _run_preview_fetch(self, command, generation, pending, staging):
+        """Run the download and hand what it produced back to the main loop."""
+        launch_error = None
+        with self._preview_lock:
+            if generation != self.preview_generation or self._preview_closed:
+                return
+            try:
+                proc = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    start_new_session=True,
+                )
+            except (OSError, ValueError) as exc:
+                launch_error = exc
+            else:
+                self._preview_process = proc
+        if launch_error is not None:
+            GLib.idle_add(self._log, f"failed to run: {launch_error}\n")
+            GLib.idle_add(
+                self._fail_preview_fetch, generation, pending, PREVIEW_FAILED
+            )
+            return
+        if proc.stdout is not None:
+            for line in proc.stdout:
+                GLib.idle_add(self._log, line)
+        proc.wait()
+        with self._preview_lock:
+            if self._preview_process is proc:
+                self._preview_process = None
+            stale = (
+                generation != self.preview_generation or self._preview_closed
+            )
+        if stale:
+            return
+
+        # The staging directory is this run's manifest: it was empty, and
+        # nothing else writes to it. That is more reliable than parsing what
+        # yt-dlp reported, which older versions cannot report at all.
+        produced = sorted(
+            path
+            for path in staging.rglob("*")
+            if path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS
+        )
+        if not produced:
+            GLib.idle_add(
+                self._fail_preview_fetch, generation, pending, PREVIEW_FAILED
+            )
+            return
+
+        source = produced[0]
+        destination = PREVIEW_CACHE / source.relative_to(staging)
+        move_error = None
+        with self._preview_lock:
+            if generation != self.preview_generation or self._preview_closed:
+                return
+            try:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(source), str(destination))
+            except OSError as exc:
+                move_error = exc
+        if move_error is not None:
+            GLib.idle_add(
+                self._fail_preview_fetch,
+                generation,
+                pending,
+                f"Could not move the preview into the cache: {move_error}",
+            )
+            return
+
+        # Read here rather than on the main loop: the tags come from a second
+        # process, and the whole point of downloading off the main loop is not
+        # to hand it the slow half afterwards.
+        records, _complete, _skipped = scan_tracks(files=[str(destination)])
+        GLib.idle_add(
+            self._finish_preview_fetch,
+            generation,
+            str(destination),
+            records[0] if records else {},
+        )
+
+    def _finish_preview_fetch(self, generation, path, record):
+        if generation != self.preview_generation:
+            return False
+        track = Track(path, record, STATE_PREVIEW)
+        self.library.previews = [
+            existing for existing in self.library.previews if existing.path != path
+        ] + [track]
+        # Kept out of the pruning it triggers: it is over the limit only
+        # because it just arrived, and dropping the file the user is waiting
+        # to hear would be the one deletion they would notice.
+        self._prune_preview_cache(keep=[path])
+        self._populate_cache_card()
+        self._refresh_current_view()
+        self.player.play([track], 0)
+        return False
+
+    def _fail_preview_fetch(self, generation, track, message):
+        if generation != self.preview_generation:
+            return False
+        self.player.fail(track, message)
+        return False
+
+    def _supersede_preview_fetch(self):
+        """Disown a download because something else is taking the bar."""
+        with self._preview_lock:
+            self.preview_generation += 1
+            proc = self._preview_process
+            self._preview_process = None
+        self._terminate_preview_process(proc)
+
+    def _cancel_preview_fetch(self):
+        """Stop a download whose result nothing is waiting for any more."""
+        with self._preview_lock:
+            proc = self._preview_process
+            self._preview_process = None
+        self._terminate_preview_process(proc)
+
+    @staticmethod
+    def _terminate_preview_process(proc):
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            pass
+
+    def _prune_preview_cache(self, keep=()):
+        """Drop the oldest previews once the cache has passed its limit."""
+        playing = self.player.track
+        protected = list(keep) + ([playing.path] if playing else [])
+        entries = preview_cache_entries(PREVIEW_CACHE)
+        dropped = set()
+        for path in prunable_previews(entries, PREVIEW_CACHE_LIMIT, protected):
+            try:
+                path.unlink()
+            except OSError:
+                continue
+            dropped.add(str(path))
+            self._forget_empty_preview_folders(path.parent)
+        if dropped:
+            self.library.previews = [
+                track for track in self.library.previews if track.path not in dropped
+            ]
+            self.player.forget(dropped)
+
+    @staticmethod
+    def _forget_empty_preview_folders(folder):
+        """Take the artist folder with the last preview that left it."""
+        folder = Path(folder)
+        while PREVIEW_CACHE in folder.parents:
+            try:
+                folder.rmdir()
+            except OSError:
+                return
+            folder = folder.parent
+
+    def _promote_preview(self, track):
+        """Keep a previewed track: out of the cache, into the library.
+
+        Add means the same thing here as everywhere else - this is a track I
+        want - but a previewed file lives in a cache that gets pruned, so
+        keeping it has to move it before anything is queued.
+        """
+        if track.state != STATE_PREVIEW:
+            return
+        source = Path(track.path)
+        if not source.is_file():
+            # Pruned, or cleared from another window, between the row being
+            # drawn and the button being pressed. Saying so beats an error
+            # about a path the user never saw.
+            self.library.previews = [
+                existing for existing in self.library.previews if existing is not track
+            ]
+            self._populate_cache_card()
+            self._refresh_current_view()
+            self._toast("That preview is no longer in the cache")
+            return
+        destination = promote_destination(source, PREVIEW_CACHE, YOUTUBE_LIBRARY)
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists():
+                # The same video, downloaded directly on an earlier day. The
+                # copy already in the library is the one to keep; overwriting
+                # it with the cached duplicate would gain nothing and could
+                # lose tags edited since.
+                source.unlink()
+            else:
+                shutil.move(str(source), str(destination))
+        except OSError as exc:
+            self._toast(f"Could not move the preview into your library: {exc}")
+            return
+        self._forget_empty_preview_folders(source.parent)
+
+        track.path = str(destination)
+        track.relpath = str(destination)
+        track.state = STATE_LIBRARY
+        track.on_ipod = False
+        self.library.previews = [
+            existing for existing in self.library.previews if existing is not track
+        ]
+        # Into the scan's own index as well, so that a library scan finishing
+        # afterwards does not drop the track that was just kept.
+        self._library_scan_tracks[track.path] = track
+        self.library.tracks = list(self._library_scan_tracks.values())
+        self._merge_states()
+        self._populate_cache_card()
+        self._update_now_playing()
+
+        kept = f"Kept in {home_relative(YOUTUBE_LIBRARY)}"
+        if self.mount_point and self.device_identity is not None:
+            queued = self._queue_sources({track.path: [track]}, show_toast=False)
+            self._toast(f"{kept} and queued for sync" if queued else kept)
+            return
+        self._refresh_current_view()
+        self._toast(kept)
 
     def on_play_clicked(self, _button):
         self.player.toggle()
@@ -3860,20 +4467,24 @@ class IpodWindow(Adw.ApplicationWindow):
             self.playing_stack.set_visible_child_name("transport")
 
         playing = player.state == PLAY_PLAYING
+        # A download has nothing behind it to drive yet, so the transport reads
+        # as the idle one until the file lands. The title and the "Fetching
+        # preview…" caption are what say the bar is busy.
+        ready = loaded and player.state != PLAY_FETCHING
         self.transport_buttons["play"].set_icon_name(
             "media-playback-pause-symbolic" if playing
             else "media-playback-start-symbolic"
         )
         self.transport_buttons["play"].set_sensitive(
-            loaded or bool(player.queue)
+            ready or (bool(player.queue) and player.state != PLAY_FETCHING)
         )
-        self.transport_buttons["previous"].set_sensitive(loaded)
+        self.transport_buttons["previous"].set_sensitive(ready)
         self.transport_buttons["next"].set_sensitive(
-            loaded and player.index + 1 < len(player.queue)
+            ready and player.index + 1 < len(player.queue)
         )
         # Dimmed while there is nothing to drive, which is the design's idle
         # bar: insensitive controls alone still read as controls you could use.
-        self.playing_stack.set_opacity(1.0 if loaded else 0.32)
+        self.playing_stack.set_opacity(1.0 if ready else 0.32)
 
         seekable = player.seekable
         self.seek_scale.set_sensitive(seekable)
@@ -3902,9 +4513,11 @@ class IpodWindow(Adw.ApplicationWindow):
             # The middle of the bar is already carrying the reason; repeating a
             # truncated copy of it here would only compete with it.
             return ""
+        if player.state == PLAY_FETCHING:
+            return "Fetching preview…"
         if player.state == PLAY_LOADING:
-            if player.track is not None and player.track.state == STATE_PREVIEW:
-                return "Fetching preview…"
+            # Opening, not fetching, even for a preview: by this point the file
+            # is on disk and this is the same second a library track takes.
             return "Opening…"
         if player.track is not None and player.track.state == STATE_PREVIEW:
             return "Previewed - add to keep"
@@ -4410,6 +5023,30 @@ class IpodWindow(Adw.ApplicationWindow):
                     batch.clear()
                     GLib.idle_add(self._apply_library_batch, generation, ready)
 
+            # The cache first, because it is small and holds the tracks the
+            # window is most likely to be asked about again. A cache that does
+            # not exist yet fails this scan, which is the same as holding
+            # nothing.
+            records, complete, _skipped = scan_tracks(
+                PREVIEW_CACHE,
+                cancelled=lambda: generation != self.scan_generation,
+            )
+            if generation != self.scan_generation:
+                return
+            if complete:
+                GLib.idle_add(
+                    self._apply_preview_scan,
+                    generation,
+                    [
+                        Track(PREVIEW_CACHE / record["path"], record, STATE_PREVIEW)
+                        for record in records
+                        if not any(
+                            part.startswith(".")
+                            for part in Path(record["path"]).parts
+                        )
+                    ],
+                )
+
             for root in roots:
                 _records, complete, _skipped_symlinks = scan_tracks(
                     root,
@@ -4428,6 +5065,26 @@ class IpodWindow(Adw.ApplicationWindow):
             GLib.idle_add(self._finish_library_scan, generation)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_preview_scan(self, generation, previews):
+        """Take what the cache holds, keeping anything that landed meanwhile.
+
+        Merged rather than replaced: a preview downloaded while this scan was
+        running is on disk but was not there when it started, and dropping it
+        would take a track out of the grid the moment it arrived in it.
+        """
+        if generation != self.scan_generation:
+            return False
+        merged = {
+            track.path: track for track in previews if Path(track.path).is_file()
+        }
+        for track in self.library.previews:
+            if track.path not in merged and Path(track.path).exists():
+                merged[track.path] = track
+        self.library.previews = list(merged.values())
+        self._populate_cache_card()
+        self._refresh_current_view(scan_complete=False)
+        return False
 
     def _apply_library_batch(self, generation, tracks):
         if generation != self.scan_generation:
@@ -5341,6 +5998,9 @@ class IpodWindow(Adw.ApplicationWindow):
         self.busy = busy
         for widget in self._busy_widgets:
             widget.set_sensitive(not busy)
+        # Not in _busy_widgets, because whether it is sensitive depends on
+        # there being something to clear as well as on nothing running.
+        self._populate_cache_card()
         if not busy:
             self._update_device_controls()
 
@@ -5761,16 +6421,7 @@ class IpodWindow(Adw.ApplicationWindow):
         handle, new_tracks = tempfile.mkstemp(prefix="ipod-fetch-", suffix=".list")
         os.close(handle)
 
-        fetch = [
-            str(FETCH_SCRIPT),
-            "--output",
-            str(YOUTUBE_LIBRARY),
-            "--new-tracks",
-            new_tracks,
-        ]
-        if single:
-            fetch.append("--single")
-        fetch.append(url)
+        fetch = fetch_command(url, YOUTUBE_LIBRARY, new_tracks, single)
 
         def failed():
             try:

@@ -107,7 +107,7 @@ A coloured marker on every album and track says which of three states it is in, 
 | Hollow | In library | On this computer, not yet synced |
 | Dashed | Previewed only | Downloaded just so it could be heard, never added |
 
-Nothing creates the third state yet; it arrives with the preview cache, which will keep a downloaded track outside your music folder until you add it.
+The third state is what previewing a YouTube result produces: the file is kept in a cache outside your music folders until you add it, so hearing twenty songs does not add twenty of them to your library.
 An album counts as *On iPod* only when all of it is, because a half-synced album badged otherwise would be a lie the shuffle gives you no way to investigate.
 
 Adding no longer copies immediately.
@@ -125,6 +125,7 @@ That view is deliberately not sortable: a playlist's order is the one thing you 
 The search field at the top of the window queries two sources at once.
 Your indexed music folders answer immediately, matching every word of the query in any order across title, artist and album, so "queen rhapsody" finds a track tagged *Bohemian Rhapsody* by *Queen*.
 For queries of at least two characters, YouTube answers a second or so later with up to three matches; a reserved three-row placeholder keeps the page steady while it waits.
+Hovering a result's artwork turns it into a play button, the same as a track you already have, and pressing it downloads that video into the preview cache and plays it.
 Once an iPod is connected, adding one of those results downloads it as MP3 and queues it, the same as pasting its link would.
 Pasting a link into the search field looks that link up rather than searching for its text, so you can see what a URL actually is before adding it.
 
@@ -137,6 +138,7 @@ The two halves fail independently and each explains problems inline in its own s
 | Offline, or rate-limited | The section says it could not reach YouTube, which is not the same as finding nothing |
 | Nothing matched | Each half says so on its own, since one can find something when the other does not |
 | A download stopped part-way | The section says which track, and points at **Details** for what `yt-dlp` reported |
+| A preview would not download | The now-playing bar says so in place of its controls, since that is where the track you asked for was named |
 
 Searching needs only `yt-dlp`, because reading a title is not the part YouTube protects.
 Downloading needs `ffmpeg` and a JavaScript runtime as well, so the search field stays useful on a machine where the download would fail.
@@ -153,7 +155,8 @@ Hovering a track's artwork turns it into a play button, and pressing it plays th
 Nothing reaches the iPod.
 The shuffle has no way to be told what to play, so previewing is how you hear a track before deciding to spend 2GB of flash on it.
 
-The bar along the bottom of the window carries the transport, and says which of four things it is doing: nothing, opening a track, playing a file from your library, or playing something downloaded only so it could be heard.
+The bar along the bottom of the window carries the transport, and says which of five things it is doing: nothing, fetching a preview, opening a track, playing a file from your library, or playing something downloaded only so it could be heard.
+While a preview is being fetched the transport stays dimmed, because there is nothing to pause or seek yet, and the bar names the track that is arriving rather than sitting blank for the few seconds it takes.
 
 ![The now-playing bar showing cover art, title, artist, transport controls and a timeline](docs/now-playing.png)
 
@@ -172,6 +175,19 @@ sudo apt install gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base \
 
 Without them the window still runs and everything else still works.
 The bar states what is missing in place of its controls rather than offering buttons that quietly do nothing, and a file GStreamer cannot decode is reported the same way, in GStreamer's own words, because those are what name the plugin you would have to install.
+
+### The preview cache
+
+Previewing a YouTube result downloads it before playing, which takes a few seconds rather than starting instantly.
+That is deliberate: `yt-dlp`'s media URLs are short-lived and tied to the address that asked for them, seeking over one is unreliable, and streaming would throw the work away, so adding the track afterwards would fetch the whole thing a second time.
+
+Those downloads go to `~/.cache/ipod-shuffle-linux/previews` by default, or under `$XDG_CACHE_HOME` when it is set, not to your music folder.
+A previewed track shows up in your library grid with a dashed marker, and pressing **Add** on it is what moves it into `~/Music/youtube` and out of the cache, queueing it for the next sync at the same time if an iPod is connected.
+Unlike every other **Add**, that works with nothing plugged in, because keeping a download is something you do to your own music folder.
+
+**Device & Settings** shows what the cache is holding and can empty it in one press.
+Past 512 MB, roughly seventy songs, the oldest previews are dropped as new ones arrive; whatever is playing is never one of them.
+Nothing in the cache is on the iPod, and nothing in it is lost by clearing it beyond having to download it again.
 
 The interface follows the system light and dark preference, and folds its sidebar away below 780px.
 
@@ -605,6 +621,7 @@ The failed-write check is skipped when the suite runs as root because root ignor
 The GUI checks call its methods unbound against a stand-in, so they exercise the real logic without needing a display.
 PyGObject still has to be importable, because the module imports it at load time.
 Preview playback is checked the same way, against a stand-in pipeline whose messages the test delivers by hand: GStreamer only reports a track ending, or failing to decode, on a running main loop, and it is optional besides, so a suite that needed it installed would be skipped exactly where the state machine is least exercised.
+The preview cache is the exception: promoting, pruning and clearing are checked against real files in a temporary directory, because a promotion that leaves the file where it was would look identical in memory and lose the track at the next prune.
 
 `.github/workflows/tests.yml` runs the suite, `shellcheck`, and a Python syntax check on every push and pull request.
 
