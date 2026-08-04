@@ -204,8 +204,7 @@ def queued_probe_cancelled():
 
 
 gui.find_ipods = lambda: detection_calls.append(True) or []
-gui.DEVICE_IO_LOCK.acquire()
-try:
+with gui.DEVICE_IO_LOCK.write():
     queued_probe = threading.Thread(
         target=lambda: queued_probe_result.append(
             gui.probe_device(cancelled=queued_probe_cancelled)
@@ -214,8 +213,6 @@ try:
     queued_probe.start()
     assert first_cancel_check.wait(5), "queued probe did not check cancellation"
     cancel_queued_probe.set()
-finally:
-    gui.DEVICE_IO_LOCK.release()
 queued_probe.join(5)
 gui.find_ipods = original_find_ipods
 assert not queued_probe.is_alive(), "cancelled probe remained queued"

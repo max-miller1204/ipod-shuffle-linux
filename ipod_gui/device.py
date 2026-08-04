@@ -11,14 +11,70 @@ import re
 import shutil
 import subprocess
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from gi.repository import Gio, GLib
 
 
-# Probes and tag scans must not overlap scripts or other device mutations.
-# Callers take this only on worker threads so waiting never blocks the window.
-DEVICE_IO_LOCK = threading.RLock()
+class _DeviceIOLock:
+    """Let device readers overlap while excluding mutations.
+
+    Probes and tag scans only read, so blocking one behind the other can hide
+    an unplugged device for the full timeout of a stuck read. Writers wait for
+    all readers and prevent new readers until the mutation is complete.
+    """
+
+    def __init__(self):
+        self._condition = threading.Condition()
+        self._readers = 0
+        self._writer = False
+        self._waiting_writers = 0
+        self._owners = set()
+
+    @contextmanager
+    def read(self):
+        thread_id = threading.get_ident()
+        with self._condition:
+            if thread_id in self._owners:
+                raise RuntimeError("device I/O lock is not reentrant")
+            while self._writer or self._waiting_writers:
+                self._condition.wait()
+            self._readers += 1
+            self._owners.add(thread_id)
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._owners.remove(thread_id)
+                self._readers -= 1
+                if self._readers == 0:
+                    self._condition.notify_all()
+
+    @contextmanager
+    def write(self):
+        thread_id = threading.get_ident()
+        with self._condition:
+            if thread_id in self._owners:
+                raise RuntimeError("device I/O lock is not reentrant")
+            self._waiting_writers += 1
+            try:
+                while self._writer or self._readers:
+                    self._condition.wait()
+                self._writer = True
+                self._owners.add(thread_id)
+            finally:
+                self._waiting_writers -= 1
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._owners.remove(thread_id)
+                self._writer = False
+                self._condition.notify_all()
+
+
+DEVICE_IO_LOCK = _DeviceIOLock()
 
 
 def find_ipods():
@@ -408,7 +464,7 @@ def probe_device(cancelled=None):
     """
     if cancelled is not None and cancelled():
         return DeviceProbe([])
-    with DEVICE_IO_LOCK:
+    with DEVICE_IO_LOCK.read():
         if cancelled is not None and cancelled():
             return DeviceProbe([])
         return _probe_device(cancelled)

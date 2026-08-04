@@ -768,7 +768,10 @@ busy_window.pending = set()
 scan_entered = threading.Event()
 allow_scan_exit = threading.Event()
 scan_cancelled = threading.Event()
-lock_acquired = threading.Event()
+concurrent_reader_acquired = threading.Event()
+writer_acquired = threading.Event()
+release_writer = threading.Event()
+blocked_reader_acquired = threading.Event()
 original_scan_tracks = gui.scan_tracks
 
 
@@ -781,18 +784,30 @@ def blocking_device_scan(_music, on_record=None, cancelled=None):
     return [], False, 0
 
 
-def wait_for_device_io():
-    with gui.DEVICE_IO_LOCK:
-        lock_acquired.set()
+def read_device_io(acquired):
+    with gui.DEVICE_IO_LOCK.read():
+        acquired.set()
+
+
+def write_device_io():
+    with gui.DEVICE_IO_LOCK.write():
+        writer_acquired.set()
+        release_writer.wait(5)
 
 
 gui.scan_tracks = blocking_device_scan
 try:
     gui.IpodWindow._load_device_tracks_async(busy_window)
     assert scan_entered.wait(5), "device tag scan did not start"
-    lock_waiter = threading.Thread(target=wait_for_device_io, daemon=True)
-    lock_waiter.start()
-    assert not lock_acquired.wait(0.1), "device tag scan did not hold the lock"
+    concurrent_reader = threading.Thread(
+        target=read_device_io, args=(concurrent_reader_acquired,), daemon=True
+    )
+    concurrent_reader.start()
+    assert concurrent_reader_acquired.wait(5), "device readers blocked each other"
+
+    writer = threading.Thread(target=write_device_io, daemon=True)
+    writer.start()
+    assert not writer_acquired.wait(0.1), "writer overlapped a device reader"
 
     tag_generation = busy_window.tag_generation
     tag_cancelled = lambda: tag_generation != busy_window.tag_generation
@@ -802,9 +817,18 @@ try:
     assert tag_cancelled(), "starting a command left the tag scan current"
     assert probe_cancelled(), "starting a command left the device probe running"
     assert scan_cancelled.wait(5), "device tag scan did not stop"
-    assert lock_acquired.wait(5), "device tag scan did not release the lock"
+    assert writer_acquired.wait(5), "writer did not start after readers drained"
+
+    blocked_reader = threading.Thread(
+        target=read_device_io, args=(blocked_reader_acquired,), daemon=True
+    )
+    blocked_reader.start()
+    assert not blocked_reader_acquired.wait(0.1), "reader overlapped a writer"
+    release_writer.set()
+    assert blocked_reader_acquired.wait(5), "reader did not follow the writer"
 finally:
     allow_scan_exit.set()
+    release_writer.set()
     gui.scan_tracks = original_scan_tracks
 
 gui.IpodWindow._set_busy(busy_window, False)

@@ -2915,7 +2915,7 @@ class IpodWindow(Adw.ApplicationWindow):
                         ready,
                     )
 
-            with DEVICE_IO_LOCK:
+            with DEVICE_IO_LOCK.read():
                 _records, complete, _skipped_symlinks = scan_tracks(
                     music,
                     on_record=publish,
@@ -3907,7 +3907,7 @@ class IpodWindow(Adw.ApplicationWindow):
                     GLib.idle_add(self._log, f"failed to run: {exc}\n")
 
             if device_command:
-                with DEVICE_IO_LOCK:
+                with DEVICE_IO_LOCK.write():
                     mount_index = argv.index("--ipod") + 1
                     mount_point = str(argv[mount_index])
                     if (
@@ -4407,7 +4407,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self._set_busy(True, "Ejecting")
 
         def worker():
-            with DEVICE_IO_LOCK:
+            with DEVICE_IO_LOCK.write():
                 current = resolve_device(
                     self.mount_point, expected_identity, require_block=True
                 )
@@ -4449,7 +4449,7 @@ class IpodWindow(Adw.ApplicationWindow):
         self._set_busy(True, "Mounting")
 
         def worker():
-            with DEVICE_IO_LOCK:
+            with DEVICE_IO_LOCK.write():
                 for device in candidates:
                     ok, message = udisks_filesystem_call(device, "Mount")
                     if not ok:
