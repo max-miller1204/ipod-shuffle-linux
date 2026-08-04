@@ -1,0 +1,7 @@
+{
+  "concurrent_readers": true,
+  "writer_overlapped_reader": false,
+  "reader_bypassed_waiting_writer": false,
+  "reader_overlapped_writer": false,
+  "reader_resumed_after_writer": true
+}

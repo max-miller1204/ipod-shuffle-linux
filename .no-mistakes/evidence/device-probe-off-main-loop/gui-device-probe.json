@@ -1,0 +1,24 @@
+{
+  "restored_gui_state": {
+    "playlist_mode": "By genre",
+    "speak_tracks": true,
+    "speak_playlists": true
+  },
+  "sync_script_arguments": [
+    "--id3-playlists={genre}",
+    "--voiceover",
+    "--playlist-voiceover"
+  ],
+  "device_probe": {
+    "mount_point": "/tmp/no-mistakes-probe.56WaJj/Alexs iPod",
+    "readable": true,
+    "tracks": 1,
+    "playlists": [
+      "Favorites"
+    ],
+    "spoken": [
+      "favorites"
+    ],
+    "free_bytes": 350786834432
+  }
+}

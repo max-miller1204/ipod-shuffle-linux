@@ -810,9 +810,15 @@ try:
     assert not writer_acquired.wait(0.1), "writer overlapped a device reader"
 
     tag_generation = busy_window.tag_generation
-    tag_cancelled = lambda: tag_generation != busy_window.tag_generation
+
+    def tag_cancelled():
+        return tag_generation != busy_window.tag_generation
+
     probe_generation = busy_window.probe_generation
-    probe_cancelled = lambda: probe_generation != busy_window.probe_generation
+
+    def probe_cancelled():
+        return probe_generation != busy_window.probe_generation
+
     gui.IpodWindow._set_busy(busy_window, True, "Changing the device")
     assert tag_cancelled(), "starting a command left the tag scan current"
     assert probe_cancelled(), "starting a command left the device probe running"

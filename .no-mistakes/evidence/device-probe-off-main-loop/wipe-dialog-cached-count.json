@@ -1,0 +1,14 @@
+{
+  "heading": "Wipe this iPod?",
+  "body": "All 90 track(s) will be removed from the device.\n\nBacking up first is strongly recommended: iPod filenames are scrambled codes, and the database that maps them back to real song titles is deleted too.",
+  "responses": {
+    "cancel": "Cancel",
+    "wipe": "Wipe Without Backup",
+    "backup": "Back Up and Wipe"
+  },
+  "default": "backup",
+  "close": "cancel",
+  "callback": "response",
+  "identity": "uuid:test",
+  "presented": true
+}

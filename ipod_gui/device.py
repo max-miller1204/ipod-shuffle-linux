@@ -1,7 +1,7 @@
 """Finding the iPod and reading what is on it, over USB.
 
-Everything here talks to a mounted device or to udisks, so every call can be
-slow enough to matter on the main loop.
+Device-facing operations here talk to a mounted device or to udisks, so they
+can be slow enough to matter on the main loop.
 """
 
 import hashlib
