@@ -17,8 +17,10 @@ would have been told, which is the same approach gui-state-smoke.py uses.
 """
 
 import json
+import tempfile
 import threading
 import time
+from pathlib import Path
 
 from harness import gui
 
@@ -127,6 +129,39 @@ vanished = probe_with(["/media/alex/GONE BEFORE IT WAS READ"])
 assert vanished.mount_point is None, vanished.mount_point
 assert vanished.readable is False, vanished.readable
 assert vanished.track_count == 0, vanished.track_count
+
+with tempfile.TemporaryDirectory() as temporary:
+    mount_point = Path(temporary)
+    control = mount_point / "iPod_Control"
+    control.mkdir()
+    original_count_tracks = gui.count_tracks
+
+    def remove_control(_mount_point, cancelled=None):
+        control.rmdir()
+        return 0
+
+    gui.count_tracks = remove_control
+    try:
+        vanished_after_defaults = probe_with([str(mount_point)])
+    finally:
+        gui.count_tracks = original_count_tracks
+
+assert vanished_after_defaults.mount_point is None, vanished_after_defaults.mount_point
+assert vanished_after_defaults.readable is False, vanished_after_defaults.readable
+
+with tempfile.TemporaryDirectory() as temporary:
+    mount_point = Path(temporary)
+    (mount_point / "iPod_Control").mkdir()
+    identities = iter(("uuid:first", "uuid:replacement"))
+    original_volume_identity = gui.volume_identity
+    gui.volume_identity = lambda _mount_point: next(identities)
+    try:
+        replaced = probe_with([str(mount_point)])
+    finally:
+        gui.volume_identity = original_volume_identity
+
+assert replaced.mount_point is None, replaced.mount_point
+assert replaced.readable is False, replaced.readable
 
 unplugged = FakeWindow()
 gui.IpodWindow._apply_probe(unplugged, unplugged.probe_generation, vanished)

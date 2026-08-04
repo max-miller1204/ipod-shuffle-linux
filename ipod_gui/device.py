@@ -424,6 +424,12 @@ def probe_device(cancelled=None):
         # be read is still a device worth showing, and always has been.
         usage = None
 
+    if (
+        not Path(mount_point, "iPod_Control").is_dir()
+        or volume_identity(mount_point) != identity
+    ):
+        return DeviceProbe(candidates, readable=False)
+
     return DeviceProbe(
         candidates,
         mount_point=mount_point,

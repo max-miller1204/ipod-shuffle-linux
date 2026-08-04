@@ -124,6 +124,7 @@ class FakeWindow:
         self.mount_point = "/media/alex/Alex's iPod"
         self.device_identity = "uuid:test-ipod"
         self.busy = False
+        self.probe_generation = 0
         self.discovering_sources = False
         self.source_generation = 0
         self._device_scan_active = False
@@ -762,6 +763,11 @@ for attr in (
 busy_window.youtube_unavailable = None
 busy_window.speech_engine_available = False
 busy_window.pending = set()
+
+probe_generation = busy_window.probe_generation
+probe_cancelled = lambda: probe_generation != busy_window.probe_generation
+gui.IpodWindow._set_busy(busy_window, True, "Changing the device")
+assert probe_cancelled(), "starting a command left the device probe running"
 
 gui.IpodWindow._set_busy(busy_window, False)
 assert not busy_window.playlist_button.sensitive, "busy reset enabled Add Playlist"

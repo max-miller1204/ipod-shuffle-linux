@@ -3751,6 +3751,8 @@ class IpodWindow(Adw.ApplicationWindow):
     # --------------------------------------------------------- busy plumbing
 
     def _set_busy(self, busy, message=""):
+        if busy:
+            self.probe_generation += 1
         self.busy = busy
         for widget in self._busy_widgets:
             widget.set_sensitive(not busy)
