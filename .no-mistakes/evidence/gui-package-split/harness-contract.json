@@ -1,0 +1,32 @@
+{
+  "declared_modules": [
+    "config",
+    "text",
+    "tags",
+    "device",
+    "shell",
+    "youtube",
+    "previews",
+    "model",
+    "theme",
+    "widgets",
+    "player",
+    "window",
+    "app"
+  ],
+  "find_ipods_holders": [
+    "ipod_gui.device",
+    "ipod_gui.window"
+  ],
+  "replacement_reached_every_holder": true,
+  "unknown_assignment_rejected": "no ipod_gui module holds 'name_that_no_module_holds', so replacing it here would leave every caller running the real one",
+  "audio_extensions": [
+    ".aa",
+    ".m4a",
+    ".m4b",
+    ".m4p",
+    ".mp3",
+    ".wav"
+  ],
+  "launcher_main_callable": true
+}

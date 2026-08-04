@@ -1,0 +1,12 @@
+{
+  "restored_gui_state": {
+    "playlist_mode": "By genre",
+    "speak_tracks": true,
+    "speak_playlists": true
+  },
+  "sync_script_arguments": [
+    "--id3-playlists={genre}",
+    "--voiceover",
+    "--playlist-voiceover"
+  ]
+}
