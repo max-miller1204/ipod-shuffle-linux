@@ -4186,29 +4186,29 @@ class IpodWindow(Adw.ApplicationWindow):
 
     def _run_preview_fetch(self, command, generation, pending, staging):
         """Run the download and hand what it produced back to the main loop."""
-        try:
-            proc = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                start_new_session=True,
-            )
-        except (OSError, ValueError) as exc:
-            GLib.idle_add(self._log, f"failed to run: {exc}\n")
+        launch_error = None
+        with self._preview_lock:
+            if generation != self.preview_generation or self._preview_closed:
+                return
+            try:
+                proc = subprocess.Popen(
+                    command,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    start_new_session=True,
+                )
+            except (OSError, ValueError) as exc:
+                launch_error = exc
+            else:
+                self._preview_process = proc
+        if launch_error is not None:
+            GLib.idle_add(self._log, f"failed to run: {launch_error}\n")
             GLib.idle_add(
                 self._fail_preview_fetch, generation, pending, PREVIEW_FAILED
             )
             return
-        with self._preview_lock:
-            stale = (
-                generation != self.preview_generation or self._preview_closed
-            )
-            if not stale:
-                self._preview_process = proc
-        if stale:
-            self._terminate_preview_process(proc)
         if proc.stdout is not None:
             for line in proc.stdout:
                 GLib.idle_add(self._log, line)

@@ -88,7 +88,26 @@ pending = ipod_gui.Track(
 )
 
 window = Window()
-window._preview_fetch_worker(result, window.preview_generation, pending)
+real_popen = ipod_gui.subprocess.Popen
+owned_launches = []
+
+
+def owned_popen(*args, **kwargs):
+    if kwargs.get("start_new_session"):
+        acquired = window._preview_lock.acquire(blocking=False)
+        if acquired:
+            window._preview_lock.release()
+        assert not acquired, "preview process launched without ownership"
+        owned_launches.append(args[0])
+    return real_popen(*args, **kwargs)
+
+
+ipod_gui.subprocess.Popen = owned_popen
+try:
+    window._preview_fetch_worker(result, window.preview_generation, pending)
+finally:
+    ipod_gui.subprocess.Popen = real_popen
+assert len(owned_launches) == 1, owned_launches
 
 expected = cache / "Test Artist" / "Test Track [testvideo].mp3"
 assert expected.is_file(), sorted(str(p) for p in cache.rglob("*"))
