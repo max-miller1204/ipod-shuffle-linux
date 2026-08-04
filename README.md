@@ -72,8 +72,8 @@ Building it from pip requires the gobject-introspection and cairo development he
 GTK4 itself is a C library that no virtualenv can contain.
 The distro's `python3-gi` is smaller, already built, and better tested.
 
-GStreamer is reached through those same bindings, so its typelib and plugins are system packages for the same reason.
-They are also codecs rather than Python at all, and no virtualenv can hold one.
+GStreamer is reached through those same bindings, so its typelib belongs to the system Python too.
+Its plugins are native libraries rather than Python packages, and a virtualenv cannot contain them.
 
 `pico2wave` and `ffmpeg` are plain binaries rather than Python packages, so they have no virtualenv to go in either.
 
@@ -179,7 +179,7 @@ sudo apt install gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base \
 
 `plugins-base` carries the player itself, `plugins-good` the MP3 and WAV decoders and the connection to your sound card, and `plugins-bad` the AAC decoder the shuffle's `.m4a` files need.
 All four are offered together because they are one working set.
-The probe proves the player and the sound card, so a machine holding some of the decoders and not others is reported a file at a time instead, which is the case below.
+The probe proves the player and automatic audio sink are available, so a machine holding some of the decoders and not others is reported a file at a time instead, which is the case below.
 
 Without them the window still runs and everything else still works.
 The bar states what is missing in place of its controls rather than offering buttons that quietly do nothing, and a file GStreamer cannot decode is reported the same way, in GStreamer's own words, because those are what name the plugin you would have to install.

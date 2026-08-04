@@ -1,0 +1,30 @@
+==> python3: Python 3.14.6
+==> GUI: GTK4 bindings present
+==> Voiceover: speech engine present
+==> Conversion: ffmpeg present
+==> YouTube downloads: node present
+
+==> These need the system package manager:
+  gir1.2-gstreamer-1.0
+  gstreamer1.0-plugins-base
+  gstreamer1.0-plugins-good
+  gstreamer1.0-plugins-bad
+
+==> Skipping (--no-system). To install them yourself:
+  sudo apt install gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+==> Desktop entry installed (look for iPod Shuffle in the app grid)
+==> Installing database builder into /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ5DG277DPGCBBVEHHZKJNF7/.no-mistakes/gstreamer-test.nCW0Vo/tools
+==> Database builder updated
+==> Installing Python dependencies
+==>   mutagen 1.47.0
+==>   yt-dlp 2026.08.03
+
+==> Verifying
+==>   metadata support    ok
+==>   youtube downloads   ok
+==>   graphical interface ok (/home/max/.local/share/uv/python-bin/python3)
+warning:   preview playback    unavailable (no GStreamer)
+
+==> Done.
+==>   GUI:  ./ipod-gui.sh
+==>   CLI:  ./ipod-sync.sh ~/Music/somefolder

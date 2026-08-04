@@ -1,0 +1,17 @@
+=== GTK present; GStreamer playback missing ===
+==> GUI: GTK4 bindings present
+==> These need the system package manager:
+  gir1.2-gstreamer-1.0
+  gstreamer1.0-plugins-base
+  gstreamer1.0-plugins-good
+  gstreamer1.0-plugins-bad
+  sudo apt install gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+==>   graphical interface ok (/home/max/.local/share/uv/python-bin/python3)
+warning:   preview playback    unavailable (no GStreamer)
+
+=== GTK and GStreamer playback present ===
+==> GUI: GTK4 bindings present
+==> Preview playback: GStreamer present
+==> All system dependencies satisfied
+==>   graphical interface ok (/home/max/.local/share/uv/python-bin/python3)
+==>   preview playback    ok

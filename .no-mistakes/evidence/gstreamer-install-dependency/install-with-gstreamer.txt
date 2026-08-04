@@ -1,0 +1,23 @@
+==> python3: Python 3.14.6
+==> GUI: GTK4 bindings present
+==> Preview playback: GStreamer present
+==> Voiceover: speech engine present
+==> Conversion: ffmpeg present
+==> YouTube downloads: node present
+==> All system dependencies satisfied
+==> Desktop entry installed (look for iPod Shuffle in the app grid)
+==> Installing database builder into /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ5DG277DPGCBBVEHHZKJNF7/.no-mistakes/gstreamer-test.nCW0Vo/tools
+==> Database builder updated
+==> Installing Python dependencies
+==>   mutagen 1.47.0
+==>   yt-dlp 2026.08.03
+
+==> Verifying
+==>   metadata support    ok
+==>   youtube downloads   ok
+==>   graphical interface ok (/home/max/.local/share/uv/python-bin/python3)
+==>   preview playback    ok
+
+==> Done.
+==>   GUI:  ./ipod-gui.sh
+==>   CLI:  ./ipod-sync.sh ~/Music/somefolder
