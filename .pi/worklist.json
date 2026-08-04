@@ -1,86 +1,116 @@
 {
   "version": 1,
-  "revision": 31,
+  "revision": 35,
   "goals": [
     {
-      "id": "goal-msdncj32-4e24ddce",
+      "id": "dual-source-search-local-library-plus",
       "title": "Dual-source search: local library plus YouTube",
       "description": "Design frames 1f, 1g and 1h. One search field querying two sources at once: the indexed local music folders (instant, already available via LibraryIndex in ipod-gui.py) and YouTube via 'yt-dlp ytsearch --flat-playlist --dump-json'. Local results paint immediately; YouTube results arrive 1-3s later into a reserved three-row skeleton so the layout never jumps. Note that youtube_unavailable_reason() is too strict to gate search on its own, because metadata search works without a JavaScript runtime; only the media download 403s. Reuse yt_dlp_bin and yt_dlp_supports from lib.sh. Design all five failure states: no JS runtime, ffmpeg missing, rate-limited or offline, download failed mid-fetch, and no results from either source. Each must be stated inline in place of the section that cannot load, never as a toast.",
       "status": "done",
       "createdAt": "2026-08-03T19:53:11.582Z",
-      "updatedAt": "2026-08-04T00:02:12.240Z"
+      "updatedAt": "2026-08-04T18:25:44.150Z",
+      "previousIds": [
+        "goal-msdncj32-4e24ddce"
+      ]
     },
     {
-      "id": "goal-msdnd27v-e6e6bf5d",
+      "id": "gstreamer-preview-playback-and-the-live",
       "title": "GStreamer preview playback and the live now-playing bar",
       "description": "The now-playing bar exists in ipod-gui.py in its idle state only; its transport controls are insensitive. Wire it to GStreamer playbin3 with position polled on a 250ms GLib timeout, per design frame 1n, which specifies all four bar states: idle, fetching, playing a local file, and playing a previewed track. Playback is preview only, on the computer's speakers, and never touches the iPod. Add a gst_available predicate to lib.sh modelled on find_gui_python - a separate function, because extending find_gui_python would make the whole GUI unavailable when GStreamer is missing - and reach it from the GUI through the existing lib_function_succeeds bridge. Adding system dependencies is approved, so this needs no further sign-off. Note python3-gi-cairo is still NOT required: the storage meter uses a CSS gradient rather than Cairo drawing, deliberately, because a missing converter would make the bar silently render as nothing.",
       "status": "done",
       "createdAt": "2026-08-03T19:53:36.378Z",
-      "updatedAt": "2026-08-04T01:06:12.398Z"
+      "updatedAt": "2026-08-04T18:25:44.150Z",
+      "previousIds": [
+        "goal-msdnd27v-e6e6bf5d"
+      ]
     },
     {
-      "id": "goal-msdnd2e9-5fc92066",
+      "id": "preview-cache-with-promote-on-add",
       "title": "Preview cache with promote-on-add",
       "description": "Previewing a YouTube result downloads it first (about 4s) rather than streaming: yt-dlp -g URLs are short-lived and IP-bound, seeking over HTTP is unreliable, and streaming throws the work away so Add would fetch a second time. Downloads land in a prunable cache, not straight into the library, so previewing twenty songs does not silently add twenty files to the user's music folder. Adding a previewed track promotes it into ~/Music/youtube and out of the cache. This is what finally creates the third track state, STATE_PREVIEW, which ipod-gui.py already defines and renders everywhere (dimmed artwork, dashed marker) but nothing currently produces. Wire up the Preview cache card in Device and Settings, which is present but shows 0 B and has its Clear button disabled.",
       "status": "done",
       "createdAt": "2026-08-03T19:53:36.609Z",
-      "updatedAt": "2026-08-04T01:45:17.070Z"
+      "updatedAt": "2026-08-04T18:25:44.150Z",
+      "previousIds": [
+        "goal-msdnd2e9-5fc92066"
+      ]
     },
     {
-      "id": "goal-msdnd2k9-b4ef7836",
+      "id": "youtube-thumbnails-as-album-art",
       "title": "YouTube thumbnails as album art",
       "description": "Search results and previewed tracks need artwork. ipod-fetch.sh passes --no-embed-thumbnail explicitly, commented 'Cover art is pure waste on a 2GB device with no screen' - still true for the device, but the desktop grid needs it. Either fetch thumbnails separately into the existing art cache or revisit that flag for previewed tracks only. Load them as GdkTexture through the existing make_cover helper, which already handles a missing-art fallback to a generated striped placeholder.",
       "status": "done",
       "createdAt": "2026-08-03T19:53:36.824Z",
-      "updatedAt": "2026-08-04T03:24:21.007Z"
+      "updatedAt": "2026-08-04T18:25:44.150Z",
+      "previousIds": [
+        "goal-msdnd2k9-b4ef7836"
+      ]
     },
     {
-      "id": "goal-msdnd2qj-720df055",
+      "id": "add-gstreamer-to-install-sh-as-an",
       "title": "Add GStreamer to install.sh as an optional system dependency",
       "description": "Follow the existing capability-probe pattern in install.sh: probe for the capability rather than the package name, print an 'info' line when present, and append apt names to the 'needed' array when absent. GStreamer belongs in 'needed' like ffmpeg, not in the js_runtime exception - that exception exists because Ubuntu ships nodejs 18 below yt-dlp's floor of 22, and GStreamer has no equivalent version hazard. Add a matching line to the Verifying section. PyGObject stays out of the venv for the documented reason, so anything GStreamer-Python is a system dependency too.",
       "status": "done",
       "createdAt": "2026-08-03T19:53:37.050Z",
-      "updatedAt": "2026-08-04T03:47:46.535Z"
+      "updatedAt": "2026-08-04T18:25:44.150Z",
+      "previousIds": [
+        "goal-msdnd2qj-720df055"
+      ]
     },
     {
-      "id": "goal-msdnd2wx-73306f1d",
+      "id": "split-ipod-gui-py-into-a-package-and",
       "title": "Split ipod-gui.py into a package and modernise the test harness",
       "description": "ipod-gui.py is now a very large single module and wants to be a package. It was deliberately left as one file: the three smoke tests load it via spec_from_file_location with no package context and no sys.modules entry, and they patch module globals late (ipod_gui.find_ipods, ipod_gui.YOUTUBE_LIBRARY). A naive split silently breaks that patching - 'from .detect import find_ipods' rebinds the name and the detection test would pass against unpatched code, which is worse than failing. Do the split together with a test-harness rewrite. Also extend the CI Python gate, currently only 'py_compile ipod-gui.py tests/*.py', which would not cover new files. Keep AUDIO_EXTENSIONS a module-level set of dot-prefixed strings, or re-export it: gui-actions-smoke.py regex-scrapes SUPPORTED_EXT from lib.sh and asserts set equality. Natural seams now that the file has grown: the tag/scan bridge, the Track/Album/LibraryIndex model, the CSS token sheet and shared widget helpers (make_cover, track_column_view, track_list_view, StorageMeter), and the window itself.",
       "status": "done",
       "createdAt": "2026-08-03T19:53:37.281Z",
-      "updatedAt": "2026-08-04T04:12:34.691Z"
+      "updatedAt": "2026-08-04T18:25:44.150Z",
+      "previousIds": [
+        "goal-msdnd2wx-73306f1d"
+      ]
     },
     {
-      "id": "goal-msdnd336-8c15233f",
+      "id": "move-blocking-device-work-in-refresh",
       "title": "Move blocking device work in refresh() off the main loop",
       "description": "count_tracks, list_tracks, list_playlists, spoken_playlists and shutil.disk_usage all run synchronously inside IpodWindow.refresh(), over USB. Tag reading and the library scan are already threaded via scan_tracks with a generation counter to discard stale results; extend the same pattern to the rest. This is the largest remaining responsiveness win and it grows with the number of tracks on the device.\n\nDone 2026-08-04. device.py gained probe_device(), which reads detection, identity, saved options, playlists, spoken names, the track count and free space in one pass and returns a DeviceProbe built complete or not at all. refresh() bumps a probe_generation, hands the read to a worker thread and returns; _apply_probe paints what comes back, and drops a result whose generation was superseded or that landed while a script was changing the device. count_tracks takes the same cancelled callback as scan_tracks, so a superseded walk stops competing for the bus. _populate_device_summary and the wipe dialog read the cached figures rather than the device, so a repaint costs nothing.\n\nlist_tracks turned out not to be called from window.py at all, so only the other four moved. Two states came out of it that the old code could not express: a device that stops answering mid-read is now reported as that, rather than as a connected iPod holding nothing, and the first paint says it is looking rather than claiming there is no iPod - which matters because findmnt alone waits five seconds on a device that has stopped answering.",
       "status": "done",
       "createdAt": "2026-08-03T19:53:37.506Z",
-      "updatedAt": "2026-08-04T06:31:43.336Z"
+      "updatedAt": "2026-08-04T18:25:44.150Z",
+      "previousIds": [
+        "goal-msdnd336-8c15233f"
+      ]
     },
     {
-      "id": "goal-msdo10ac-55740acf",
+      "id": "search-ui-polish-deferred-from-the",
       "title": "Search UI polish deferred from the redesign",
-      "description": "Small things the phase-1 redesign left, all in ipod-gui.py. The library filter pills count collections but the heading and counts stay collection-shaped while the list mode shows tracks, which reads slightly off. The album detail's state, duration and action cluster sits hard against the right edge with a wide gap after the title column. The playlist rail and the shelf both render the same playlists with different tile sizes. None of these block anything; fold them into whichever phase touches those views next.",
-      "status": "open",
+      "description": "Small things the phase-1 redesign left, all in ipod-gui.py. The library filter pills count collections but the heading and counts stay collection-shaped while the list mode shows tracks, which reads slightly off. The album detail's state, duration and action cluster sits hard against the right edge with a wide gap after the title column. The playlist rail and the shelf both render the same playlists with different tile sizes. None of these block anything; fold them into whichever phase touches those views next.\n\nDone 2026-08-04. The library heading, its pill counts and what those pills filter now follow the mode: list mode reads Tracks over per-track counts, and filters the tracks themselves, so a synced track is no longer hidden by its album still counting as In library. LibraryIndex gained track_counts() for that, which counts() cannot answer.\n\nThe album page is held to TRACK_PAGE_WIDTH in an Adw.Clamp, header and table together. Unclamped it had been the worst case in the app: on a 1900px window the title ended at x=460 and the state, duration and action cluster sat at x=1680. The playlists detail took the same clamp, since its rows are the same rows and it stretches further still.\n\nPlaylist artwork is now three named sizes rather than four arbitrary ones: the shelf tile takes ALBUM_COVER so the two sections of the library page use one artwork size, and both rails take PLAYLIST_ROW_COVER so a playlist row looks the same in the sidebar and in the Playlists view. Shelf tiles were also ragged - each sized to its own name - and are now uniform, with the card inset left to the button's own padding so four playlists and the New tile still fit at the opening window size.\n\nTwo defects surfaced while looking at these views and were fixed with them: the Playlists rail took a share of every extra pixel of window, because the heading and every row expand and GTK propagates that up, so at 1900px a 240px list held half the view; and the playlist's spoken-name line wrapped at 34 characters however much room it had.\n\nVerified by rendering each view offscreen at 1180 and 1900 and reading the result, since x11grab sees black under Wayland and a WidgetPaintable holds nothing when the compositor is not sending the window frames: forcing the layout with Gtk.Widget.allocate and snapshotting into a Cairo renderer makes the size a parameter of the shot rather than whatever the window manager gave.",
+      "status": "done",
       "createdAt": "2026-08-03T20:12:13.620Z",
-      "updatedAt": "2026-08-03T20:12:47.967Z"
+      "updatedAt": "2026-08-04T19:10:31.314Z",
+      "previousIds": [
+        "goal-msdo10ac-55740acf"
+      ]
     },
     {
-      "id": "goal-msdtp4gc-7359b5e9",
+      "id": "let-ipod-sync-sh-copy-symlinked-music",
       "title": "Let ipod-sync.sh copy symlinked music",
       "description": "ipod-sync.sh:424 enumerates a source with 'find \"$src\" -type f -print0'. find does not dereference symlinks by default, so a symlinked audio file is -type l and is silently never copied, and a symlinked subdirectory is never descended. Symlinked library layouts are common, so this is a real long-standing limitation rather than a deliberate policy - it just was not visible before, because nothing counted what was about to be copied.\n\nVerified 2026-08-03: for a directory containing a symlink to an mp3, 'find -type f' returns nothing while Python's os.walk plus Path.is_file() counts the file.\n\nThe GUI redesign surfaced this as a mismatch (review-23 in the no-mistakes run merged as PR #11) because it counts queued tracks to drive a progress bar: counting a symlinked track the script then skips means the sync exits successfully with progress short of 100 percent. That was resolved by aligning the GUI DOWNWARD to the script - it now skips symlinks too - so the counts are honest. Making the script actually copy them is the better long-term answer and remains open.\n\nWork: switch to 'find -L' (or -follow) in the source enumeration, then add e2e coverage for the cases that makes newly reachable - a symlink loop, a broken symlink, a symlinked directory, and a symlink pointing outside the source tree - and decide whether a symlink escaping the selected folder should be copied at all. Remove the GUI-side symlink skip and its user-facing note at the same time, otherwise the two halves disagree again in the opposite direction.",
       "status": "open",
       "createdAt": "2026-08-03T22:50:56.844Z",
-      "updatedAt": "2026-08-03T22:50:56.844Z"
+      "updatedAt": "2026-08-04T18:25:44.150Z",
+      "previousIds": [
+        "goal-msdtp4gc-7359b5e9"
+      ]
     },
     {
-      "id": "goal-mse5o5qg-49bb037d",
+      "id": "break-up-the-4368-line-ipod-gui-window",
       "title": "Break up the 4368-line ipod_gui/window.py",
       "description": "The package split left IpodWindow as one module, deliberately: the goal named 'the window itself' as one seam, and splitting a single Adw.ApplicationWindow subclass across files needs mixins, which was too much to combine with the split and its test-harness rewrite in one change.\n\nIt is now by far the largest module - 4368 lines against 457 for the next one, player.py - and it holds every view plus the work behind each. Natural seams inside it: the library grid and album detail, the playlist views and their drag reordering, the search field and its two result sections, the Device & Settings page, and the sync/remove/wipe command plumbing with its busy-state bookkeeping.\n\nMixin classes are the only split that keeps one Adw.ApplicationWindow, so the question to settle first is whether the shared self.* state between those groups is small enough for mixins to be honest rather than a filing system over one namespace. tests/harness.py makes the mechanics safe: it writes a replacement to every module holding a name, so moving methods between modules cannot silently unpatch a check the way it would have before.",
       "status": "open",
       "createdAt": "2026-08-04T04:26:07.240Z",
-      "updatedAt": "2026-08-04T04:26:35.788Z"
+      "updatedAt": "2026-08-04T18:25:44.150Z",
+      "previousIds": [
+        "goal-mse5o5qg-49bb037d"
+      ]
     }
   ]
 }

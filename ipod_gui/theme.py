@@ -178,7 +178,13 @@ window.shuffle.light .sf-dot.ipod { background: #e0521f; border-color: #e0521f; 
 }
 window.shuffle.light .sf-badge { background: alpha(#ffffff, 0.86); color: #1a1917; }
 
-.sf-bottom-bar { background: #0a0a0b; border-top: 1px solid #1f1f22; }
+/* Padding rather than a margin on the box: the bar is chrome, so its fill
+   and the rule along its top have to reach both window edges. A margin moves
+   the box itself, which left the background and the rule ending 18px short at
+   each end, with the page showing through behind them. */
+.sf-bottom-bar {
+  background: #0a0a0b; border-top: 1px solid #1f1f22; padding: 0 18px;
+}
 window.shuffle.light .sf-bottom-bar {
   background: #f1efec; border-top: 1px solid #e3dfd9;
 }

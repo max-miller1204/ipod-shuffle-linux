@@ -1,0 +1,25 @@
+{
+  "track_counts": {
+    "ipod": 2,
+    "library": 2,
+    "preview": 1
+  },
+  "collection_on_ipod_count": 1,
+  "filtered_track_titles": [
+    "Signal (synced from a mixed album)",
+    "Ember"
+  ],
+  "playlist_tile_cover_px": 140,
+  "album_cover_px": 140,
+  "playlist_row_cover_px": 32,
+  "playlist_rail_allocated_px": 240,
+  "track_page_max_px": 900,
+  "album_detail_content_px": 812,
+  "playlist_detail_content_px": 820,
+  "playlist_card_widths_px": [
+    140,
+    140,
+    140,
+    140
+  ]
+}
