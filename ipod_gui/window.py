@@ -78,6 +78,9 @@ from .model import (
 from .widgets import (
     ALBUM_COVER,
     ELLIPSIZE_END,
+    PLAYLIST_ROW_COVER,
+    PLAYLIST_TILE_COVER,
+    TRACK_PAGE_WIDTH,
     StorageMeter,
     fill_tracks,
     label,
@@ -569,7 +572,9 @@ class IpodWindow(Adw.ApplicationWindow):
         )
         self.shelf_section = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=11)
         self.shelf_section.append(shelf_head)
-        self.playlist_shelf = Gtk.Box(spacing=12)
+        # The album grid's column spacing, so the two sections of the page
+        # separate their tiles by the same gap.
+        self.playlist_shelf = Gtk.Box(spacing=16)
         shelf_scroll = Gtk.ScrolledWindow()
         shelf_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.NEVER)
         shelf_scroll.set_child(self.playlist_shelf)
@@ -1086,7 +1091,15 @@ class IpodWindow(Adw.ApplicationWindow):
         box.set_margin_end(22)
         box.set_margin_top(20)
         box.set_margin_bottom(20)
-        scroller.set_child(box)
+        # Everything on this page is one column of text against a track table,
+        # neither of which gains anything from a wider window: past a point
+        # the title sits at one edge and the cluster that follows it at the
+        # other. The header is clamped with the table so the two stay aligned.
+        clamp = Adw.Clamp(
+            maximum_size=TRACK_PAGE_WIDTH, tightening_threshold=TRACK_PAGE_WIDTH
+        )
+        clamp.set_child(box)
+        scroller.set_child(clamp)
         self.album_view = scroller
 
         back = Gtk.Button(label="‹  Your Library", halign=Gtk.Align.START)
@@ -1124,6 +1137,11 @@ class IpodWindow(Adw.ApplicationWindow):
 
         rail_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         rail_box.set_size_request(240, -1)
+        # Explicitly, because both the heading and every row expand to push
+        # something to their right edge, and GTK propagates that upwards: the
+        # rail would take a share of every extra pixel the window gained and
+        # hold a 240px list in half the view.
+        rail_box.set_hexpand(False)
         rail_box.set_margin_start(22)
         rail_box.set_margin_end(12)
         rail_box.set_margin_top(20)
@@ -1163,7 +1181,16 @@ class IpodWindow(Adw.ApplicationWindow):
         detail_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         detail_scroll.set_child(self.playlist_tracks)
         detail.append(detail_scroll)
-        outer.append(detail)
+        # Held to the same width as the album page, whose rows are the same
+        # rows: a playlist beside a 240px rail has even more window to stretch
+        # across, and stretches the gap between a title and its own controls.
+        detail_clamp = Adw.Clamp(
+            maximum_size=TRACK_PAGE_WIDTH,
+            tightening_threshold=TRACK_PAGE_WIDTH,
+            hexpand=True,
+        )
+        detail_clamp.set_child(detail)
+        outer.append(detail_clamp)
         return outer
 
     # --------------------------------------------------------- settings view
@@ -2573,7 +2600,7 @@ class IpodWindow(Adw.ApplicationWindow):
         button.add_css_class("flat")
         button.add_css_class("sf-nav-row")
         row = Gtk.Box(spacing=9)
-        row.append(make_cover(None, 22 if compact else 34, name, "tiny"))
+        row.append(make_cover(None, PLAYLIST_ROW_COVER, name, "tiny"))
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
         text.append(label(name, ellipsize=ELLIPSIZE_END))
         if not compact:
@@ -2655,12 +2682,19 @@ class IpodWindow(Adw.ApplicationWindow):
             tile.add_css_class("flat")
             tile.add_css_class("sf-card")
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
-            box.set_margin_start(10)
-            box.set_margin_end(10)
-            box.set_margin_top(10)
-            box.set_margin_bottom(10)
-            box.append(make_cover(None, 128, name))
-            box.append(label(name, "sf-row-title", ellipsize=ELLIPSIZE_END))
+            # Sized to the artwork, like the album cards below: without a cap
+            # the longest playlist name sets the width of its own tile alone,
+            # and the shelf becomes a row of tiles no two of which match.
+            box.set_size_request(PLAYLIST_TILE_COVER, -1)
+            # The card's inset is the button's own padding, which is even on
+            # all four sides. Adding to it made the tile wide enough that four
+            # playlists and the New tile no longer fit the shelf at the
+            # window's opening size.
+            box.append(make_cover(None, PLAYLIST_TILE_COVER, name))
+            title = label(name, "sf-row-title", ellipsize=ELLIPSIZE_END)
+            title.set_max_width_chars(16)
+            title.set_width_chars(0)
+            box.append(title)
             spoken = name.lower() in self.spoken
             note = Gtk.Box(spacing=6)
             note.append(label("◉" if spoken else "◌", "sf-accent" if spoken else "sf-dim"))
@@ -2674,7 +2708,8 @@ class IpodWindow(Adw.ApplicationWindow):
 
         new_tile = Gtk.Button()
         new_tile.add_css_class("sf-new-tile")
-        new_tile.set_size_request(150, -1)
+        # The artwork beside it, so the shelf ends on the width it kept.
+        new_tile.set_size_request(PLAYLIST_TILE_COVER, -1)
         inner = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=7,
             halign=Gtk.Align.CENTER, valign=Gtk.Align.CENTER,
@@ -2716,7 +2751,6 @@ class IpodWindow(Adw.ApplicationWindow):
                 ),
                 "sf-body",
                 wrap=True,
-                max_width_chars=34,
             )
         )
         remove = Gtk.Button(label="Remove playlist")
@@ -3117,7 +3151,17 @@ class IpodWindow(Adw.ApplicationWindow):
 
         by_artist = self.group_mode.get_selected() == 1
         collections = self.library.collections(by_artist)
-        counts = self.library.counts(by_artist)
+        # The table is every track, so in list mode the heading, the counts on
+        # the pills and what they filter are all track-shaped. Counting
+        # collections above a list of tracks says "In library 43" over several
+        # hundred rows, and filtering by collection would drop a synced track
+        # whose album is still "In library" because the rest of it is not
+        # there - the one row the filter was asked for.
+        listing = self.view_mode == "list"
+        counts = (
+            self.library.track_counts() if listing else self.library.counts(by_artist)
+        )
+        everything = len(self.library.all_tracks()) if listing else len(collections)
         for key, pill in self.album_filters.items():
             text = {
                 "all": "All",
@@ -3125,7 +3169,7 @@ class IpodWindow(Adw.ApplicationWindow):
                 STATE_LIBRARY: "In library",
                 STATE_PREVIEW: "Previewed",
             }[key]
-            total = len(collections) if key == "all" else counts.get(key, 0)
+            total = everything if key == "all" else counts.get(key, 0)
             pill.set_child(label(f"{text} {total}", xalign=0.5))
 
         shown = [
@@ -3137,15 +3181,16 @@ class IpodWindow(Adw.ApplicationWindow):
             self.album_flow.append(self._album_card(collection))
 
         # The table ignores the grouping, since it is every track either way,
-        # but it does honour the state filter.
+        # and takes its order from it.
         tracks = [
             track
-            for collection in shown
+            for collection in collections
             for track in collection.sorted_tracks()
+            if self.album_filter == "all" or track.state == self.album_filter
         ]
         fill_tracks(self.library_table, tracks)
 
-        noun = "artists" if by_artist else "albums"
+        noun = "tracks" if listing else "artists" if by_artist else "albums"
         self.collection_heading.set_text(noun.capitalize())
         if not collections:
             self.library_status.set_text(
@@ -3153,7 +3198,7 @@ class IpodWindow(Adw.ApplicationWindow):
                 "install mutagen with ./install.sh so tags can be read."
             )
             self.library_status.set_visible(True)
-        elif not shown:
+        elif not (tracks if listing else shown):
             self.library_status.set_text(f"No {noun} match this filter.")
             self.library_status.set_visible(True)
         else:

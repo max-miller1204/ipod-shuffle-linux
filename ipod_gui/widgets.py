@@ -14,6 +14,22 @@ ELLIPSIZE_END = Pango.EllipsizeMode.END
 
 ALBUM_COVER = 140
 
+# A playlist tile stands in the same page as the album grid, one section above
+# it, so it takes the grid's artwork size. Two tile widths a few pixels apart
+# on one page read as a mistake rather than as two kinds of thing.
+PLAYLIST_TILE_COVER = ALBUM_COVER
+
+# One size for a playlist row wherever it appears, so the sidebar and the
+# Playlists rail are the same row rather than two versions of it - the
+# Playlists view shows both at once, which is where two sizes showed.
+PLAYLIST_ROW_COVER = 32
+
+# Where a page whose body is a track table stops widening. A table that keeps
+# stretching with the window leaves the title against one edge and the state,
+# duration and action cluster against the other, with the whole width between
+# them; past about this much, the row stops reading as one line.
+TRACK_PAGE_WIDTH = 900
+
 
 def cover_pixel_size(width, height, size):
     """How large to draw artwork so it fills a square of this size.

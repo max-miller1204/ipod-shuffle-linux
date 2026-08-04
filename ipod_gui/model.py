@@ -252,3 +252,16 @@ class LibraryIndex:
         for collection in self.collections(by_artist):
             counts[collection.state] = counts.get(collection.state, 0) + 1
         return counts
+
+    def track_counts(self):
+        """The same tally over tracks, for the views that list them.
+
+        Not derivable from counts(): an album holding one synced track is
+        "In library" as a collection while that track is "On iPod", so
+        counting collections under a list of tracks would disagree with the
+        list itself.
+        """
+        counts = {STATE_IPOD: 0, STATE_LIBRARY: 0, STATE_PREVIEW: 0}
+        for track in self.all_tracks():
+            counts[track.state] = counts.get(track.state, 0) + 1
+        return counts
