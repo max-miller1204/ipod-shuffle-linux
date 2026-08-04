@@ -17,6 +17,7 @@ import json
 import os
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 repo = Path(__file__).resolve().parents[1]
@@ -46,6 +47,8 @@ class Window:
     def __init__(self):
         self.preview_generation = 1
         self._preview_process = None
+        self._preview_lock = threading.Lock()
+        self._preview_closed = False
         self.library = ipod_gui.LibraryIndex()
         self.logged = []
         self.repaints = 0
@@ -67,6 +70,9 @@ class Window:
     _prune_preview_cache = ipod_gui.IpodWindow._prune_preview_cache
     _forget_empty_preview_folders = staticmethod(
         ipod_gui.IpodWindow._forget_empty_preview_folders
+    )
+    _terminate_preview_process = staticmethod(
+        ipod_gui.IpodWindow._terminate_preview_process
     )
 
 
@@ -125,6 +131,15 @@ second._preview_fetch_worker(result, second.preview_generation, pending)
 assert expected.is_file(), "a second preview of the same video downloaded nothing"
 assert second.player.track is not None, second.player.error
 assert second.player.track.path == str(expected), second.player.track.path
+
+closed = Window()
+closed._preview_closed = True
+closed_result = ipod_gui.SearchResult(
+    "Closed", "Nobody", 0, "https://example.invalid/v=closed", "closed"
+)
+closed._preview_fetch_worker(closed_result, closed.preview_generation, pending)
+assert ipod_gui.cached_preview_path("closed", cache) is None
+assert closed.library.previews == []
 
 # A download that produces nothing says so in the bar, where the track it was
 # going to play is already named, rather than leaving it fetching forever.

@@ -2093,6 +2093,8 @@ class BarWindow:
         self.playing_status = BarWidget()
         self.preview_generation = 0
         self._preview_process = None
+        self._preview_lock = threading.Lock()
+        self._preview_closed = False
         self.player = ipod_gui.PreviewPlayer(self._update_now_playing)
 
     _update_now_playing = ipod_gui.IpodWindow._update_now_playing
@@ -2100,6 +2102,9 @@ class BarWindow:
     play_from = ipod_gui.IpodWindow.play_from
     _supersede_preview_fetch = ipod_gui.IpodWindow._supersede_preview_fetch
     _cancel_preview_fetch = ipod_gui.IpodWindow._cancel_preview_fetch
+    _terminate_preview_process = staticmethod(
+        ipod_gui.IpodWindow._terminate_preview_process
+    )
 
 
 # The bar builds artwork and labels as it repaints, which needs a display it
@@ -2363,8 +2368,11 @@ class PreviewWindow:
         self.busy = False
         self.discovering_sources = False
         self.source_generation = 0
+        self.scan_generation = 0
         self.preview_generation = 0
         self._preview_process = None
+        self._preview_lock = threading.Lock()
+        self._preview_closed = False
         self._device_scan_active = False
         self._device_snapshot_ready = True
         self.pending = set()
@@ -2413,6 +2421,9 @@ class PreviewWindow:
     _apply_preview_scan = ipod_gui.IpodWindow._apply_preview_scan
     _supersede_preview_fetch = ipod_gui.IpodWindow._supersede_preview_fetch
     _cancel_preview_fetch = ipod_gui.IpodWindow._cancel_preview_fetch
+    _terminate_preview_process = staticmethod(
+        ipod_gui.IpodWindow._terminate_preview_process
+    )
     _preview_track = ipod_gui.IpodWindow._preview_track
     preview_result = ipod_gui.IpodWindow.preview_result
     _preview_unavailable_reason = ipod_gui.IpodWindow._preview_unavailable_reason
@@ -2512,6 +2523,13 @@ missing_window.library.previews = [gone]
 missing_window._promote_preview(gone)
 assert missing_window.library.previews == []
 assert "no longer in the cache" in missing_window.toasts[-1], missing_window.toasts
+
+stale_scan = PreviewWindow()
+stale_scan.scan_generation = 1
+removed_during_scan = previewed(cache_file("Gone/Stale [old1].mp3"))
+Path(removed_during_scan.path).unlink()
+stale_scan._apply_preview_scan(1, [removed_during_scan])
+assert stale_scan.library.previews == [], stale_scan.library.previews
 
 # What a finished download does: index it, prune back under the limit, play it.
 landing = PreviewWindow()

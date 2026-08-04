@@ -19,6 +19,7 @@ import json
 import os
 import queue
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -2536,6 +2537,8 @@ class IpodWindow(Adw.ApplicationWindow):
         # running when the next one starts cannot land in the bar behind it.
         self.preview_generation = 0
         self._preview_process = None
+        self._preview_lock = threading.Lock()
+        self._preview_closed = False
 
         self.library = LibraryIndex()
         self.device_tracks = []
@@ -2621,7 +2624,9 @@ class IpodWindow(Adw.ApplicationWindow):
         self.player.shutdown()
         # A download outlives the window that started it otherwise, writing
         # into a cache nothing is left to show or prune.
-        self._cancel_preview_fetch()
+        with self._preview_lock:
+            self._preview_closed = True
+        self._supersede_preview_fetch()
         return False
 
     def _apply_theme(self):
@@ -4188,6 +4193,7 @@ class IpodWindow(Adw.ApplicationWindow):
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                start_new_session=True,
             )
         except (OSError, ValueError) as exc:
             GLib.idle_add(self._log, f"failed to run: {exc}\n")
@@ -4195,18 +4201,25 @@ class IpodWindow(Adw.ApplicationWindow):
                 self._fail_preview_fetch, generation, pending, PREVIEW_FAILED
             )
             return
-        # Held so that starting a second preview can stop this one rather than
-        # leave two downloads racing for the bar. Written from this thread and
-        # read from the main loop, which a single attribute assignment is safe
-        # for; nothing here reads it back to make a decision.
-        self._preview_process = proc
+        with self._preview_lock:
+            stale = (
+                generation != self.preview_generation or self._preview_closed
+            )
+            if not stale:
+                self._preview_process = proc
+        if stale:
+            self._terminate_preview_process(proc)
         if proc.stdout is not None:
             for line in proc.stdout:
                 GLib.idle_add(self._log, line)
         proc.wait()
-        if self._preview_process is proc:
-            self._preview_process = None
-        if generation != self.preview_generation:
+        with self._preview_lock:
+            if self._preview_process is proc:
+                self._preview_process = None
+            stale = (
+                generation != self.preview_generation or self._preview_closed
+            )
+        if stale:
             return
 
         # The staging directory is this run's manifest: it was empty, and
@@ -4225,15 +4238,21 @@ class IpodWindow(Adw.ApplicationWindow):
 
         source = produced[0]
         destination = PREVIEW_CACHE / source.relative_to(staging)
-        try:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(source), str(destination))
-        except OSError as exc:
+        move_error = None
+        with self._preview_lock:
+            if generation != self.preview_generation or self._preview_closed:
+                return
+            try:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(source), str(destination))
+            except OSError as exc:
+                move_error = exc
+        if move_error is not None:
             GLib.idle_add(
                 self._fail_preview_fetch,
                 generation,
                 pending,
-                f"Could not move the preview into the cache: {exc}",
+                f"Could not move the preview into the cache: {move_error}",
             )
             return
 
@@ -4272,18 +4291,27 @@ class IpodWindow(Adw.ApplicationWindow):
 
     def _supersede_preview_fetch(self):
         """Disown a download because something else is taking the bar."""
-        self.preview_generation += 1
-        self._cancel_preview_fetch()
+        with self._preview_lock:
+            self.preview_generation += 1
+            proc = self._preview_process
+            self._preview_process = None
+        self._terminate_preview_process(proc)
 
     def _cancel_preview_fetch(self):
         """Stop a download whose result nothing is waiting for any more."""
-        proc = self._preview_process
-        self._preview_process = None
-        if proc is not None and proc.poll() is None:
-            try:
-                proc.terminate()
-            except OSError:
-                pass
+        with self._preview_lock:
+            proc = self._preview_process
+            self._preview_process = None
+        self._terminate_preview_process(proc)
+
+    @staticmethod
+    def _terminate_preview_process(proc):
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except OSError:
+            pass
 
     def _prune_preview_cache(self, keep=()):
         """Drop the oldest previews once the cache has passed its limit."""
@@ -5048,7 +5076,9 @@ class IpodWindow(Adw.ApplicationWindow):
         """
         if generation != self.scan_generation:
             return False
-        merged = {track.path: track for track in previews}
+        merged = {
+            track.path: track for track in previews if Path(track.path).is_file()
+        }
         for track in self.library.previews:
             if track.path not in merged and Path(track.path).exists():
                 merged[track.path] = track
