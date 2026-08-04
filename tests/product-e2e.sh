@@ -813,6 +813,81 @@ test -s "$IPOD/iPod_Control/Music/Dashes/-1 Countdown.mp3"
     -- 'Dashes/-1 Countdown.mp3' >> "$EVIDENCE_DIR/dash-name.txt" 2>&1
 test ! -e "$IPOD/iPod_Control/Music/Dashes"
 
+# A library assembled out of symlinks. This used to sync as an empty folder:
+# find without -L matches a link as neither -type f nor a folder to descend,
+# so every track went silently uncopied. On its own device, because a source
+# holding a filesystem loop is not something to leave in the shared one.
+LINK_IPOD="$TEST_ROOT/symlink-target"
+LINK_SOURCE="$TEST_ROOT/Linked Library"
+LINK_ARCHIVE="$TEST_ROOT/Archive"
+mkdir -p \
+    "$LINK_IPOD/iPod_Control/iTunes" \
+    "$LINK_IPOD/iPod_Control/Music" \
+    "$LINK_IPOD/iPod_Control/Speakable" \
+    "$LINK_SOURCE/Disc 1" \
+    "$LINK_ARCHIVE/Live"
+printf 'real\n'   > "$LINK_SOURCE/Disc 1/01 - Real.mp3"
+printf 'away\n'   > "$LINK_ARCHIVE/02 - Archived.mp3"
+printf 'encore\n' > "$LINK_ARCHIVE/Live/03 - Encore.mp3"
+# A link to a track outside the folder being synced, which is the whole point
+# of a linked layout: the music lives elsewhere and the library points at it.
+ln -s "$LINK_ARCHIVE/02 - Archived.mp3" "$LINK_SOURCE/Disc 1/02 - Linked.mp3"
+# A linked folder, descended, including the subfolder below it.
+ln -s "$LINK_ARCHIVE" "$LINK_SOURCE/Linked Album"
+# A link to a track that is not there, named and counted rather than silently
+# dropped, and a broken link to something the firmware could not play anyway,
+# which stays quiet because it was never going to be copied.
+ln -s "$TEST_ROOT/nowhere/gone.mp3" "$LINK_SOURCE/Disc 1/04 - Gone.mp3"
+ln -s "$TEST_ROOT/nowhere/cover.jpg" "$LINK_SOURCE/Disc 1/cover.jpg"
+# A folder that links back to its own parent. find walks it once and refuses
+# to go round again; without that this sync would never finish.
+ln -s "$LINK_SOURCE" "$LINK_SOURCE/Disc 1/loop"
+
+"$ROOT/ipod-sync.sh" \
+    --ipod "$LINK_IPOD" \
+    "$LINK_SOURCE" > "$EVIDENCE_DIR/sync-symlinks.txt" 2>&1
+
+LINK_MUSIC="$LINK_IPOD/iPod_Control/Music/Linked Library"
+test -s "$LINK_MUSIC/Disc 1/01 - Real.mp3"
+test -s "$LINK_MUSIC/Disc 1/02 - Linked.mp3"
+test -s "$LINK_MUSIC/Linked Album/02 - Archived.mp3"
+test -s "$LINK_MUSIC/Linked Album/Live/03 - Encore.mp3"
+# Copied, never linked: the iPod is FAT and the source may be unplugged next.
+test ! -L "$LINK_MUSIC/Disc 1/02 - Linked.mp3"
+diff -u "$LINK_ARCHIVE/02 - Archived.mp3" "$LINK_MUSIC/Disc 1/02 - Linked.mp3"
+# The layout mirrors where the links sit, not where they point, so following
+# one out of the source folder cannot write outside the music directory.
+test ! -e "$LINK_MUSIC/Disc 1/04 - Gone.mp3"
+test ! -e "$LINK_MUSIC/Disc 1/cover.jpg"
+test "$(find "$LINK_IPOD/iPod_Control/Music" -type f | wc -l)" = 4
+grep -Fq 'Broken symlink, skipped: Disc 1/04 - Gone.mp3' \
+    "$EVIDENCE_DIR/sync-symlinks.txt"
+grep -Fq 'Skipped 1 symlink(s) pointing at a file that is not there.' \
+    "$EVIDENCE_DIR/sync-symlinks.txt"
+# A dangling link to something unplayable stays quiet: it was never going to
+# be copied, so naming it would be noise about a file nobody asked for.
+if grep -Fq 'cover.jpg' "$EVIDENCE_DIR/sync-symlinks.txt"; then
+    echo "ipod-sync.sh reported a broken link it was never going to copy" >&2
+    exit 1
+fi
+grep -Fq "Part of 'Linked Library' could not be searched:" \
+    "$EVIDENCE_DIR/sync-symlinks.txt"
+grep -Fq 'File system loop detected' "$EVIDENCE_DIR/sync-symlinks.txt"
+grep -Fq 'Copied 4 file(s)' "$EVIDENCE_DIR/sync-symlinks.txt"
+# The GUI counts what the script copies, so a linked library has to give the
+# same four tracks on both sides. Counting a track the script then skips is
+# what left a finished sync reading short of the end.
+/usr/bin/python3 "$ROOT/tests/gui-scan-paths.py" "$LINK_SOURCE" \
+    > "$EVIDENCE_DIR/gui-symlink-scan.json"
+diff -u <(printf '%s\n' \
+    '[' \
+    '  "Disc 1/01 - Real.mp3",' \
+    '  "Disc 1/02 - Linked.mp3",' \
+    '  "Linked Album/02 - Archived.mp3",' \
+    '  "Linked Album/Live/03 - Encore.mp3"' \
+    ']') \
+    "$EVIDENCE_DIR/gui-symlink-scan.json"
+
 # Playlist files are the fourth kind of source argument, and everything below
 # happens on a dedicated device so the invocation record of the shared one
 # stays exactly as the assertions above expect it.
@@ -1639,6 +1714,8 @@ printf '%s\n' \
     "PASS: GUI restored playlist and voiceover choices and mapped them to CLI flags" \
     "PASS: missing playlist voiceover produced a screenless-device warning" \
     "PASS: saved directory and tag playlist options produced the voiceover warning" \
+    "PASS: sync copied a symlinked library, through links and out of the tree" \
+    "PASS: sync named a broken link, walked a loop once, and matched the GUI's count" \
     "PASS: sync --clear confirmed track and playlist deletion, including playlist-only devices" \
     "PASS: --yes answered the Speakable prompt too, in all three scripts" \
     "PASS: wipe backed up music/database and preserved Speakable plus Device state" \

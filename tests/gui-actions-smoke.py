@@ -134,7 +134,6 @@ class FakeWindow:
         self.pending = set()
         self.pending_sources = {}
         self.pending_records = {}
-        self.pending_skipped_symlinks = {}
         self._pending_track_index = {}
         self._library_by_path = {}
         self.commands = []
@@ -303,9 +302,8 @@ original_reader = gui._TAG_READER
 try:
     gui.TAG_PYTHON = None
     gui._tag_interpreter = lambda: None
-    fallback, complete, skipped_symlinks = gui.scan_tracks(scan_root)
+    fallback, complete = gui.scan_tracks(scan_root)
     assert complete
-    assert skipped_symlinks == 0
     assert fallback == [
         {
             "path": "Artist/Fallback.mp3",
@@ -323,18 +321,17 @@ time.sleep(10)
 """
     streamed = []
     started = time.monotonic()
-    records, complete, skipped_symlinks = gui.scan_tracks(
+    records, complete = gui.scan_tracks(
         scan_root, streamed.append, timeout=0.4
     )
     elapsed = time.monotonic() - started
     assert elapsed < 2, elapsed
     assert not complete, "a timed-out scan was reported as complete"
-    assert skipped_symlinks == 0
     assert records[0]["title"] == "Tagged", records
     assert [record["title"] for record in streamed] == ["Fallback", "Tagged"], streamed
 
     started = time.monotonic()
-    _records, complete, _skipped_symlinks = gui.scan_tracks(
+    _records, complete = gui.scan_tracks(
         scan_root,
         timeout=10,
         cancelled=lambda: time.monotonic() - started >= 0.1,
@@ -346,51 +343,80 @@ finally:
     gui.TAG_PYTHON = original_tag_python
     gui._TAG_READER = original_reader
 
-_records, complete, _skipped_symlinks = gui.scan_tracks(scan_root / "missing")
+_records, complete = gui.scan_tracks(scan_root / "missing")
 assert not complete, "a missing scan root was reported as complete"
 
+# The scan has to see exactly what ipod-sync.sh copies, because the count it
+# produces drives the sync progress bar: a track counted here and skipped
+# there leaves a finished sync reading short of the end, and a track skipped
+# here and copied there overruns it. The script enumerates with find -L, so
+# every case below is asserted against what find -L reaches.
 symlink_root = Path(tempfile.mkdtemp())
 regular_track = symlink_root / "regular.mp3"
 regular_track.write_bytes(b"regular")
 (symlink_root / "linked.mp3").symlink_to(regular_track)
-linked_directory = Path(tempfile.mkdtemp())
-(linked_directory / "nested.mp3").write_bytes(b"nested")
-(symlink_root / "linked-directory").symlink_to(linked_directory, target_is_directory=True)
-library_records, complete, skipped_symlinks = gui.scan_tracks(symlink_root)
-assert complete
+outside_directory = Path(tempfile.mkdtemp())
+(outside_directory / "nested.mp3").write_bytes(b"nested")
+(outside_directory / "outside.mp3").write_bytes(b"outside")
+# A link leaving the scanned tree entirely, which is the layout the whole
+# arrangement exists for: a library of links into an archive elsewhere.
+(symlink_root / "linked-away.mp3").symlink_to(outside_directory / "outside.mp3")
+(symlink_root / "linked-directory").symlink_to(
+    outside_directory, target_is_directory=True
+)
+# A dangling link named like a track used to fail the entire scan, which
+# showed an empty library because of one broken link.
+(symlink_root / "dangling.mp3").symlink_to(symlink_root / "not-there.mp3")
+(symlink_root / "dangling-directory").symlink_to(
+    symlink_root / "not-there", target_is_directory=True
+)
+# A folder that links back to its own parent. os.walk has no loop detection,
+# so without the ancestry guard this scan never returns.
+(symlink_root / "loop").symlink_to(symlink_root, target_is_directory=True)
+library_records, complete = gui.scan_tracks(symlink_root)
+assert complete, "a symlinked library was reported as incomplete"
 assert {record["path"] for record in library_records} == {
-    "linked.mp3",
     "regular.mp3",
-}
-assert skipped_symlinks == 0
-symlink_records, complete, skipped_symlinks = gui.scan_tracks(
-    symlink_root, skip_symlinks=True
-)
-assert complete
-assert [record["path"] for record in symlink_records] == ["regular.mp3"]
-assert skipped_symlinks == 2
+    "linked.mp3",
+    "linked-away.mp3",
+    "linked-directory/nested.mp3",
+    "linked-directory/outside.mp3",
+}, library_records
 
-root_records, complete, skipped_symlinks = gui.scan_tracks(
-    symlink_root / "linked-directory", skip_symlinks=True
-)
+# Scanning through the link reaches the same files as scanning the directory
+# it points at, which is what makes a linked source folder syncable at all.
+through_link, complete = gui.scan_tracks(symlink_root / "linked-directory")
 assert complete
-assert root_records == []
-assert skipped_symlinks == 1
+assert {record["path"] for record in through_link} == {
+    "nested.mp3",
+    "outside.mp3",
+}, through_link
+
+# Two routes to one folder are two folders to find, which copies both, so the
+# guard must prune its own ancestry and nothing wider.
+twin_root = Path(tempfile.mkdtemp())
+(twin_root / "album").mkdir()
+(twin_root / "album" / "song.mp3").write_bytes(b"song")
+(twin_root / "twin").symlink_to(twin_root / "album", target_is_directory=True)
+twin_records, complete = gui.scan_tracks(twin_root)
+assert complete
+assert {record["path"] for record in twin_records} == {
+    "album/song.mp3",
+    "twin/song.mp3",
+}, twin_records
 
 exact_track = scan_root / "Exact.mp3"
 exact_track.write_bytes(b"exact")
 unrelated = scan_root / "Artist" / "Unrelated.mp3"
 unrelated.write_bytes(b"unrelated")
-exact_records, complete, skipped_symlinks = gui.scan_tracks(files=[exact_track])
+exact_records, complete = gui.scan_tracks(files=[exact_track])
 assert complete
-assert skipped_symlinks == 0
 assert [record["path"] for record in exact_records] == [str(exact_track)]
 
 exact_link = scan_root / "Exact Link.mp3"
 exact_link.symlink_to(exact_track)
-exact_records, complete, skipped_symlinks = gui.scan_tracks(files=[exact_link])
+exact_records, complete = gui.scan_tracks(files=[exact_link])
 assert complete
-assert skipped_symlinks == 0
 assert [record["path"] for record in exact_records] == [str(exact_link)]
 
 
@@ -419,13 +445,10 @@ class FolderDiscoveryWindow:
                 {"title": "Song", "artist": "Artist", "album": "Album"},
                 gui.STATE_LIBRARY,
             )
-        ], True, 0
+        ], True
 
-    def _queue_sources(
-        self, sources, metadata_complete=False, skipped_symlinks=None
-    ):
+    def _queue_sources(self, sources, metadata_complete=False):
         assert metadata_complete
-        assert skipped_symlinks == {"/music": 0}
         self.queued = {
             source: [track.path for track in tracks]
             for source, tracks in sources.items()
@@ -476,7 +499,6 @@ gui.IpodWindow._finish_music_folder_discovery(
     "/music",
     [partial_track],
     False,
-    0,
 )
 assert failed_discovery.queued is None, "partial folder scan entered the queue"
 assert "nothing was queued" in failed_discovery.toasts[-1]
@@ -649,7 +671,6 @@ class SelectionWindow:
         self.pending = {queued.path}
         self.pending_sources = {queued.path: {queued.path}}
         self.pending_records = {}
-        self.pending_skipped_symlinks = {}
         self.tag_generation = 0
         self._device_scan_tracks = {}
         self._device_scan_active = False
@@ -781,7 +802,7 @@ def blocking_device_scan(_music, on_record=None, cancelled=None):
         pass
     if cancelled():
         scan_cancelled.set()
-    return [], False, 0
+    return [], False
 
 
 def read_device_io(acquired):
@@ -1784,11 +1805,13 @@ assert queue_window._pending_change_count() == len(queued_paths) + 1
 assert sum(track.size for track in queue_window._pending_copy_tracks()) == 7168
 added_after_queue = sync_source / "03 Added Later.mp3"
 added_after_queue.write_bytes(b"x" * 512)
-skipped_during_sync = sync_source / "04 Linked.mp3"
-skipped_during_sync.symlink_to(exact_track)
-skipped_source = Path(tempfile.mkdtemp()) / "Only Links"
-skipped_source.mkdir()
-removed_before_sync = skipped_source / "Removed.mp3"
+linked_during_sync = sync_source / "04 Linked.mp3"
+linked_during_sync.symlink_to(exact_track)
+# A source folder whose only remaining track is a link. It used to drop
+# out of the sync entirely; now it is a source like any other.
+linked_source = Path(tempfile.mkdtemp()) / "Only Links"
+linked_source.mkdir()
+removed_before_sync = linked_source / "Removed.mp3"
 removed_before_sync.write_bytes(b"removed")
 removed_track = gui.Track(
     removed_before_sync,
@@ -1797,11 +1820,11 @@ removed_track = gui.Track(
 )
 queue_window.library.tracks.append(removed_track)
 queue_window.pending.add(removed_track.path)
-queue_window.pending_sources[str(skipped_source)] = {removed_track.path}
+queue_window.pending_sources[str(linked_source)] = {removed_track.path}
 queue_window._merge_states()
 removed_before_sync.unlink()
-skipped_only_link = skipped_source / "Only Link.mp3"
-skipped_only_link.symlink_to(exact_track)
+linked_only_link = linked_source / "Only Link.mp3"
+linked_only_link.symlink_to(exact_track)
 command_ready = threading.Event()
 record_command = queue_window._run
 
@@ -1832,21 +1855,17 @@ assert staged[0].endswith("ipod-sync.sh"), staged
 assert staged[1:3] == ["--ipod", queue_window.mount_point], staged
 # Everything after -- is a path, because a track title can begin with a dash.
 separator = staged.index("--")
-assert staged[separator + 1:] == [str(sync_source)], staged
-assert queue_window.sync_total == len(queued_paths) + 2, queue_window.sync_total
+assert staged[separator + 1:] == sorted(
+    [str(sync_source), str(linked_source)]
+), staged
+# The re-read before a sync sees the links, because the copy will. The
+# folder that holds nothing but a link stays a source, and the link that
+# appeared inside an already-queued folder joins the queue.
+assert queue_window.sync_total == len(queued_paths) + 4, queue_window.sync_total
 assert str(added_after_queue) in queue_window.pending
-assert str(skipped_during_sync) not in queue_window.pending
-assert str(skipped_source) not in queue_window.pending_sources
-assert queue_window.pending_skipped_symlinks == {
-    str(skipped_source): 1,
-    str(sync_source): 1,
-}
-assert gui.IpodWindow._pending_symlink_note(queue_window) == (
-    " · 2 symlinked items skipped"
-)
-assert queue_window.toasts[-1] == (
-    "2 symlinked items skipped because links are not copied"
-)
+assert str(linked_during_sync) in queue_window.pending
+assert str(linked_only_link) in queue_window.pending
+assert str(linked_source) in queue_window.pending_sources
 
 # The queue is only cleared once the copy has actually succeeded, which is
 # what the then callback is for.
@@ -1854,11 +1873,12 @@ assert queue_window.pending == {
     *queued_paths,
     already_copied.path,
     str(added_after_queue),
+    str(linked_during_sync),
+    str(linked_only_link),
 }, "queue emptied before the sync ran"
 cleared = queue_window.then()
 assert queue_window.pending == set(), "queue survived a successful sync"
 assert queue_window.pending_sources == {}, "sync sources survived a successful sync"
-assert queue_window.pending_skipped_symlinks == {}
 assert queue_window.pending_device_identity is None, "queue stayed device-bound"
 assert isinstance(cleared, str), cleared
 
@@ -2882,7 +2902,6 @@ class PreviewWindow:
         self.pending = set()
         self.pending_sources = {}
         self.pending_records = {}
-        self.pending_skipped_symlinks = {}
         self.pending_device_identity = None
         self._pending_track_index = {}
         self._library_by_path = {}

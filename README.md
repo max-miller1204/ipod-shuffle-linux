@@ -255,6 +255,13 @@ A single file works as well as a folder, and lands in a folder named after the o
 
 That puts it in `iPod_Control/Music/roadtrip/`, exactly where syncing the whole folder would have put it, so adding one track later does not create a second copy of the album or leave a stray file that `--dir-playlists` cannot group.
 
+Symlinks are followed, so a library assembled out of links syncs like any other folder.
+A linked track is copied and a linked folder is descended, wherever they point - including outside the folder being synced, which is the usual shape for a library of links into an archive kept somewhere else.
+The copy still lands where the link sits inside the source folder rather than where it points, so the layout on the device mirrors the library you see.
+Tracks are copied and never linked, because the device is FAT and will be unplugged from the computer holding the originals.
+
+A link pointing at a file that is not there is named and counted rather than silently dropped, and a folder that links back into itself is walked once instead of forever.
+
 A `.m3u` or `.pls` file works too, and becomes a playlist on the device; see [Playlists](#playlists).
 
 The iPod is found automatically.
@@ -665,6 +672,8 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - A removal rebuilding the database without the saved options, silently taking every playlist on the device with it
 - `--sync` copying the whole download folder rather than what the run downloaded, so one new song dragged the entire library onto the device
 - A `--new-tracks` file left stale by a `yt-dlp` that could not fill it, which reads as a definite answer to whoever picks it up next
+- `find` enumerating a source without `-L`, so a library assembled out of symlinks synced as an empty folder and said nothing about it
+- A single dangling `.mp3` link anywhere under a music folder failing the whole library scan, which showed an empty library because of one broken link
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 
@@ -677,6 +686,8 @@ The answers it can bring back are checked too - two iPods, none, and one that st
 Preview playback is checked the same way, against a stand-in pipeline whose messages the test delivers by hand: GStreamer only reports a track ending, or failing to decode, on a running main loop, and it is optional besides, so a suite that needed it installed would be skipped exactly where the state machine is least exercised.
 The preview cache is the exception: promoting, pruning and clearing are checked against real files in a temporary directory, because a promotion that leaves the file where it was would look identical in memory and lose the track at the next prune.
 Thumbnail fetching is checked against a local HTTP server rather than YouTube, so the suite covers the answers that matter - a missing image, an empty one, one larger than the cap, and a URL scheme that is not HTTP - without depending on the network or on a particular video still existing.
+Symlinked sources are checked on both sides of the same folder, because the script and the GUI walk it separately and the count the GUI produces is what drives the sync progress bar: `tests/gui-scan-paths.py` prints what the scan finds, and the suite holds it against what the sync actually copied.
+That folder carries every case the walk has to survive - a linked track, a linked folder, a link out of the tree, a dangling link, and a folder that links back to its own parent - since `os.walk` has no loop detection of its own and would otherwise recurse through the last one forever.
 
 `.github/workflows/tests.yml` runs the suite, `shellcheck`, and a Python syntax and import check on every push and pull request.
 

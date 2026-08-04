@@ -141,13 +141,13 @@ def emit(path, key, size=None):
     sys.stdout.flush()
 
 
-def report_symlink(path):
-    sys.stdout.write(json.dumps({"event": "symlink", "path": str(path)}) + "\n")
-    sys.stdout.flush()
-
-
 def walk_error(error):
     raise error
+
+
+def identity(path):
+    info = os.stat(path)
+    return (info.st_dev, info.st_ino)
 
 
 try:
@@ -163,41 +163,93 @@ try:
                 raise OSError
             emit(path, value)
     else:
-        skip_symlinks = sys.argv[4] == "recursive-no-symlinks"
-        root_info = os.lstat(root)
-        if skip_symlinks and stat.S_ISLNK(root_info.st_mode):
-            report_symlink(root)
-            sys.exit(0)
         if not root.is_dir():
             raise OSError
+        # followlinks, to agree with the -L that ipod-sync.sh enumerates a
+        # source with: what the grid counts has to be what the script copies,
+        # or a sync finishes with the progress bar short of the end.
+        #
+        # os.walk has no loop detection of its own and would recurse forever
+        # through a folder that links back into itself, so the ancestry of
+        # each directory is carried along and one that is its own ancestor is
+        # dropped. That is find's rule too. It deliberately does not dedupe
+        # more widely than that: two links to one folder are two folders to
+        # find, which copies both, so pruning the second here would put the
+        # count back out of step with the copy.
+        ancestries = {str(root): {identity(root)}}
         for current, dirs, files in os.walk(
-            root, onerror=walk_error, followlinks=False
+            root, onerror=walk_error, followlinks=True
         ):
+            ancestry = ancestries.pop(current)
             dirs.sort()
-            if skip_symlinks:
-                for name in dirs[:]:
-                    path = Path(current, name)
-                    info = os.lstat(path)
-                    if stat.S_ISLNK(info.st_mode):
-                        report_symlink(path)
-                        dirs.remove(name)
+            for name in dirs[:]:
+                path = Path(current, name)
+                try:
+                    here = identity(path)
+                except OSError:
+                    # A link to a folder that is not there. find reports it
+                    # as a broken link and moves on rather than failing.
+                    dirs.remove(name)
+                    continue
+                if here in ancestry:
+                    dirs.remove(name)
+                    continue
+                ancestries[str(path)] = ancestry | {here}
             for name in sorted(files):
                 path = Path(current, name)
                 if path.suffix.lower() not in suffixes:
                     continue
-                if skip_symlinks:
-                    info = os.lstat(path)
-                    if stat.S_ISLNK(info.st_mode):
-                        report_symlink(path)
-                        continue
-                    if not stat.S_ISREG(info.st_mode):
-                        continue
-                    emit(path, str(path.relative_to(root)), info.st_size)
-                else:
-                    emit(path, str(path.relative_to(root)))
+                try:
+                    info = os.stat(path)
+                except OSError:
+                    # A broken link named like a track. Skipping just this one
+                    # keeps the rest of the library readable; raising here
+                    # used to fail the whole scan, which showed the user an
+                    # empty library because of one dangling link.
+                    continue
+                if not stat.S_ISREG(info.st_mode):
+                    continue
+                emit(path, str(path.relative_to(root)), info.st_size)
 except (OSError, TypeError, ValueError):
     sys.exit(2)
 """
+
+
+def _identity(path):
+    info = os.stat(path)
+    return (info.st_dev, info.st_ino)
+
+
+def walk_following_links(root):
+    """Yield (directory, filenames) under root, following symlinks safely.
+
+    The rule the reader above applies, for callers on this side of the
+    subprocess: symlinks are followed because ipod-sync.sh follows them, and a
+    directory that is its own ancestor is dropped because os.walk would
+    otherwise recurse through it forever. The reader cannot call this - it is
+    source text run by whichever interpreter has mutagen - so the two are kept
+    deliberately alike instead.
+    """
+    ancestries = {}
+    try:
+        ancestries[str(root)] = {_identity(root)}
+    except OSError:
+        return
+    for current, dirs, files in os.walk(root, followlinks=True):
+        ancestry = ancestries.pop(current)
+        dirs.sort()
+        for name in list(dirs):
+            path = os.path.join(current, name)
+            try:
+                here = _identity(path)
+            except OSError:
+                dirs.remove(name)
+                continue
+            if here in ancestry:
+                dirs.remove(name)
+                continue
+            ancestries[path] = ancestry | {here}
+        yield current, sorted(files)
 
 
 def scan_tracks(
@@ -206,12 +258,11 @@ def scan_tracks(
     timeout=900,
     cancelled=None,
     files=None,
-    skip_symlinks=False,
 ):
     """Read tags for every supported file under root.
 
-    Returns (records, complete, skipped_symlinks), with each record path
-    relative to root.
+    Returns (records, complete), with each record path relative to root.
+    Symlinks are followed, the way ipod-sync.sh follows them when it copies.
     on_record, when given, is called with each record as it arrives so a caller
     can show progress rather than waiting for the whole tree. Partial records
     are returned with complete false after cancellation, timeout, or failure.
@@ -228,12 +279,7 @@ def scan_tracks(
     exact_allowed = set(exact_files or ())
     root = Path(root) if root is not None else Path(".")
     records = {}
-    skipped_symlinks = 0
-    reader_mode = (
-        "exact"
-        if exact_files is not None
-        else "recursive-no-symlinks" if skip_symlinks else "recursive"
-    )
+    reader_mode = "exact" if exact_files is not None else "recursive"
 
     try:
         proc = subprocess.Popen(
@@ -257,7 +303,7 @@ def scan_tracks(
             bufsize=1,
         )
     except OSError:
-        return [], False, 0
+        return [], False
 
     output = queue.Queue()
     output_done = object()
@@ -310,9 +356,6 @@ def scan_tracks(
                 continue
             try:
                 record = json.loads(line)
-                if record.get("event") == "symlink":
-                    skipped_symlinks += 1
-                    continue
                 relpath = record["path"]
             except (AttributeError, KeyError, TypeError, ValueError):
                 continue
@@ -347,7 +390,7 @@ def scan_tracks(
             proc.wait(timeout=1)
         except subprocess.SubprocessError:
             pass
-    return list(records.values()), complete, skipped_symlinks
+    return list(records.values()), complete
 
 
 def read_tags(mount_point):
@@ -357,7 +400,7 @@ def read_tags(mount_point):
     case the interface falls back to showing filenames.
     """
     music = Path(mount_point, "iPod_Control", "Music")
-    records, complete, _skipped_symlinks = scan_tracks(music)
+    records, complete = scan_tracks(music)
     if not complete:
         return {}
     return {record["path"]: record for record in records}
