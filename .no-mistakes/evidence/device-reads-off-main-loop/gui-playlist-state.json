@@ -1,0 +1,20 @@
+{
+  "restored_gui_state": {
+    "playlist_mode": "By genre",
+    "speak_tracks": true,
+    "speak_playlists": true
+  },
+  "sync_script_arguments": [
+    "--id3-playlists={genre}",
+    "--voiceover",
+    "--playlist-voiceover"
+  ],
+  "device_probe": {
+    "mount_point": "/tmp/tmp.X4XTQVtZdx/Alex's iPod",
+    "readable": true,
+    "tracks": 2,
+    "playlists": [],
+    "spoken": [],
+    "free_bytes": 350732664832
+  }
+}

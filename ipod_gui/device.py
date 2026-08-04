@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -202,11 +203,24 @@ def unmounted_vfat_devices():
     return devices
 
 
-def count_tracks(mount_point):
+def count_tracks(mount_point, cancelled=None):
+    """How many files the device holds, walking it over USB.
+
+    Takes the same cancellation callback as the tag scan, because this is the
+    one call in here whose cost grows with the size of the library: a walk
+    superseded by a newer one should stop competing for the bus rather than
+    finish a count nothing will read.
+    """
     music = Path(mount_point, "iPod_Control", "Music")
     if not music.is_dir():
         return 0
-    return sum(1 for p in music.rglob("*") if p.is_file())
+    total = 0
+    for path in music.rglob("*"):
+        if cancelled is not None and cancelled():
+            break
+        if path.is_file():
+            total += 1
+    return total
 
 
 def list_tracks(mount_point, limit=None):
@@ -327,3 +341,96 @@ def spoken_playlists(mount_point):
     if not speakable.is_dir():
         return set()
     return {p.stem.lower() for p in speakable.iterdir() if p.is_file()}
+
+
+class DeviceProbe:
+    """One reading of the connected device, as the window paints it.
+
+    The window used to make each of these calls itself, one at a time, from
+    the main loop. Gathering them into a value means the crossing to the
+    device happens once, on a worker thread, and painting afterwards touches
+    nothing but memory.
+    """
+
+    __slots__ = (
+        "candidates",
+        "mount_point",
+        "identity",
+        "sync_options",
+        "playlists",
+        "spoken",
+        "track_count",
+        "usage",
+        "readable",
+    )
+
+    def __init__(
+        self,
+        candidates,
+        mount_point=None,
+        identity=None,
+        sync_options=None,
+        playlists=None,
+        spoken=None,
+        track_count=0,
+        usage=None,
+        readable=True,
+    ):
+        self.candidates = candidates
+        # A probe is built complete or not at all: every field a connected
+        # device has is passed at once, so a device read half way cannot be
+        # mistaken for one holding nothing.
+        self.mount_point = mount_point
+        self.identity = identity
+        self.sync_options = sync_options or (0, [], False, False)
+        self.playlists = playlists or []
+        self.spoken = spoken or set()
+        self.track_count = track_count
+        self.usage = usage
+        # False only when detection answered and the volume then stopped
+        # answering, which is what unplugging mid-read looks like.
+        self.readable = readable
+
+
+def probe_device(cancelled=None):
+    """Read everything the window needs from the device, off the main loop.
+
+    Detection, identity, saved options, playlists, the track count and free
+    space in one pass. Every one of them is a subprocess or a walk over USB,
+    and a 2GB device full of small files makes the count alone slow enough to
+    stall a redraw, so none of this may run where the window draws.
+    """
+    candidates = find_ipods()
+    if len(candidates) != 1:
+        return DeviceProbe(candidates)
+
+    mount_point = candidates[0]
+    try:
+        identity = volume_identity(mount_point)
+        sync_options = saved_sync_options(mount_point)
+        playlists = list_playlists(mount_point)
+        spoken = spoken_playlists(mount_point)
+        track_count = count_tracks(mount_point, cancelled=cancelled)
+    except OSError:
+        # The volume went away between findmnt answering and this walk, which
+        # is routine: unplugging is what fires the refresh in the first place.
+        # Reported as unreadable rather than as an iPod holding nothing.
+        return DeviceProbe(candidates, readable=False)
+
+    try:
+        usage = shutil.disk_usage(mount_point)
+    except OSError:
+        # Asked apart from the reads above, because a device whose size cannot
+        # be read is still a device worth showing, and always has been.
+        usage = None
+
+    return DeviceProbe(
+        candidates,
+        mount_point=mount_point,
+        identity=identity,
+        sync_options=sync_options,
+        playlists=playlists,
+        spoken=spoken,
+        track_count=track_count,
+        usage=usage,
+    )

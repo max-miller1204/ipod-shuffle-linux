@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 28,
+  "revision": 31,
   "goals": [
     {
       "id": "goal-msdncj32-4e24ddce",
@@ -53,10 +53,10 @@
     {
       "id": "goal-msdnd336-8c15233f",
       "title": "Move blocking device work in refresh() off the main loop",
-      "description": "count_tracks, list_tracks, list_playlists, spoken_playlists and shutil.disk_usage all run synchronously inside IpodWindow.refresh(), over USB. Tag reading and the library scan are already threaded via scan_tracks with a generation counter to discard stale results; extend the same pattern to the rest. This is the largest remaining responsiveness win and it grows with the number of tracks on the device.",
-      "status": "open",
+      "description": "count_tracks, list_tracks, list_playlists, spoken_playlists and shutil.disk_usage all run synchronously inside IpodWindow.refresh(), over USB. Tag reading and the library scan are already threaded via scan_tracks with a generation counter to discard stale results; extend the same pattern to the rest. This is the largest remaining responsiveness win and it grows with the number of tracks on the device.\n\nDone 2026-08-04. device.py gained probe_device(), which reads detection, identity, saved options, playlists, spoken names, the track count and free space in one pass and returns a DeviceProbe built complete or not at all. refresh() bumps a probe_generation, hands the read to a worker thread and returns; _apply_probe paints what comes back, and drops a result whose generation was superseded or that landed while a script was changing the device. count_tracks takes the same cancelled callback as scan_tracks, so a superseded walk stops competing for the bus. _populate_device_summary and the wipe dialog read the cached figures rather than the device, so a repaint costs nothing.\n\nlist_tracks turned out not to be called from window.py at all, so only the other four moved. Two states came out of it that the old code could not express: a device that stops answering mid-read is now reported as that, rather than as a connected iPod holding nothing, and the first paint says it is looking rather than claiming there is no iPod - which matters because findmnt alone waits five seconds on a device that has stopped answering.",
+      "status": "done",
       "createdAt": "2026-08-03T19:53:37.506Z",
-      "updatedAt": "2026-08-03T19:53:37.506Z"
+      "updatedAt": "2026-08-04T06:31:43.336Z"
     },
     {
       "id": "goal-msdo10ac-55740acf",

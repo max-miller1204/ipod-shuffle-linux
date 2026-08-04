@@ -666,20 +666,15 @@ class SelectionWindow:
         self.toasts.append(message)
 
 
+# The identity arrives beside the mount point rather than being read here:
+# recognising the device is a decision the probe already paid for over USB, so
+# selecting one costs nothing and cannot block a repaint.
 identity_window = SelectionWindow()
-original_volume_identity = gui.volume_identity
-gui.volume_identity = lambda mount: {
-    "/media/A-again": "uuid:A",
-    "/media/B": "uuid:B",
-}.get(mount)
-try:
-    gui.IpodWindow._select_mount(identity_window, None)
-    assert identity_window.pending, "disconnect discarded a device-bound queue"
-    gui.IpodWindow._select_mount(identity_window, "/media/A-again")
-    assert identity_window.pending, "same device reconnect discarded its queue"
-    gui.IpodWindow._select_mount(identity_window, "/media/B")
-finally:
-    gui.volume_identity = original_volume_identity
+gui.IpodWindow._select_mount(identity_window, None, None)
+assert identity_window.pending, "disconnect discarded a device-bound queue"
+gui.IpodWindow._select_mount(identity_window, "/media/A-again", "uuid:A")
+assert identity_window.pending, "same device reconnect discarded its queue"
+gui.IpodWindow._select_mount(identity_window, "/media/B", "uuid:B")
 assert identity_window.pending == set(), identity_window.pending
 assert identity_window.pending_sources == {}, identity_window.pending_sources
 assert identity_window.toasts and "different iPod" in identity_window.toasts[-1]
@@ -904,6 +899,28 @@ assert parsed == [
     ("Radio", ["Yeat/Song [x1].mp3", "/second.mp3"]),
     ("mix..v2", ["Yeat/Song [x1].mp3"]),
 ], parsed
+
+# One probe brings all of that back at once, off the main loop. The window
+# paints from what it returns and never asks the device again, so anything the
+# probe drops is a row, a count or a meter that silently goes empty.
+(fake_volume / "iPod_Control" / "Music" / "F00").mkdir(parents=True)
+(fake_volume / "iPod_Control" / "Music" / "F00" / "AAAA.mp3").write_text("song")
+(fake_volume / "iPod_Control" / "Speakable" / "Playlists").mkdir(parents=True)
+(fake_volume / "iPod_Control" / "Speakable" / "Playlists" / "Party.wav").write_text(
+    "spoken"
+)
+original_find_ipods = gui.find_ipods
+gui.find_ipods = lambda: [str(fake_volume)]
+try:
+    volume_probe = gui.probe_device()
+finally:
+    gui.find_ipods = original_find_ipods
+assert volume_probe.mount_point == str(fake_volume), volume_probe.mount_point
+assert volume_probe.readable is True, volume_probe.readable
+assert volume_probe.playlists == parsed, volume_probe.playlists
+assert volume_probe.spoken == {"party"}, volume_probe.spoken
+assert volume_probe.track_count == 1, volume_probe.track_count
+assert volume_probe.usage is not None, volume_probe.usage
 
 # ------------------------------------------------------------------ youtube
 

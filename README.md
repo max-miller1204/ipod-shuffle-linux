@@ -101,6 +101,7 @@ The entry embeds the checkout's location, so if you move the repository, re-run 
 
 The window is library-first: your music is the app, and the device operations live in one **Device & Settings** view rather than leading the window.
 It detects the iPod automatically, appearing and updating as the device is plugged in or unmounted, and it shows real song titles, artists and embedded cover art rather than the scrambled filenames stored on the device.
+Nothing it reads off the device happens where the window draws: detection, the playlists, the track count and the free space are gathered on a worker thread, so plugging in a full 2GB shuffle never freezes the window, and the library, search and preview playback stay usable throughout.
 
 Your own music folders are indexed alongside whatever is on the iPod, so **Your Library** shows both together as one album grid.
 A coloured marker on every album and track says which of three states it is in, and that marker means the same thing everywhere it appears:
@@ -618,7 +619,7 @@ The GUI is a package, `ipod_gui/`, launched by `ipod-gui.py` and split by what e
 | `config.py` | Where things live: the scripts to drive, the caches, the track states |
 | `text.py` | Script output and raw numbers, turned into what a label can show |
 | `tags.py` | The tag reader that runs in the virtualenv's interpreter, and the scan around it |
-| `device.py` | Finding the iPod, and reading what is on it over USB |
+| `device.py` | Finding the iPod, and reading what is on it over USB in one pass |
 | `shell.py` | Asking `lib.sh` what is installed, so the window and the scripts agree |
 | `youtube.py` | Search, artwork, and the `ipod-fetch.sh` command for a result |
 | `previews.py` | The preview cache: what is in it, what may be pruned, what is promoted |
@@ -670,6 +671,8 @@ The GUI checks call its methods unbound against a stand-in, so they exercise the
 PyGObject still has to be importable, because the package imports it at load time.
 They reach the code through `tests/harness.py` rather than importing `ipod_gui` themselves, because replacing a helper with a stand-in has to reach every module that imported it: patching one binding of a name and leaving the rest would quietly run the check against the real implementation, which passes and proves nothing.
 The harness writes a replacement to every module holding that name, and refuses to write one no module holds, so a helper that moves or is renamed breaks the check that depended on it instead.
+Reading the device is checked from both ends: that one probe off the main loop returns exactly what the separate calls it replaced did, against the synthetic volume the suite builds, and that `refresh` hands that work to a thread and returns rather than waiting for it.
+The answers it can bring back are checked too - two iPods, none, and one that stopped responding half way through being read - because each is a different thing to tell the user, and the last one must never arrive as a connected iPod holding nothing.
 Preview playback is checked the same way, against a stand-in pipeline whose messages the test delivers by hand: GStreamer only reports a track ending, or failing to decode, on a running main loop, and it is optional besides, so a suite that needed it installed would be skipped exactly where the state machine is least exercised.
 The preview cache is the exception: promoting, pruning and clearing are checked against real files in a temporary directory, because a promotion that leaves the file where it was would look identical in memory and lose the track at the next prune.
 Thumbnail fetching is checked against a local HTTP server rather than YouTube, so the suite covers the answers that matter - a missing image, an empty one, one larger than the cap, and a URL scheme that is not HTTP - without depending on the network or on a particular video still existing.

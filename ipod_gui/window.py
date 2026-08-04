@@ -37,16 +37,11 @@ from .text import (
 )
 from .tags import scan_tracks
 from .device import (
-    count_tracks,
-    find_ipods,
-    list_playlists,
     playlist_file,
+    probe_device,
     resolve_device,
-    saved_sync_options,
-    spoken_playlists,
     udisks_filesystem_call,
     unmounted_vfat_devices,
-    volume_identity,
     write_playlist,
 )
 from .shell import (
@@ -119,6 +114,18 @@ class IpodWindow(Adw.ApplicationWindow):
         self.tag_generation = 0
         self.scan_generation = 0
         self.source_generation = 0
+        # What the last completed probe found on the device. Painting reads
+        # these rather than the device, so a repaint costs nothing.
+        self.device_track_count = 0
+        self.device_usage = None
+        # Bumped per probe, so an unplug arriving while the previous device is
+        # still being walked cannot repaint the window with what it held.
+        self.probe_generation = 0
+        # Whether any probe has answered yet. Only the first one paints a
+        # searching state; doing it on every refresh would flash it over a
+        # device sitting right there, once per mount event and once after
+        # every command.
+        self.probe_answered = False
         self.discovering_sources = False
         self.loading_options = False
         self.loaded_playlist_mode = 0
@@ -2228,21 +2235,61 @@ class IpodWindow(Adw.ApplicationWindow):
         self._rescan_library()
 
     def refresh(self):
-        """Re-detect the iPod and repaint. Safe to call from the main loop."""
+        """Re-detect the iPod and repaint. Safe to call from the main loop.
+
+        Nothing here touches the device: detection is a subprocess and reading
+        the device is a walk over USB, so both happen on a worker thread and
+        _apply_probe paints what it brings back.
+        """
         if self.busy:
             return False
 
-        candidates = find_ipods()
-        if len(candidates) != 1:
-            self._select_mount(None)
+        self.probe_generation += 1
+        generation = self.probe_generation
+        if not self.probe_answered:
+            # The empty page would claim there is no iPod, which is not what
+            # is known yet; the device page says what is actually happening
+            # and leaves the library, which needs no device, on screen.
+            self._populate_searching_summary()
+            self._populate_playlist_rail()
+            self.stack.set_visible_child_name("device")
+
+        def worker():
+            probe = probe_device(
+                cancelled=lambda: generation != self.probe_generation
+            )
+            GLib.idle_add(self._apply_probe, generation, probe)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return False
+
+    def _apply_probe(self, generation, probe):
+        """Paint what the worker read off the device."""
+        if generation != self.probe_generation:
+            return False
+        if self.busy:
+            # A command started while this was reading. It ends with a refresh
+            # of its own, so dropping this one keeps the invariant that no
+            # device reading overlaps a script that is changing the device.
+            return False
+        self.probe_answered = True
+
+        if probe.mount_point is None:
+            self._select_mount(None, None)
             self.playlists = []
             self.spoken = set()
             self.current_playlist = None
-            if len(candidates) > 1:
+            if len(probe.candidates) > 1:
                 self._populate_disconnected_summary(
                     "Multiple iPods connected. Disconnect all but the one you "
                     "want to manage.",
                     False,
+                )
+            elif not probe.readable:
+                self._populate_disconnected_summary(
+                    "The iPod stopped responding while it was being read. "
+                    "Reconnect it, or mount it if it is still attached.",
+                    True,
                 )
             else:
                 self._populate_disconnected_summary(
@@ -2254,18 +2301,19 @@ class IpodWindow(Adw.ApplicationWindow):
             self.stack.set_visible_child_name("device")
             return False
 
-        self._select_mount(candidates[0])
+        self._select_mount(probe.mount_point, probe.identity)
         self.stack.set_visible_child_name("device")
-        self._load_sync_options()
-        self.playlists = list_playlists(self.mount_point)
-        self.spoken = spoken_playlists(self.mount_point)
+        self._load_sync_options(probe.sync_options)
+        self.playlists = probe.playlists
+        self.spoken = probe.spoken
+        self.device_track_count = probe.track_count
+        self.device_usage = probe.usage
         self._populate_device_summary()
         self._populate_playlist_rail()
         self._load_device_tracks_async()
         return False
 
-    def _select_mount(self, mount_point):
-        identity = volume_identity(mount_point) if mount_point is not None else None
+    def _select_mount(self, mount_point, identity):
         if mount_point == self.mount_point and identity == self.device_identity:
             return
         if self.discovering_sources and identity != self.device_identity:
@@ -2277,6 +2325,8 @@ class IpodWindow(Adw.ApplicationWindow):
         self._device_scan_tracks = {}
         self.device_tracks = []
         self.track_names = {}
+        self.device_track_count = 0
+        self.device_usage = None
         self._device_scan_active = False
         self._device_snapshot_ready = False
         if (
@@ -2295,15 +2345,38 @@ class IpodWindow(Adw.ApplicationWindow):
         self._merge_states()
         self._refresh_current_view()
 
+    def _populate_searching_summary(self):
+        """The card before any probe has answered.
+
+        Not the disconnected summary: "No iPod" is a claim, and at this point
+        nothing has looked yet. Worth distinguishing because findmnt alone
+        waits five seconds on a device that has stopped answering, which is
+        long enough for the difference to be read and believed.
+        """
+        self._populate_absent_summary(
+            "Looking…",
+            "Looking for an iPod",
+            "Checking connected drives",
+            "Checking the drives that are connected.",
+            False,
+        )
+
     def _populate_disconnected_summary(self, message, offer_mount):
-        self.device_name.set_text("No iPod")
-        self.settings_name.set_text("No iPod connected")
+        self._populate_absent_summary(
+            "No iPod", "No iPod connected", "Not connected", message, offer_mount
+        )
+
+    def _populate_absent_summary(
+        self, name, settings_name, status, message, offer_mount
+    ):
+        self.device_name.set_text(name)
+        self.settings_name.set_text(settings_name)
         self.settings_path.set_text(message)
         self.device_dot.remove_css_class("ipod")
         self.device_dot.add_css_class("library")
         self.settings_dot.remove_css_class("ipod")
         self.settings_dot.add_css_class("library")
-        self.device_free.set_text("Not connected")
+        self.device_free.set_text(status)
         self.device_count.set_text("")
         self.wipe_note.set_text("Connect an iPod before using device controls.")
         for meter in (self.sidebar_meter, self.settings_meter):
@@ -2355,7 +2428,10 @@ class IpodWindow(Adw.ApplicationWindow):
         self.settings_dot.add_css_class("ipod")
         self.device_banner.set_visible(False)
 
-        total_tracks = count_tracks(self.mount_point)
+        # From the last probe rather than from the device: this runs again
+        # every time a scan lands a batch, and counting the files on a 2GB
+        # device over USB is not something a repaint can afford.
+        total_tracks = self.device_track_count
         self.device_count.set_text(plural(total_tracks, "track"))
         self.wipe_note.set_text(
             f"Removes all {plural(total_tracks, 'track')}. Filenames on the device are "
@@ -2363,8 +2439,8 @@ class IpodWindow(Adw.ApplicationWindow):
         )
 
         _tracks, changes, queued_bytes = self._pending_accounting()
-        try:
-            usage = shutil.disk_usage(self.mount_point)
+        usage = self.device_usage
+        if usage is not None:
             used_fraction = usage.used / usage.total if usage.total else 0
             queued_fraction = queued_bytes / usage.total if usage.total else 0
             over = queued_bytes > usage.free
@@ -2372,7 +2448,7 @@ class IpodWindow(Adw.ApplicationWindow):
             for meter in (self.sidebar_meter, self.settings_meter):
                 meter.set_fractions(used_fraction, queued_fraction, over)
             self._set_settings_figures(usage, queued_bytes, total_tracks, over)
-        except OSError:
+        else:
             self.device_free.set_text("size unknown")
             self._set_settings_figures(None, queued_bytes, total_tracks, False)
 
@@ -3641,10 +3717,9 @@ class IpodWindow(Adw.ApplicationWindow):
         if not self.speech_engine_available:
             row.set_sensitive(row.get_active())
 
-    def _load_sync_options(self):
-        mode, playlist_args, track_voiceover, playlist_voiceover = saved_sync_options(
-            self.mount_point
-        )
+    def _load_sync_options(self, options):
+        """Show the options the probe read back off the device."""
+        mode, playlist_args, track_voiceover, playlist_voiceover = options
         self.loading_options = True
         try:
             self.playlist_mode.set_selected(mode)
@@ -3844,6 +3919,11 @@ class IpodWindow(Adw.ApplicationWindow):
         return False
 
     def _invalidate_device_snapshot(self):
+        # The track count and free space are deliberately left alone. Every
+        # caller of this is followed by a refresh, so they are replaced within
+        # a few hundred milliseconds; clearing them would put "0 tracks" on
+        # screen the moment a sync that added tracks finished, which is a
+        # worse thing to say than the figure from just before it ran.
         self.tag_generation += 1
         self._device_scan_active = bool(self.mount_point)
         self._device_snapshot_ready = False
@@ -4262,7 +4342,10 @@ class IpodWindow(Adw.ApplicationWindow):
         if not self.mount_point or self.device_identity is None:
             self._toast("Connect an iPod before wiping it")
             return
-        total = count_tracks(self.mount_point)
+        # The count the window is already showing, rather than a fresh walk of
+        # the device: a click that has to wait on USB before its dialog opens
+        # reads as the button having missed.
+        total = self.device_track_count
         dialog = Adw.AlertDialog(
             heading="Wipe this iPod?",
             body=(

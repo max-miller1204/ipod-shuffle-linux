@@ -1,0 +1,25 @@
+{
+  "two_connected": {
+    "selected": null,
+    "message": "Multiple iPods connected. Disconnect all but the one you want to manage.",
+    "mount_offered": false
+  },
+  "none_connected": {
+    "selected": null,
+    "message": "No iPod connected. Plug one in, or mount it if it is already attached.",
+    "mount_offered": true
+  },
+  "vanished_mid_read": {
+    "selected": null,
+    "readable": false,
+    "message": "The iPod stopped responding while it was being read. Reconnect it, or mount it if it is still attached.",
+    "mount_offered": true
+  },
+  "superseded_probe_painted": false,
+  "probe_during_command_painted": false,
+  "refresh_while_device_unread": {
+    "returned_after_ms": 0.2,
+    "showed_searching": true,
+    "claimed_no_ipod": false
+  }
+}
