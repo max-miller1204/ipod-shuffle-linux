@@ -16,9 +16,9 @@ from pathlib import Path
 from gi.repository import Gio, GLib
 
 
-# Reads and mutations must not overlap on the device bus. Callers take this
-# only on worker threads so waiting for the device never blocks the window.
-DEVICE_IO_LOCK = threading.Lock()
+# Probes and tag scans must not overlap scripts or other device mutations.
+# Callers take this only on worker threads so waiting never blocks the window.
+DEVICE_IO_LOCK = threading.RLock()
 
 
 def find_ipods():

@@ -125,6 +125,7 @@ class FakeWindow:
         self.device_identity = "uuid:test-ipod"
         self.busy = False
         self.probe_generation = 0
+        self.tag_generation = 0
         self.discovering_sources = False
         self.source_generation = 0
         self._device_scan_active = False
@@ -764,10 +765,47 @@ busy_window.youtube_unavailable = None
 busy_window.speech_engine_available = False
 busy_window.pending = set()
 
-probe_generation = busy_window.probe_generation
-probe_cancelled = lambda: probe_generation != busy_window.probe_generation
-gui.IpodWindow._set_busy(busy_window, True, "Changing the device")
-assert probe_cancelled(), "starting a command left the device probe running"
+scan_entered = threading.Event()
+allow_scan_exit = threading.Event()
+scan_cancelled = threading.Event()
+lock_acquired = threading.Event()
+original_scan_tracks = gui.scan_tracks
+
+
+def blocking_device_scan(_music, on_record=None, cancelled=None):
+    scan_entered.set()
+    while not cancelled() and not allow_scan_exit.wait(0.01):
+        pass
+    if cancelled():
+        scan_cancelled.set()
+    return [], False, 0
+
+
+def wait_for_device_io():
+    with gui.DEVICE_IO_LOCK:
+        lock_acquired.set()
+
+
+gui.scan_tracks = blocking_device_scan
+try:
+    gui.IpodWindow._load_device_tracks_async(busy_window)
+    assert scan_entered.wait(5), "device tag scan did not start"
+    lock_waiter = threading.Thread(target=wait_for_device_io, daemon=True)
+    lock_waiter.start()
+    assert not lock_acquired.wait(0.1), "device tag scan did not hold the lock"
+
+    tag_generation = busy_window.tag_generation
+    tag_cancelled = lambda: tag_generation != busy_window.tag_generation
+    probe_generation = busy_window.probe_generation
+    probe_cancelled = lambda: probe_generation != busy_window.probe_generation
+    gui.IpodWindow._set_busy(busy_window, True, "Changing the device")
+    assert tag_cancelled(), "starting a command left the tag scan current"
+    assert probe_cancelled(), "starting a command left the device probe running"
+    assert scan_cancelled.wait(5), "device tag scan did not stop"
+    assert lock_acquired.wait(5), "device tag scan did not release the lock"
+finally:
+    allow_scan_exit.set()
+    gui.scan_tracks = original_scan_tracks
 
 gui.IpodWindow._set_busy(busy_window, False)
 assert not busy_window.playlist_button.sensitive, "busy reset enabled Add Playlist"

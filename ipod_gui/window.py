@@ -2915,11 +2915,12 @@ class IpodWindow(Adw.ApplicationWindow):
                         ready,
                     )
 
-            _records, complete, _skipped_symlinks = scan_tracks(
-                music,
-                on_record=publish,
-                cancelled=lambda: generation != self.tag_generation,
-            )
+            with DEVICE_IO_LOCK:
+                _records, complete, _skipped_symlinks = scan_tracks(
+                    music,
+                    on_record=publish,
+                    cancelled=lambda: generation != self.tag_generation,
+                )
             if generation != self.tag_generation:
                 return
             if not complete:
@@ -3754,6 +3755,7 @@ class IpodWindow(Adw.ApplicationWindow):
     def _set_busy(self, busy, message=""):
         if busy:
             self.probe_generation += 1
+            self.tag_generation += 1
         self.busy = busy
         for widget in self._busy_widgets:
             widget.set_sensitive(not busy)
