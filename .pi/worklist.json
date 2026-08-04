@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 21,
+  "revision": 22,
   "goals": [
     {
       "id": "goal-msdncj32-4e24ddce",
@@ -30,9 +30,9 @@
       "id": "goal-msdnd2k9-b4ef7836",
       "title": "YouTube thumbnails as album art",
       "description": "Search results and previewed tracks need artwork. ipod-fetch.sh passes --no-embed-thumbnail explicitly, commented 'Cover art is pure waste on a 2GB device with no screen' - still true for the device, but the desktop grid needs it. Either fetch thumbnails separately into the existing art cache or revisit that flag for previewed tracks only. Load them as GdkTexture through the existing make_cover helper, which already handles a missing-art fallback to a generated striped placeholder.",
-      "status": "active",
+      "status": "done",
       "createdAt": "2026-08-03T19:53:36.824Z",
-      "updatedAt": "2026-08-04T02:55:32.229Z"
+      "updatedAt": "2026-08-04T03:24:21.007Z"
     },
     {
       "id": "goal-msdnd2qj-720df055",
