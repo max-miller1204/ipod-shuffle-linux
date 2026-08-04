@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 23,
+  "revision": 24,
   "goals": [
     {
       "id": "goal-msdncj32-4e24ddce",
@@ -38,9 +38,9 @@
       "id": "goal-msdnd2qj-720df055",
       "title": "Add GStreamer to install.sh as an optional system dependency",
       "description": "Follow the existing capability-probe pattern in install.sh: probe for the capability rather than the package name, print an 'info' line when present, and append apt names to the 'needed' array when absent. GStreamer belongs in 'needed' like ffmpeg, not in the js_runtime exception - that exception exists because Ubuntu ships nodejs 18 below yt-dlp's floor of 22, and GStreamer has no equivalent version hazard. Add a matching line to the Verifying section. PyGObject stays out of the venv for the documented reason, so anything GStreamer-Python is a system dependency too.",
-      "status": "active",
+      "status": "done",
       "createdAt": "2026-08-03T19:53:37.050Z",
-      "updatedAt": "2026-08-04T03:29:47.575Z"
+      "updatedAt": "2026-08-04T03:47:46.535Z"
     },
     {
       "id": "goal-msdnd2wx-73306f1d",
