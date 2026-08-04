@@ -406,7 +406,11 @@ def probe_device(cancelled=None):
     and a 2GB device full of small files makes the count alone slow enough to
     stall a redraw, so none of this may run where the window draws.
     """
+    if cancelled is not None and cancelled():
+        return DeviceProbe([])
     with DEVICE_IO_LOCK:
+        if cancelled is not None and cancelled():
+            return DeviceProbe([])
         return _probe_device(cancelled)
 
 

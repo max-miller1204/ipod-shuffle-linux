@@ -191,6 +191,37 @@ gui.IpodWindow._apply_probe(
 )
 assert during_command.disconnected_message is None, during_command.disconnected_message
 
+first_cancel_check = threading.Event()
+cancel_queued_probe = threading.Event()
+detection_calls = []
+queued_probe_result = []
+original_find_ipods = gui.find_ipods
+
+
+def queued_probe_cancelled():
+    first_cancel_check.set()
+    return cancel_queued_probe.is_set()
+
+
+gui.find_ipods = lambda: detection_calls.append(True) or []
+gui.DEVICE_IO_LOCK.acquire()
+try:
+    queued_probe = threading.Thread(
+        target=lambda: queued_probe_result.append(
+            gui.probe_device(cancelled=queued_probe_cancelled)
+        )
+    )
+    queued_probe.start()
+    assert first_cancel_check.wait(5), "queued probe did not check cancellation"
+    cancel_queued_probe.set()
+finally:
+    gui.DEVICE_IO_LOCK.release()
+queued_probe.join(5)
+gui.find_ipods = original_find_ipods
+assert not queued_probe.is_alive(), "cancelled probe remained queued"
+assert detection_calls == [], detection_calls
+assert queued_probe_result and queued_probe_result[0].candidates == []
+
 # refresh() must hand the device off to a thread and return. Reading a device
 # means a findmnt subprocess and a walk of every file on it over USB, and a
 # refresh fires on every plug, unplug and finished command, so doing any of it
