@@ -712,6 +712,48 @@ def youtube_search_unavailable_reason():
     return None
 
 
+_GST = None
+_GST_LOADED = False
+
+
+def gst():
+    """The GStreamer bindings, or None when they are not installed.
+
+    Imported here rather than beside Gtk at the top of the file, because
+    gi.require_version raises when the typelib is absent and that exception
+    would take away an entire working window to withhold the one feature of it
+    that is optional by design. Loaded once and remembered: Gst.init scans the
+    plugin registry, which is not work to repeat per track.
+    """
+    global _GST, _GST_LOADED
+    if _GST_LOADED:
+        return _GST
+    _GST_LOADED = True
+    try:
+        gi.require_version("Gst", "1.0")
+        from gi.repository import Gst
+
+        Gst.init(None)
+    except (ImportError, ValueError, GLib.Error):
+        return None
+    _GST = Gst
+    return _GST
+
+
+def preview_unavailable_reason():
+    """Why preview playback is not possible here, or None if it is.
+
+    Asks lib.sh for the same reason the YouTube checks do: the installer and
+    the scripts have to agree with the window about what counts as installed.
+    The shell probe is also the stricter of the two available answers, because
+    it makes the elements rather than only importing the module, and a
+    GStreamer with no decoders imports perfectly and then plays silence.
+    """
+    if not lib_function_succeeds("gst_available"):
+        return "GStreamer is not installed - run ./install.sh"
+    return None
+
+
 def home_relative(path):
     """~/Music/youtube rather than the full path, which reads as noise."""
     try:
@@ -1483,6 +1525,22 @@ window.shuffle.light .sf-idle-art { border-color: #d5d0c8; color: #b8b2aa; }
 }
 window.shuffle.light .sf-log { color: #6f6c67; }
 
+/* The play affordance on a row's artwork. Transparent until the row is under
+   the pointer, so a list at rest reads as covers rather than as a column of
+   identical glyphs. Focus reveals it too, because a control that only exists
+   while a mouse hovers it cannot be reached from the keyboard at all. */
+.sf-cover-play {
+  opacity: 0; transition: opacity 90ms ease-out;
+  padding: 0; min-width: 0; min-height: 0;
+  border: none; box-shadow: none; border-radius: 6px;
+  background: alpha(#000000, 0.55); color: #ffffff;
+}
+.sf-tracks row:hover .sf-cover-play,
+.sf-track-row:hover .sf-cover-play,
+.sf-cover-play:hover,
+.sf-cover-play:focus { opacity: 1; }
+.sf-cover-play:disabled { color: alpha(#ffffff, 0.45); }
+
 .sf-track-row { border-radius: 9px; padding: 6px 8px; }
 .sf-track-row:hover { background: alpha(#ffffff, 0.04); }
 window.shuffle.light .sf-track-row:hover { background: alpha(#000000, 0.03); }
@@ -1609,14 +1667,41 @@ class TrackItem(GObject.Object):
         self.number = number
 
 
-def track_cell(window, track, number, column):
+def playable_cover(window, track, view):
+    """A track's artwork, which becomes a play button under the pointer.
+
+    On the cover rather than in a column of its own: a row already carries an
+    Add or Remove button, and a second permanently visible button beside it
+    would make the more consequential one harder to pick out. Hovering the
+    artwork is also where every other music player puts this.
+    """
+    cover = make_cover(track.art, 36, track.album, "small")
+    if view is None:
+        return cover
+
+    overlay = Gtk.Overlay(valign=Gtk.Align.CENTER)
+    overlay.set_child(cover)
+    play = Gtk.Button(icon_name="media-playback-start-symbolic")
+    play.add_css_class("sf-cover-play")
+    play.set_size_request(36, 36)
+    if window.preview_unavailable:
+        play.set_sensitive(False)
+        play.set_tooltip_text(window.preview_unavailable)
+    else:
+        play.set_tooltip_text(f"Preview {track.title} on this computer")
+    play.connect("clicked", lambda _b, t=track: window.play_from(view, t))
+    overlay.add_overlay(play)
+    return overlay
+
+
+def track_cell(window, track, number, column, view=None):
     """One cell of a track row, for whichever column asked for it."""
     if column == "number":
         return label(str(number), "sf-caption", "sf-mono", width_chars=3, xalign=1.0)
 
     if column == "title":
         row = Gtk.Box(spacing=12)
-        row.append(make_cover(track.art, 36, track.album, "small"))
+        row.append(playable_cover(window, track, view))
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
         text.append(label(track.title, "sf-row-title", ellipsize=ELLIPSIZE_END))
         subtitle = track.artist if track.tagged else "No tags — filename shown"
@@ -1709,7 +1794,7 @@ def track_column_view(window, columns=None):
 
         def bind(_factory, item, key=key):
             entry = item.get_item()
-            item.set_child(track_cell(window, entry.track, entry.number, key))
+            item.set_child(track_cell(window, entry.track, entry.number, key, view))
 
         factory.connect("bind", bind)
         column = Gtk.ColumnViewColumn.new(title, factory)
@@ -1763,7 +1848,7 @@ def track_list_view(window, on_reorder):
             child = nxt
         entry = item.get_item()
         for key in ("number", "title", "state", "duration", "action"):
-            row.append(track_cell(window, entry.track, entry.number, key))
+            row.append(track_cell(window, entry.track, entry.number, key, view))
         if entry.track.state == STATE_PREVIEW:
             row.add_css_class("previewed")
         else:
@@ -1855,6 +1940,312 @@ class StorageMeter(Gtk.Box):
         cls._provider.load_from_data("\n".join(rules), -1)
 
 
+# --------------------------------------------------------------------- player
+
+# What the now-playing bar is showing. "loading" is its own state rather than a
+# flavour of playing because the gap is real and visible: a flushing seek, a
+# track read over USB from the device, or a preview still being fetched all
+# leave the bar with a title and no timeline yet, and a seek bar that accepts
+# drags during that gap would silently drop them.
+PLAY_IDLE = "idle"
+PLAY_LOADING = "loading"
+PLAY_PLAYING = "playing"
+PLAY_PAUSED = "paused"
+
+# GStreamer has no position-changed signal, so the bar polls. 250ms is the
+# coarsest interval at which the timeline still reads as tracking the audio
+# rather than stepping along behind it.
+PLAYER_POLL_MS = 250
+
+# Polls to leave the sought position alone after a seek. A flushing seek
+# usually reports its new position immediately, but a pipeline that has to
+# pre-roll first answers with the old one for a frame or two, and the thumb
+# springing back to where it was dragged from reads as the seek being refused.
+SEEK_SETTLE_POLLS = 2
+
+# Pressing previous this far into a track restarts it instead of stepping back,
+# which is what every other player does and what the gesture usually means.
+RESTART_WINDOW = 3.0
+
+# What the bar has painted before it has painted anything. A sentinel rather
+# than None, because None is also what "idle, showing the placeholder" looks
+# like, and the first paint of a freshly built bar is exactly that - so
+# comparing against None skipped it and left the artwork slot empty.
+UNPAINTED = object()
+
+
+class PreviewPlayer:
+    """playbin3 driving the now-playing bar, on this computer's speakers.
+
+    Preview only, and deliberately so: the shuffle has no way to be told what
+    to play, so nothing here reaches the device beyond reading a file that
+    happens to be mounted on it.
+
+    The window owns the widgets and this owns the pipeline; the two meet at
+    on_change, which fires whenever the bar would look different. Pushing a
+    repaint rather than having the window poll keeps the transport, the end of
+    a track and a decoding failure on one path.
+    """
+
+    def __init__(self, on_change):
+        self.on_change = on_change
+        self.track = None
+        self.state = PLAY_IDLE
+        self.position = 0.0
+        self.duration = 0.0
+        # The last playback failure, shown in the bar until something else is
+        # played. Not a toast: the bar is where the user is already looking,
+        # and it is the thing that stopped.
+        self.error = None
+        # The list the current track was started from, so previous and next
+        # move through what the user was looking at rather than through the
+        # whole library.
+        self.queue = []
+        self.index = -1
+        self._pipeline = None
+        self._poll = None
+        self._settle = 0
+
+    # --------------------------------------------------------------- control
+
+    def play(self, tracks, index):
+        """Start one track, with the rest of its list as the queue."""
+        tracks = list(tracks)
+        if not 0 <= index < len(tracks):
+            return
+        self.queue = tracks
+        self.index = index
+        self._start(tracks[index])
+
+    def toggle(self):
+        """Pause what is playing, resume what is paused, restart what ended."""
+        if self.state in (PLAY_PLAYING, PLAY_LOADING):
+            # Loading counts as playing here. The pipeline is already on its
+            # way to PLAYING, pressing the button again means "no, stop", and
+            # a button that visibly does nothing for the second a track takes
+            # to open reads as the transport being broken.
+            self._set_pipeline_state("PAUSED", PLAY_PAUSED)
+        elif self.state == PLAY_PAUSED:
+            self._set_pipeline_state("PLAYING", PLAY_PLAYING)
+        elif self.queue and 0 <= self.index < len(self.queue):
+            self._start(self.queue[self.index])
+
+    def previous(self):
+        """Restart the track, or step back if it only just started."""
+        if self.position > RESTART_WINDOW or self.index <= 0:
+            self.seek(0.0)
+            return
+        self.index -= 1
+        self._start(self.queue[self.index])
+
+    def next(self):
+        """Step forward, or stop at the end of the queue rather than wrap.
+
+        Wrapping would make a queue started from one album play forever, and
+        the bar gives no hint that it had looped.
+        """
+        if self.index + 1 >= len(self.queue):
+            self.stop()
+            return
+        self.index += 1
+        self._start(self.queue[self.index])
+
+    def seek(self, fraction):
+        """Jump to a fraction of the track, 0 to 1."""
+        if self._pipeline is None or self.duration <= 0:
+            return
+        module = gst()
+        if module is None:
+            return
+        target = max(0.0, min(1.0, fraction)) * self.duration
+        self._pipeline.seek_simple(
+            module.Format.TIME,
+            module.SeekFlags.FLUSH | module.SeekFlags.KEY_UNIT,
+            int(target * module.SECOND),
+        )
+        self.position = target
+        self._settle = SEEK_SETTLE_POLLS
+        self._changed()
+
+    def stop(self):
+        """Return to idle, keeping the queue so play can resume it."""
+        self._teardown()
+        self.track = None
+        self.state = PLAY_IDLE
+        self.position = 0.0
+        self.duration = 0.0
+        self._changed()
+
+    def shutdown(self):
+        """Release the pipeline on the way out of the window."""
+        self._teardown()
+        self._pipeline = None
+
+    # -------------------------------------------------------------- internals
+
+    def _fail(self, track, message):
+        """Give up on a track, stopping whatever was playing before it.
+
+        The teardown matters: without it a start that fails halfway leaves the
+        previous track audible behind a bar that has already moved on to the
+        one that did not open.
+        """
+        self._teardown()
+        self.track = track
+        self.state = PLAY_IDLE
+        self.position = 0.0
+        self.duration = 0.0
+        self.error = message
+        self._changed()
+
+    def _start(self, track):
+        module = gst()
+        if module is None:
+            self._fail(track, "GStreamer is not installed - run ./install.sh")
+            return
+
+        pipeline = self._ensure_pipeline()
+        if pipeline is None:
+            self._fail(track, "GStreamer cannot build a playback pipeline")
+            return
+
+        try:
+            uri = module.filename_to_uri(str(Path(track.path).absolute()))
+        except GLib.Error:
+            self._fail(track, "That file's location cannot be opened")
+            return
+
+        # NULL before the new URI, not just READY: playbin3 keeps the previous
+        # stream's decoders around otherwise, and starting an m4a straight
+        # after an mp3 then fails inside the old decoder rather than building
+        # the right one.
+        pipeline.set_state(module.State.NULL)
+        pipeline.set_property("uri", uri)
+
+        self.track = track
+        self.error = None
+        self.position = 0.0
+        # Whatever the tags claimed, until the pipeline can be asked. Tagged
+        # durations and decoded ones disagree often enough that starting from
+        # the tag and correcting is better than an empty timeline.
+        self.duration = float(track.duration or 0)
+        self._settle = 0
+        self._set_pipeline_state("PLAYING", PLAY_LOADING)
+        self._start_polling()
+
+    def _ensure_pipeline(self):
+        module = gst()
+        if module is None:
+            return None
+        if self._pipeline is None:
+            pipeline = module.ElementFactory.make("playbin3", "preview")
+            if pipeline is None:
+                return None
+            # Video would open a window of its own for a YouTube preview the
+            # user asked to hear, so the sink is refused outright rather than
+            # merely left unset.
+            pipeline.set_property("video-sink", module.ElementFactory.make("fakesink"))
+            bus = pipeline.get_bus()
+            bus.add_signal_watch()
+            bus.connect("message::eos", self._on_eos)
+            bus.connect("message::error", self._on_error)
+            bus.connect("message::state-changed", self._on_state_changed)
+            bus.connect("message::duration-changed", self._on_duration_changed)
+            self._pipeline = pipeline
+        return self._pipeline
+
+    def _set_pipeline_state(self, name, state):
+        """Move the pipeline, naming its state rather than passing the enum.
+
+        Gst.State cannot be referenced from a call site that has to work on a
+        machine where importing Gst fails, which is every call site here.
+        """
+        module = gst()
+        if self._pipeline is None or module is None:
+            return
+        self._pipeline.set_state(getattr(module.State, name))
+        self.state = state
+        if state == PLAY_PLAYING:
+            self._start_polling()
+        self._changed()
+
+    def _start_polling(self):
+        if self._poll is None:
+            self._poll = GLib.timeout_add(PLAYER_POLL_MS, self._tick)
+
+    def _teardown(self):
+        module = gst()
+        if self._pipeline is not None and module is not None:
+            self._pipeline.set_state(module.State.NULL)
+        if self._poll is not None:
+            GLib.source_remove(self._poll)
+            self._poll = None
+
+    def _tick(self):
+        if self._pipeline is None or self.state == PLAY_IDLE:
+            self._poll = None
+            return False
+        module = gst()
+        if module is None:
+            self._poll = None
+            return False
+
+        found, duration = self._pipeline.query_duration(module.Format.TIME)
+        if found and duration > 0:
+            self.duration = duration / module.SECOND
+        if self._settle > 0:
+            self._settle -= 1
+        else:
+            found, position = self._pipeline.query_position(module.Format.TIME)
+            if found and position >= 0:
+                self.position = position / module.SECOND
+        self._changed()
+        return True
+
+    def _on_state_changed(self, _bus, message):
+        # Every element in the pipeline reports its own transitions; only the
+        # pipeline's own says whether audio is actually coming out.
+        if message.src is not self._pipeline:
+            return
+        module = gst()
+        if module is None:
+            return
+        _old, new, _pending = message.parse_state_changed()
+        if new == module.State.PLAYING and self.state in (PLAY_LOADING, PLAY_PLAYING):
+            self.state = PLAY_PLAYING
+            self._changed()
+
+    def _on_duration_changed(self, _bus, _message):
+        # Emitted once the demuxer knows better than the tag did. The next
+        # poll reads the new value; this only makes sure a paused track still
+        # gets a correct timeline.
+        module = gst()
+        if self._pipeline is None or module is None:
+            return
+        found, duration = self._pipeline.query_duration(module.Format.TIME)
+        if found and duration > 0:
+            self.duration = duration / module.SECOND
+            self._changed()
+
+    def _on_eos(self, _bus, _message):
+        self.next()
+
+    def _on_error(self, _bus, message):
+        error, _debug = message.parse_error()
+        self._teardown()
+        self.state = PLAY_IDLE
+        self.position = 0.0
+        # GStreamer's own wording, which names the file and the missing
+        # decoder. Rewriting it into something friendlier would throw away the
+        # only part that says which plugin to install.
+        self.error = error.message
+        self._changed()
+
+    def _changed(self):
+        if self.on_change is not None:
+            self.on_change()
+
+
 # --------------------------------------------------------------------- window
 
 
@@ -1885,6 +2276,13 @@ class IpodWindow(Adw.ApplicationWindow):
         )
         self.youtube_unavailable = youtube_unavailable_reason()
         self.youtube_search_unavailable = youtube_search_unavailable_reason()
+        self.preview_unavailable = preview_unavailable_reason()
+
+        # Built before the device page, which mounts the bar the player drives.
+        self.player = PreviewPlayer(self._update_now_playing)
+        # Which cover the bar is showing, so a 250ms poll does not rebuild a
+        # texture four times a second to draw the same artwork.
+        self._painted_art = UNPAINTED
 
         self.search_query = ""
         self.search_generation = 0
@@ -1968,8 +2366,17 @@ class IpodWindow(Adw.ApplicationWindow):
         for signal in ("mount-added", "mount-removed"):
             self.monitor.connect(signal, lambda *_a: GLib.idle_add(self.refresh))
 
+        # A pipeline left in PLAYING outlives the window it was started from,
+        # so closing the window would keep playing audio nothing on screen
+        # could stop.
+        self.connect("close-request", self._on_close_request)
+
         self.refresh()
         self._rescan_library()
+
+    def _on_close_request(self, _window):
+        self.player.shutdown()
+        return False
 
     def _apply_theme(self):
         if Adw.StyleManager.get_default().get_dark():
@@ -3229,6 +3636,14 @@ class IpodWindow(Adw.ApplicationWindow):
         return self.sync_revealer
 
     def _build_now_playing_bar(self):
+        """The transport, which previews on this computer and never on the iPod.
+
+        All four states share these widgets - nothing playing, a track still
+        opening, a file from the library and a previewed download - and differ
+        only in what the labels say and what is sensitive. Building them once
+        keeps the bar exactly as tall in every state, so the window does not
+        resize under the pointer at the moment a track starts.
+        """
         bar = Gtk.Box(spacing=16)
         bar.add_css_class("sf-bottom-bar")
         bar.set_size_request(-1, 84)
@@ -3237,60 +3652,233 @@ class IpodWindow(Adw.ApplicationWindow):
 
         left = Gtk.Box(spacing=11)
         left.set_size_request(150, -1)
-        art = label("♪", "sf-idle-art", xalign=0.5, yalign=0.5)
-        art.set_size_request(52, 52)
-        art.set_valign(Gtk.Align.CENTER)
-        left.append(art)
-        self.playing_title = label(
-            "Nothing playing", "sf-row-title", "sf-dim", valign=Gtk.Align.CENTER
+        self.playing_art = Gtk.Box(valign=Gtk.Align.CENTER)
+        self.playing_art.set_size_request(52, 52)
+        left.append(self.playing_art)
+
+        text = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER, spacing=2
         )
-        left.append(self.playing_title)
+        self.playing_title = label(
+            "Nothing playing", "sf-row-title", "sf-dim", ellipsize=ELLIPSIZE_END
+        )
+        self.playing_subtitle = Gtk.Box(spacing=5, valign=Gtk.Align.CENTER)
+        self.playing_state_dot = state_dot(STATE_LIBRARY)
+        self.playing_subtitle.append(self.playing_state_dot)
+        self.playing_artist = label("", "sf-body", ellipsize=ELLIPSIZE_END)
+        self.playing_subtitle.append(self.playing_artist)
+        self.playing_subtitle.set_visible(False)
+        for line in (self.playing_title, self.playing_artist):
+            # Capped rather than merely ellipsized: an ellipsizing label still
+            # asks for its whole natural width, so one long title would set
+            # the width of this column and squeeze the transport out of the
+            # middle of the bar.
+            line.set_max_width_chars(22)
+            line.set_width_chars(0)
+        text.append(self.playing_title)
+        text.append(self.playing_subtitle)
+        left.append(text)
         bar.append(left)
 
-        middle = Gtk.Box(
+        # A stack rather than a box whose children are hidden in turn: when
+        # preview playback is impossible or a file will not decode, the reason
+        # belongs in place of the controls it is explaining, and the stack
+        # keeps that sentence from being any taller than the transport it
+        # replaces.
+        self.playing_stack = Gtk.Stack(hexpand=True, valign=Gtk.Align.CENTER)
+        transport = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=7, hexpand=True,
             valign=Gtk.Align.CENTER,
         )
-        middle.set_opacity(0.32)
         controls = Gtk.Box(spacing=18, halign=Gtk.Align.CENTER)
-        for icon in (
-            "media-skip-backward-symbolic",
-            "media-playback-start-symbolic",
-            "media-skip-forward-symbolic",
+        self.transport_buttons = {}
+        for key, icon in (
+            ("previous", "media-skip-backward-symbolic"),
+            ("play", "media-playback-start-symbolic"),
+            ("next", "media-skip-forward-symbolic"),
         ):
             button = Gtk.Button(icon_name=icon)
             button.add_css_class("flat")
-            if icon == "media-playback-start-symbolic":
+            if key == "play":
                 button.add_css_class("circular")
             button.set_sensitive(False)
+            button.connect("clicked", getattr(self, f"on_{key}_clicked"))
             controls.append(button)
-        middle.append(controls)
+            self.transport_buttons[key] = button
+        transport.append(controls)
 
         seek = Gtk.Box(spacing=10, halign=Gtk.Align.FILL, hexpand=True)
-        seek.append(label("0:00", "sf-caption", "sf-mono"))
-        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 1, 0.01)
-        scale.set_draw_value(False)
+        self.seek_elapsed = label("0:00", "sf-caption", "sf-mono")
+        seek.append(self.seek_elapsed)
+        self.seek_scale = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL, 0, 1, 0.01
+        )
+        self.seek_scale.set_draw_value(False)
         # A request rather than a fixed width, so the bar can still be laid
         # out when the window is dragged down to its minimum.
-        scale.set_size_request(160, -1)
-        scale.set_hexpand(True)
-        scale.set_sensitive(False)
-        seek.append(scale)
-        seek.append(label("0:00", "sf-caption", "sf-mono"))
-        middle.append(seek)
-        bar.append(middle)
+        self.seek_scale.set_size_request(160, -1)
+        self.seek_scale.set_hexpand(True)
+        self.seek_scale.set_sensitive(False)
+        self.seek_scale.connect("change-value", self._on_seek)
+        seek.append(self.seek_scale)
+        self.seek_total = label("0:00", "sf-caption", "sf-mono")
+        seek.append(self.seek_total)
+        transport.append(seek)
+        self.playing_stack.add_named(transport, "transport")
+
+        self.playing_message = label(
+            "", "sf-body", wrap=True, justify=Gtk.Justification.CENTER, xalign=0.5
+        )
+        self.playing_stack.add_named(self.playing_message, "message")
+        bar.append(self.playing_stack)
 
         right = Gtk.Box(spacing=12, halign=Gtk.Align.END, valign=Gtk.Align.CENTER)
         right.set_size_request(150, -1)
         # Ellipsized but uncapped: the minimum width of an ellipsizing label is
         # tiny, so this shrinks away gracefully without widening the window.
-        right.append(
-            label("Preview on this computer", "sf-caption", ellipsize=ELLIPSIZE_END)
+        self.playing_status = label(
+            "Preview on this computer", "sf-caption", ellipsize=ELLIPSIZE_END
         )
+        right.append(self.playing_status)
         bar.append(right)
 
         self.now_playing_bar = bar
+        self._update_now_playing()
         return bar
+
+    # ------------------------------------------------------------- playback
+
+    def play_from(self, view, track):
+        """Play one track, queueing the list it was clicked in behind it.
+
+        The queue comes from the view's model rather than from the library, so
+        next moves through the album or playlist on screen and in the order it
+        is displayed in, which is what the user just sorted it into.
+        """
+        model = view.get_model()
+        tracks = [model.get_item(i).track for i in range(model.get_n_items())]
+        for index, candidate in enumerate(tracks):
+            if candidate is track:
+                self.player.play(tracks, index)
+                return
+        # Clicked in a view that has already been repainted out from under the
+        # row. Playing the one track alone is better than refusing.
+        self.player.play([track], 0)
+
+    def on_play_clicked(self, _button):
+        self.player.toggle()
+
+    def on_previous_clicked(self, _button):
+        self.player.previous()
+
+    def on_next_clicked(self, _button):
+        self.player.next()
+
+    def _on_seek(self, scale, _scroll, value):
+        """A drag or a keypress on the timeline.
+
+        GtkRange emits change-value for user input only and never for
+        set_value, so the poll that walks the thumb along cannot be mistaken
+        for a seek. Handled here rather than by the default handler because the
+        player is the one that decides where the thumb ends up.
+        """
+        fraction = max(0.0, min(1.0, value))
+        scale.set_value(fraction)
+        self.player.seek(fraction)
+        return True
+
+    def _update_now_playing(self):
+        """Repaint the bar from the player. Cheap enough to run per poll."""
+        player = self.player
+        track = player.track
+        loaded = track is not None and player.state != PLAY_IDLE
+
+        if self._painted_art != (None if track is None else (track.path, track.state)):
+            self._painted_art = None if track is None else (track.path, track.state)
+            child = self.playing_art.get_first_child()
+            if child is not None:
+                self.playing_art.remove(child)
+            if track is None:
+                art = label("♪", "sf-idle-art", xalign=0.5, yalign=0.5)
+                art.set_size_request(52, 52)
+            else:
+                art = make_cover(track.art, 52, track.album)
+                if track.state == STATE_PREVIEW:
+                    # The same dimming a previewed album card gets, so "this is
+                    # only here so you could hear it" reads the same everywhere.
+                    art.set_opacity(0.6)
+            self.playing_art.append(art)
+
+        if track is None:
+            self.playing_title.set_text("Nothing playing")
+            self.playing_title.add_css_class("sf-dim")
+            self.playing_subtitle.set_visible(False)
+        else:
+            self.playing_title.set_text(track.title)
+            self.playing_title.remove_css_class("sf-dim")
+            self.playing_artist.set_text(track.artist)
+            for name in STATE_LABELS:
+                self.playing_state_dot.remove_css_class(name)
+            self.playing_state_dot.add_css_class(track.state)
+            self.playing_subtitle.set_visible(True)
+
+        message = player.error or self.preview_unavailable
+        if message:
+            self.playing_message.set_text(message)
+            self.playing_stack.set_visible_child_name("message")
+        else:
+            self.playing_stack.set_visible_child_name("transport")
+
+        playing = player.state == PLAY_PLAYING
+        self.transport_buttons["play"].set_icon_name(
+            "media-playback-pause-symbolic" if playing
+            else "media-playback-start-symbolic"
+        )
+        self.transport_buttons["play"].set_sensitive(
+            loaded or bool(player.queue)
+        )
+        self.transport_buttons["previous"].set_sensitive(loaded)
+        self.transport_buttons["next"].set_sensitive(
+            loaded and player.index + 1 < len(player.queue)
+        )
+        # Dimmed while there is nothing to drive, which is the design's idle
+        # bar: insensitive controls alone still read as controls you could use.
+        self.playing_stack.set_opacity(1.0 if loaded else 0.32)
+
+        seekable = loaded and player.duration > 0
+        self.seek_scale.set_sensitive(seekable)
+        self.seek_scale.set_value(
+            min(1.0, player.position / player.duration) if seekable else 0.0
+        )
+        self.seek_elapsed.set_text(human_duration(player.position))
+        if player.duration > 0:
+            self.seek_total.set_text(human_duration(player.duration))
+        else:
+            # Unknown only once there is a track whose length has not been
+            # worked out yet. An idle bar knows the length perfectly well:
+            # there is nothing playing, and "--:--" there reads as a fault.
+            self.seek_total.set_text("--:--" if track is not None else "0:00")
+        self.playing_status.set_text(self._playing_status())
+
+    def _playing_status(self):
+        """The one line on the right, which says what kind of playback this is.
+
+        Preview playback is easy to mistake for the device playing something,
+        and a previewed download is easy to mistake for a track already kept,
+        so the distinction is stated rather than implied by a dot.
+        """
+        player = self.player
+        if self.preview_unavailable or player.error:
+            # The middle of the bar is already carrying the reason; repeating a
+            # truncated copy of it here would only compete with it.
+            return ""
+        if player.state == PLAY_LOADING:
+            if player.track is not None and player.track.state == STATE_PREVIEW:
+                return "Fetching preview…"
+            return "Opening…"
+        if player.track is not None and player.track.state == STATE_PREVIEW:
+            return "Previewed - add to keep"
+        return "Preview on this computer"
 
     # ---------------------------------------------------------------- state
 

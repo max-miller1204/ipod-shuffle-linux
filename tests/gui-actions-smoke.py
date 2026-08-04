@@ -1757,6 +1757,446 @@ for line in ("==> Copied 4 file(s)", "warning: Skipped 1 unsupported file(s)"):
 sync_sh = (repo / "ipod-sync.sh").read_text(encoding="utf-8")
 assert "'  + %s -> %s\\n'" in sync_sh, "ipod-sync.sh stopped reporting each file"
 
+# ------------------------------------------------------------ preview player
+#
+# Playback is driven from GStreamer messages that only arrive on a running main
+# loop, and CI has no GStreamer at all, so the pipeline is a stand-in whose
+# messages this file delivers by hand. What is being checked is the state
+# machine the bar reads - which track, which state, whose queue - rather than
+# whether GStreamer decodes, which is its own problem.
+
+
+class FakeBus:
+    def __init__(self):
+        self.handlers = {}
+        self.watched = False
+
+    def add_signal_watch(self):
+        self.watched = True
+
+    def connect(self, name, handler):
+        self.handlers[name] = handler
+
+    def deliver(self, name, message):
+        self.handlers[name](self, message)
+
+
+class FakeError:
+    def __init__(self, message):
+        self.message = message
+
+
+class FakeMessage:
+    def __init__(self, src=None, state=None, error=None):
+        self.src = src
+        self.state = state
+        self.error = error
+
+    def parse_state_changed(self):
+        return (None, self.state, None)
+
+    def parse_error(self):
+        return (self.error, "debug detail")
+
+
+class FakePipeline:
+    def __init__(self):
+        self.bus = FakeBus()
+        self.properties = {}
+        self.states = []
+        self.seeks = []
+        self.position = 0
+        self.duration = 0
+
+    def get_bus(self):
+        return self.bus
+
+    def set_property(self, name, value):
+        self.properties[name] = value
+
+    def set_state(self, state):
+        self.states.append(state)
+
+    def query_position(self, _format):
+        return (True, self.position)
+
+    def query_duration(self, _format):
+        return (True, self.duration)
+
+    def seek_simple(self, _format, _flags, position):
+        self.seeks.append(position)
+        self.position = position
+
+
+class FakeFactory:
+    @staticmethod
+    def make(name, _instance_name=None):
+        FakeGst.made.append(name)
+        if name != "playbin3":
+            return object()
+        FakeGst.pipeline = FakePipeline()
+        return FakeGst.pipeline
+
+
+class FakeGst:
+    SECOND = 1_000_000_000
+    ElementFactory = FakeFactory
+    made = []
+    pipeline = None
+
+    class Format:
+        TIME = "time"
+
+    class SeekFlags:
+        FLUSH = 1
+        KEY_UNIT = 2
+
+    class State:
+        NULL = "null"
+        READY = "ready"
+        PAUSED = "paused"
+        PLAYING = "playing"
+
+    @staticmethod
+    def filename_to_uri(path):
+        return f"file://{path}"
+
+
+ipod_gui.gst = lambda: FakeGst
+
+
+def preview_track(name, duration=180.0, state=None):
+    return ipod_gui.Track(
+        Path("/music") / f"{name}.mp3",
+        {"title": name, "artist": "Someone", "album": "Somewhere",
+         "duration": duration},
+        state or ipod_gui.STATE_LIBRARY,
+    )
+
+
+repaints = []
+player = ipod_gui.PreviewPlayer(lambda: repaints.append(True))
+first, second = preview_track("First"), preview_track("Second", 90.0)
+player.play([first, second], 0)
+
+pipeline = FakeGst.pipeline
+assert player.state == ipod_gui.PLAY_LOADING, player.state
+assert player.track is first
+assert player.queue == [first, second] and player.index == 0
+assert pipeline.properties["uri"] == "file:///music/First.mp3", pipeline.properties
+# NULL before the new URI, or playbin3 reuses the previous stream's decoders.
+assert pipeline.states == ["null", "playing"], pipeline.states
+# Video would open a second window for a preview the user asked to hear.
+assert "video-sink" in pipeline.properties
+assert pipeline.bus.watched, "nothing is listening for end of stream or errors"
+assert repaints, "starting a track did not repaint the bar"
+
+# Only the pipeline's own transition means audio is coming out; every element
+# in it reports its own, and one of those arriving first would clear the
+# loading state while the file was still being opened.
+pipeline.bus.deliver(
+    "message::state-changed", FakeMessage(src=object(), state=FakeGst.State.PLAYING)
+)
+assert player.state == ipod_gui.PLAY_LOADING, player.state
+pipeline.bus.deliver(
+    "message::state-changed", FakeMessage(src=pipeline, state=FakeGst.State.PLAYING)
+)
+assert player.state == ipod_gui.PLAY_PLAYING, player.state
+
+# The poll is what moves the timeline, and a decoded duration replaces the one
+# the tag claimed.
+pipeline.position = 30 * FakeGst.SECOND
+pipeline.duration = 200 * FakeGst.SECOND
+assert player._tick() is True
+assert player.position == 30.0 and player.duration == 200.0, (
+    player.position, player.duration
+)
+
+# A seek takes effect on the bar immediately and is then left alone for a poll
+# or two, because a pipeline that has to pre-roll answers with the old position
+# first and the thumb springing back reads as the seek being refused.
+player.seek(0.5)
+assert pipeline.seeks == [100 * FakeGst.SECOND], pipeline.seeks
+assert player.position == 100.0, player.position
+pipeline.position = 30 * FakeGst.SECOND
+for _ in range(ipod_gui.SEEK_SETTLE_POLLS):
+    player._tick()
+    assert player.position == 100.0, player.position
+player._tick()
+assert player.position == 30.0, player.position
+
+# Seeking past either end is clamped rather than refused, since a drag to the
+# very edge of the trough is a normal thing to do.
+player.seek(1.4)
+assert pipeline.seeks[-1] == 200 * FakeGst.SECOND, pipeline.seeks
+player.seek(-0.2)
+assert pipeline.seeks[-1] == 0, pipeline.seeks
+
+# The end of a track moves to the next one in the list it was started from.
+pipeline.bus.deliver("message::eos", FakeMessage())
+assert player.track is second and player.index == 1, player.index
+assert player.state == ipod_gui.PLAY_LOADING, player.state
+assert pipeline.properties["uri"] == "file:///music/Second.mp3"
+
+# The end of the queue stops rather than wrapping: a queue started from one
+# album would otherwise play forever with nothing in the bar saying it looped.
+pipeline.bus.deliver("message::eos", FakeMessage())
+assert player.state == ipod_gui.PLAY_IDLE, player.state
+assert player.track is None, player.track
+assert pipeline.states[-1] == "null", pipeline.states
+
+# Previous steps back only near the start of a track; later in it the gesture
+# means "play this again", which is what every other player does.
+player.play([first, second], 1)
+player.position = 1.0
+player.previous()
+assert player.index == 0 and player.track is first, player.index
+player.play([first, second], 1)
+pipeline.duration = 90 * FakeGst.SECOND
+pipeline.position = int((ipod_gui.RESTART_WINDOW + 1) * FakeGst.SECOND)
+player._tick()
+assert player.position > ipod_gui.RESTART_WINDOW, player.position
+player.previous()
+assert player.index == 1, "previous stepped back from the middle of a track"
+assert pipeline.seeks[-1] == 0, pipeline.seeks
+
+# A file GStreamer cannot decode says so and stops, keeping the track so the
+# bar can name what failed.
+player.play([first], 0)
+pipeline.bus.deliver(
+    "message::error", FakeMessage(error=FakeError("Missing decoder for audio/x-flac"))
+)
+assert player.state == ipod_gui.PLAY_IDLE, player.state
+assert player.error == "Missing decoder for audio/x-flac", player.error
+assert player.track is first, "the bar lost the name of the track that failed"
+
+# Starting the next track clears the previous failure.
+player.play([second], 0)
+assert player.error is None, player.error
+
+# With no GStreamer at all the player says so rather than raising into a click
+# handler, and nothing is left running behind the message.
+ipod_gui.gst = lambda: None
+silent = ipod_gui.PreviewPlayer(None)
+silent.play([first], 0)
+assert silent.state == ipod_gui.PLAY_IDLE, silent.state
+assert "GStreamer is not installed" in silent.error, silent.error
+assert silent._pipeline is None, "a player with no GStreamer built a pipeline"
+ipod_gui.gst = lambda: FakeGst
+
+# ------------------------------------------------------------ now-playing bar
+
+
+class BarWidget(FakeWidget):
+    """One stand-in for every widget the bar repaints."""
+
+    def __init__(self, text=None, *classes, **_kwargs):
+        super().__init__()
+        self.text = text
+        self.classes = set(classes)
+        self.children = []
+        self.icon = None
+        self.value = 0.0
+        self.opacity = 1.0
+        self.child_name = None
+
+    def add_css_class(self, name):
+        self.classes.add(name)
+
+    def remove_css_class(self, name):
+        self.classes.discard(name)
+
+    def get_text(self):
+        return self.text
+
+    def get_first_child(self):
+        return self.children[0] if self.children else None
+
+    def append(self, child):
+        self.children.append(child)
+
+    def remove(self, child):
+        self.children.remove(child)
+
+    def set_size_request(self, _width, _height):
+        pass
+
+    def set_icon_name(self, name):
+        self.icon = name
+
+    def set_value(self, value):
+        self.value = value
+
+    def set_opacity(self, value):
+        self.opacity = value
+
+    def set_visible_child_name(self, name):
+        self.child_name = name
+
+
+class BarWindow:
+    """Enough of the window for the bar to repaint without a display."""
+
+    def __init__(self, unavailable=None):
+        self.preview_unavailable = unavailable
+        self._painted_art = ipod_gui.UNPAINTED
+        self.playing_art = BarWidget()
+        self.playing_title = BarWidget()
+        self.playing_artist = BarWidget()
+        self.playing_subtitle = BarWidget()
+        self.playing_state_dot = BarWidget()
+        self.playing_message = BarWidget()
+        self.playing_stack = BarWidget()
+        self.transport_buttons = {
+            name: BarWidget() for name in ("previous", "play", "next")
+        }
+        self.seek_scale = BarWidget()
+        self.seek_elapsed = BarWidget()
+        self.seek_total = BarWidget()
+        self.playing_status = BarWidget()
+        self.player = ipod_gui.PreviewPlayer(self._update_now_playing)
+
+    _update_now_playing = ipod_gui.IpodWindow._update_now_playing
+    _playing_status = ipod_gui.IpodWindow._playing_status
+    play_from = ipod_gui.IpodWindow.play_from
+
+
+# The bar builds artwork and labels as it repaints, which needs a display it
+# does not have here. Patched for this section only; every other check in the
+# file runs against the real helpers.
+real_label, real_cover = ipod_gui.label, ipod_gui.make_cover
+ipod_gui.label = BarWidget
+ipod_gui.make_cover = lambda *_args, **_kwargs: BarWidget()
+
+bar = BarWindow()
+bar._update_now_playing()
+assert bar.playing_title.get_text() == "Nothing playing"
+assert "sf-dim" in bar.playing_title.classes
+# The placeholder has to be painted on the very first repaint, which is a bar
+# with nothing playing - the state a "has this changed?" guard reads as
+# unchanged unless it starts from something no track can equal.
+assert bar.playing_art.children, "the idle bar painted no placeholder artwork"
+assert not bar.playing_subtitle.visible
+assert bar.playing_stack.child_name == "transport"
+assert bar.playing_stack.opacity < 1.0, "the idle transport was not dimmed"
+assert not bar.transport_buttons["play"].sensitive
+assert not bar.seek_scale.sensitive
+# Nothing is playing, so the length of nothing is known exactly; "--:--" here
+# reads as a fault rather than as an empty bar.
+assert bar.seek_total.get_text() == "0:00", bar.seek_total.get_text()
+assert bar.playing_status.get_text() == "Preview on this computer"
+
+bar.player.play([first, second], 0)
+assert bar.playing_title.get_text() == "First"
+assert "sf-dim" not in bar.playing_title.classes
+assert bar.playing_artist.get_text() == "Someone"
+assert bar.playing_subtitle.visible
+assert ipod_gui.STATE_LIBRARY in bar.playing_state_dot.classes
+assert bar.playing_stack.opacity == 1.0
+assert bar.transport_buttons["next"].sensitive, "a queued next track was not offered"
+assert bar.playing_status.get_text() == "Opening…", bar.playing_status.get_text()
+# The tag's duration until the pipeline can be asked, rather than an empty
+# timeline for the second it takes to find out.
+assert bar.seek_total.get_text() == "3:00", bar.seek_total.get_text()
+
+FakeGst.pipeline.bus.deliver(
+    "message::state-changed",
+    FakeMessage(src=FakeGst.pipeline, state=FakeGst.State.PLAYING),
+)
+assert bar.transport_buttons["play"].icon == "media-playback-pause-symbolic"
+assert bar.playing_status.get_text() == "Preview on this computer"
+bar.player.toggle()
+assert bar.player.state == ipod_gui.PLAY_PAUSED
+assert bar.transport_buttons["play"].icon == "media-playback-start-symbolic"
+
+# Pressing play again while a track is still opening stops it, rather than
+# doing nothing until the pipeline gets where it was already going. The
+# transition that completes afterwards must not undo that.
+bar.player.play([first], 0)
+assert bar.player.state == ipod_gui.PLAY_LOADING
+bar.player.toggle()
+assert bar.player.state == ipod_gui.PLAY_PAUSED, bar.player.state
+FakeGst.pipeline.bus.deliver(
+    "message::state-changed",
+    FakeMessage(src=FakeGst.pipeline, state=FakeGst.State.PLAYING),
+)
+assert bar.player.state == ipod_gui.PLAY_PAUSED, "a paused track resumed itself"
+
+# The last track of a queue offers no next, or the button would promise
+# something pressing it cannot deliver.
+bar.player.play([first, second], 1)
+assert not bar.transport_buttons["next"].sensitive
+
+# A previewed track is a download kept only so it could be heard, and the bar
+# says so: mistaking one for a track already in the library is how a preview
+# gets lost when the cache is pruned.
+previewed = preview_track("Fetched", 120.0, ipod_gui.STATE_PREVIEW)
+bar.player.play([previewed], 0)
+assert bar.playing_status.get_text() == "Fetching preview…", bar.playing_status.text
+assert ipod_gui.STATE_PREVIEW in bar.playing_state_dot.classes
+FakeGst.pipeline.bus.deliver(
+    "message::state-changed",
+    FakeMessage(src=FakeGst.pipeline, state=FakeGst.State.PLAYING),
+)
+assert bar.playing_status.get_text() == "Previewed - add to keep", (
+    bar.playing_status.text
+)
+
+# A decoding failure is stated where the controls were, not in a toast that has
+# gone by the time the eye returns to the bar that stopped.
+FakeGst.pipeline.bus.deliver(
+    "message::error", FakeMessage(error=FakeError("Missing decoder for audio/x-flac"))
+)
+assert bar.playing_stack.child_name == "message"
+assert bar.playing_message.get_text() == "Missing decoder for audio/x-flac"
+# The right-hand caption keeps quiet rather than competing with it in a column
+# too narrow to hold the same sentence.
+assert bar.playing_status.get_text() == ""
+
+# No GStreamer means the reason replaces the transport permanently, rather than
+# dead buttons that give no hint why pressing them does nothing.
+missing = BarWindow(unavailable="GStreamer is not installed - run ./install.sh")
+missing._update_now_playing()
+assert missing.playing_stack.child_name == "message"
+assert "run ./install.sh" in missing.playing_message.get_text()
+
+
+class FakeModel:
+    def __init__(self, tracks):
+        self.items = [ipod_gui.TrackItem(track, n) for n, track in enumerate(tracks, 1)]
+
+    def get_n_items(self):
+        return len(self.items)
+
+    def get_item(self, index):
+        return self.items[index]
+
+
+class FakeView:
+    def __init__(self, tracks):
+        self.model = FakeModel(tracks)
+
+    def get_model(self):
+        return self.model
+
+
+# Playing a row queues the list it was clicked in, in the order it is displayed
+# in: a next button that jumped to somewhere else in the library would be
+# unusable in an album the user had just sorted.
+third = preview_track("Third", 60.0)
+view = FakeView([second, first, third])
+queued = BarWindow()
+queued.play_from(view, first)
+assert queued.player.queue == [second, first, third]
+assert queued.player.index == 1, queued.player.index
+
+# A row clicked in a view that has already been repainted out from under it
+# still plays, rather than refusing because its position no longer exists.
+queued.play_from(view, preview_track("Vanished"))
+assert len(queued.player.queue) == 1 and queued.player.index == 0
+
+ipod_gui.label, ipod_gui.make_cover = real_label, real_cover
+
 print(
     json.dumps(
         {
