@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 26,
+  "revision": 28,
   "goals": [
     {
       "id": "goal-msdncj32-4e24ddce",
@@ -73,6 +73,14 @@
       "status": "open",
       "createdAt": "2026-08-03T22:50:56.844Z",
       "updatedAt": "2026-08-03T22:50:56.844Z"
+    },
+    {
+      "id": "goal-mse5o5qg-49bb037d",
+      "title": "Break up the 4368-line ipod_gui/window.py",
+      "description": "The package split left IpodWindow as one module, deliberately: the goal named 'the window itself' as one seam, and splitting a single Adw.ApplicationWindow subclass across files needs mixins, which was too much to combine with the split and its test-harness rewrite in one change.\n\nIt is now by far the largest module - 4368 lines against 457 for the next one, player.py - and it holds every view plus the work behind each. Natural seams inside it: the library grid and album detail, the playlist views and their drag reordering, the search field and its two result sections, the Device & Settings page, and the sync/remove/wipe command plumbing with its busy-state bookkeeping.\n\nMixin classes are the only split that keeps one Adw.ApplicationWindow, so the question to settle first is whether the shared self.* state between those groups is small enough for mixins to be honest rather than a filing system over one namespace. tests/harness.py makes the mechanics safe: it writes a replacement to every module holding a name, so moving methods between modules cannot silently unpatch a check the way it would have before.",
+      "status": "open",
+      "createdAt": "2026-08-04T04:26:07.240Z",
+      "updatedAt": "2026-08-04T04:26:35.788Z"
     }
   ]
 }
