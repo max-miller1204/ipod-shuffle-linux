@@ -1954,12 +1954,17 @@ player.position = 1.0
 player.previous()
 assert player.index == 0 and player.track is first, player.index
 player.play([first, second], 1)
+pipeline.bus.deliver(
+    "message::state-changed", FakeMessage(src=pipeline, state=FakeGst.State.PLAYING)
+)
 pipeline.duration = 90 * FakeGst.SECOND
 pipeline.position = int((ipod_gui.RESTART_WINDOW + 1) * FakeGst.SECOND)
 player._tick()
 assert player.position > ipod_gui.RESTART_WINDOW, player.position
+seek_count = len(pipeline.seeks)
 player.previous()
 assert player.index == 1, "previous stepped back from the middle of a track"
+assert len(pipeline.seeks) == seek_count + 1, pipeline.seeks
 assert pipeline.seeks[-1] == 0, pipeline.seeks
 
 # A file GStreamer cannot decode says so and stops, keeping the track so the
@@ -2120,6 +2125,15 @@ bar.player.play([first], 0)
 assert bar.player.state == ipod_gui.PLAY_LOADING
 bar.player.toggle()
 assert bar.player.state == ipod_gui.PLAY_PAUSED, bar.player.state
+assert not bar.seek_scale.sensitive
+seek_count = len(FakeGst.pipeline.seeks)
+bar.player.seek(0.5)
+assert len(FakeGst.pipeline.seeks) == seek_count
+FakeGst.pipeline.bus.deliver(
+    "message::state-changed",
+    FakeMessage(src=FakeGst.pipeline, state=FakeGst.State.PAUSED),
+)
+assert bar.seek_scale.sensitive
 FakeGst.pipeline.bus.deliver(
     "message::state-changed",
     FakeMessage(src=FakeGst.pipeline, state=FakeGst.State.PLAYING),

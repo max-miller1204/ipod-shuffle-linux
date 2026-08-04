@@ -2005,6 +2005,16 @@ class PreviewPlayer:
         self._pipeline = None
         self._poll = None
         self._settle = 0
+        self._prerolled = False
+
+    @property
+    def seekable(self):
+        return (
+            self._pipeline is not None
+            and self._prerolled
+            and self.state in (PLAY_PLAYING, PLAY_PAUSED)
+            and self.duration > 0
+        )
 
     # --------------------------------------------------------------- control
 
@@ -2052,11 +2062,7 @@ class PreviewPlayer:
 
     def seek(self, fraction):
         """Jump to a fraction of the track, 0 to 1."""
-        if (
-            self._pipeline is None
-            or self.state not in (PLAY_PLAYING, PLAY_PAUSED)
-            or self.duration <= 0
-        ):
+        if not self.seekable:
             return
         module = gst()
         if module is None:
@@ -2123,6 +2129,7 @@ class PreviewPlayer:
         # stream's decoders around otherwise, and starting an m4a straight
         # after an mp3 then fails inside the old decoder rather than building
         # the right one.
+        self._prerolled = False
         pipeline.set_state(module.State.NULL)
         pipeline.set_property("uri", uri)
 
@@ -2188,6 +2195,7 @@ class PreviewPlayer:
         module = gst()
         if self._pipeline is not None and module is not None:
             self._pipeline.set_state(module.State.NULL)
+        self._prerolled = False
         self._stop_polling()
 
     def _tick(self):
@@ -2220,8 +2228,18 @@ class PreviewPlayer:
         if module is None:
             return
         _old, new, _pending = message.parse_state_changed()
+        changed = False
+        if (
+            new in (module.State.PAUSED, module.State.PLAYING)
+            and self.state in (PLAY_LOADING, PLAY_PLAYING, PLAY_PAUSED)
+            and not self._prerolled
+        ):
+            self._prerolled = True
+            changed = True
         if new == module.State.PLAYING and self.state in (PLAY_LOADING, PLAY_PLAYING):
             self.state = PLAY_PLAYING
+            changed = True
+        if changed:
             self._changed()
 
     def _on_duration_changed(self, _bus, _message):
@@ -3854,9 +3872,7 @@ class IpodWindow(Adw.ApplicationWindow):
         # bar: insensitive controls alone still read as controls you could use.
         self.playing_stack.set_opacity(1.0 if loaded else 0.32)
 
-        seekable = (
-            player.state in (PLAY_PLAYING, PLAY_PAUSED) and player.duration > 0
-        )
+        seekable = player.seekable
         self.seek_scale.set_sensitive(seekable)
         self.seek_scale.set_value(
             min(1.0, player.position / player.duration) if seekable else 0.0
