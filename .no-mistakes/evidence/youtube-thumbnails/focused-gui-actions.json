@@ -1,0 +1,79 @@
+{
+  "staged_sync_command": [
+    "/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ5B7C200DJ896D0239A3656/ipod-sync.sh",
+    "--ipod",
+    "/media/alex/Alex's iPod",
+    "--dir-playlists=1",
+    "--playlist-voiceover",
+    "--",
+    "/tmp/tmpm65uhdiy/Music"
+  ],
+  "remove_command": [
+    "/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ5B7C200DJ896D0239A3656/ipod-remove.sh",
+    "--ipod",
+    "/media/alex/Alex's iPod",
+    "--yes",
+    "--",
+    "Road Trip/Disc 1/01 - Highway.mp3"
+  ],
+  "playlist_queue_sources": [
+    "/tmp/tmpjyivmjah/Party Mix.m3u"
+  ],
+  "playlist_remove_command": [
+    "/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ5B7C200DJ896D0239A3656/ipod-remove.sh",
+    "--ipod",
+    "/media/alex/Alex's iPod",
+    "--yes",
+    "--playlist",
+    "--",
+    "twizzy"
+  ],
+  "parsed_playlists": [
+    [
+      "Party",
+      [
+        "Yeat/Song [x1].mp3",
+        "/kept/as/written.mp3"
+      ]
+    ],
+    [
+      "Radio",
+      [
+        "Yeat/Song [x1].mp3",
+        "/second.mp3"
+      ]
+    ],
+    [
+      "mix..v2",
+      [
+        "Yeat/Song [x1].mp3"
+      ]
+    ]
+  ],
+  "fetch_command": [
+    "/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ5B7C200DJ896D0239A3656/ipod-fetch.sh",
+    "--output",
+    "/home/max/Music/youtube",
+    "--new-tracks",
+    "/tmp/ipod-fetch-63ci2kyw.list",
+    "--single",
+    "https://www.youtube.com/watch?v=abc&list=PL123"
+  ],
+  "queued_after_fetch": [
+    "/tmp/tmp613q8xq3/New Artist/New Song [abc].mp3"
+  ],
+  "nothing_new_outcome": "Already downloaded - nothing new to add",
+  "unreported_download_sources": [
+    "/tmp/tmp613q8xq3/New Artist",
+    "/tmp/tmp613q8xq3/Old Artist"
+  ],
+  "chosen_thumbnail": "https://i.ytimg.com/vi/x/hq.jpg",
+  "cached_artwork": [
+    "yt-alsohere.img",
+    "yt-arrived.img",
+    "yt-second.img",
+    "yt-stale.img",
+    "yt-thumbtest.img"
+  ],
+  "artwork_for_downloaded_file": "/tmp/tmpj2w_6keq/art/yt-thumbtest.img"
+}

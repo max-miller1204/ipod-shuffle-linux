@@ -14,6 +14,7 @@ next to it means.
 """
 
 import hashlib
+import http.client
 import json
 
 import os
@@ -27,6 +28,7 @@ import tempfile
 import threading
 import time
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import gi
@@ -831,14 +833,18 @@ class SearchResult:
     grid and into the storage meter.
     """
 
-    __slots__ = ("title", "uploader", "duration", "url", "video_id")
+    __slots__ = ("title", "uploader", "duration", "url", "video_id", "thumbnail")
 
-    def __init__(self, title, uploader, duration, url, video_id=""):
+    def __init__(self, title, uploader, duration, url, video_id="", thumbnail=""):
         self.title = title
         self.uploader = uploader
         self.duration = duration
         self.url = url
         self.video_id = video_id
+        # Where the artwork can be fetched from, not the artwork itself: the
+        # search answers in about a second and downloading three images before
+        # showing anything would trade that away for decoration.
+        self.thumbnail = thumbnail
 
 
 def youtube_search_target(query, limit=YOUTUBE_SEARCH_RESULTS):
@@ -915,6 +921,7 @@ def parse_search_results(lines, limit=YOUTUBE_SEARCH_RESULTS):
                 duration=duration,
                 url=url,
                 video_id=video_id,
+                thumbnail=thumbnail_from_entry(entry),
             )
         )
         if len(results) >= limit:
@@ -947,6 +954,173 @@ def search_youtube(
     if finished.returncode != 0:
         return [], False
     return parse_search_results(finished.stdout.splitlines(), limit), True
+
+
+# ------------------------------------------------------------ youtube artwork
+
+# A search result has no file to read a cover out of, so its artwork is the
+# video's thumbnail, fetched separately into the same cache embedded covers
+# land in. ipod-fetch.sh keeps passing --no-embed-thumbnail: cover art really
+# is pure waste on a 2GB device with no screen, and embedding it would put it
+# on the iPod while still leaving a result that has not been downloaded yet
+# with nothing to show.
+#
+# Cached under the video id rather than under the image's own checksum, which
+# is what the tag reader uses, because the id is what a result carries before
+# anything has been downloaded. It is also in the name of every file
+# ipod-fetch.sh writes, so a previewed track, the copy that keeping it moves
+# into the music folder, and a library rescanned days later all find the
+# artwork the search already fetched.
+
+# The largest square artwork is drawn at is the album page's 180px, and a
+# 16:9 thumbnail is cropped to its short edge, so 360 is the first standard
+# size with pixels to spare at every size the window uses.
+YOUTUBE_ART_SIZE = 360
+
+# Bounded because this writes a file from a URL that came off the network. A
+# YouTube thumbnail is tens of kilobytes; nothing this size is one.
+THUMBNAIL_MAX_BYTES = 4 * 1024 * 1024
+
+# Short, because artwork decorates a list that is already on screen. A slow
+# image must not outlive the search it belongs to.
+THUMBNAIL_TIMEOUT = 10
+
+# The only thing standing between an id that arrived over the network and a
+# filename, so it is a whitelist of what yt-dlp ids are made of rather than an
+# attempt to escape whatever turns up.
+VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+# The id ipod-fetch.sh writes into every filename, read as the last bracketed
+# group: a title can carry brackets of its own - "Song [Live] [dQw4w9WgXcQ]" -
+# and --output puts the id last.
+VIDEO_ID_IN_NAME = re.compile(r"\[([A-Za-z0-9_-]{1,64})\]")
+
+
+def youtube_art_file(video_id, root):
+    """Where this video's thumbnail belongs in the art cache, or None."""
+    video_id = (video_id or "").strip()
+    if not VIDEO_ID.fullmatch(video_id):
+        return None
+    # The prefix cannot collide with the tag reader's names in the same
+    # directory, which are the SHA-1 of the image: forty hex characters.
+    return Path(root) / f"yt-{video_id}.img"
+
+
+def youtube_art_path(video_id, root):
+    """The cached thumbnail for a video id, or None if it is not cached."""
+    target = youtube_art_file(video_id, root)
+    if target is None or not target.is_file():
+        return None
+    return str(target)
+
+
+def video_id_from_name(name):
+    """The YouTube id in a downloaded file's name, or ""."""
+    found = VIDEO_ID_IN_NAME.findall(Path(name).stem)
+    return found[-1] if found else ""
+
+
+def cached_thumbnail_for(path):
+    """The cached YouTube artwork for a file on disk, or None."""
+    return youtube_art_path(video_id_from_name(Path(path).name), ART_CACHE)
+
+
+def thumbnail_from_entry(entry, want=YOUTUBE_ART_SIZE):
+    """The thumbnail to cache for one search hit, or "".
+
+    yt-dlp offers several sizes, worst first. The smallest one that still
+    covers the largest square the artwork is drawn at is the right trade:
+    below that it is visibly soft on the album page, and the maximum-
+    resolution version is a quarter of a megabyte to show at 36 pixels in a
+    list of three.
+    """
+    sized = []
+    unsized = []
+    for item in entry.get("thumbnails") or ():
+        if not isinstance(item, dict):
+            continue
+        url = item.get("url")
+        if not isinstance(url, str) or not is_downloadable_url(url):
+            continue
+        try:
+            width = int(item.get("width") or 0)
+            height = int(item.get("height") or 0)
+        except (TypeError, ValueError):
+            width = height = 0
+        # The short edge, because a 16:9 thumbnail is cropped to a square and
+        # the sides are what the crop throws away.
+        edge = min(width, height) if width and height else max(width, height)
+        (sized if edge > 0 else unsized).append((edge, url))
+    if sized:
+        # The smallest that is big enough, and failing that the largest there
+        # is, which is what the two keys order.
+        return min(
+            sized,
+            key=lambda found: (0, found[0]) if found[0] >= want else (1, -found[0]),
+        )[1]
+    if unsized:
+        # Nothing said how big any of them are, so the last one, which is the
+        # best yt-dlp knows of.
+        return unsized[-1][1]
+    fallback = entry.get("thumbnail")
+    if isinstance(fallback, str) and is_downloadable_url(fallback):
+        return fallback
+    return ""
+
+
+def fetch_thumbnail(url, destination, timeout=THUMBNAIL_TIMEOUT):
+    """Download one thumbnail to destination. True if it landed.
+
+    Never raises. Artwork is the one part of a result that is allowed to be
+    missing, so a network that half-answers has to leave the row showing its
+    placeholder rather than an error the user cannot do anything about.
+    """
+    # Checked rather than trusted: this URL came off the network, and urlopen
+    # is as happy to read file:// as https://.
+    if not is_downloadable_url(url):
+        return False
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as response:
+            data = response.read(THUMBNAIL_MAX_BYTES + 1)
+    except (OSError, ValueError, http.client.HTTPException):
+        return False
+    if not data or len(data) > THUMBNAIL_MAX_BYTES:
+        return False
+
+    destination = Path(destination)
+    staging = None
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        # Written under a name of its own and renamed into place, so neither a
+        # fetch cut off halfway nor a second fetch of the same image running
+        # beside it can leave a half-written file behind for every later paint
+        # to try to load.
+        handle, staging = tempfile.mkstemp(dir=destination.parent, suffix=".part")
+        with os.fdopen(handle, "wb") as out:
+            out.write(data)
+        os.replace(staging, destination)
+    except OSError:
+        if staging is not None:
+            try:
+                os.unlink(staging)
+            except OSError:
+                pass
+        return False
+    return True
+
+
+def cache_thumbnail(video_id, url, root):
+    """Put this video's thumbnail in the art cache. Its path, or None.
+
+    Already cached counts as cached: an image is fetched once and then belongs
+    to every later search, preview and library scan naming the same video.
+    """
+    target = youtube_art_file(video_id, root)
+    if target is None:
+        return None
+    if target.is_file():
+        return str(target)
+    return str(target) if fetch_thumbnail(url, target) else None
 
 
 def local_search_matches(tracks, query):
@@ -1336,7 +1510,13 @@ class Track:
         self.album = record.get("album") or "Unknown album"
         self.genre = record.get("genre") or ""
         self.duration = float(record.get("duration") or 0)
-        self.art = record.get("art")
+        # Embedded art first, then the thumbnail cached for whichever video
+        # this file was downloaded from. The fallback is what carries a search
+        # result's artwork through into the track it becomes, and it is here
+        # rather than at one producer because every producer needs it: the
+        # preview that has just finished, the preview cache rescanned at
+        # startup, and the copy in the music folder that keeping it made.
+        self.art = record.get("art") or cached_thumbnail_for(path)
         self.size = int(record.get("size") or 0)
         self.state = state
         self.on_ipod = state == STATE_IPOD
@@ -1743,9 +1923,32 @@ def cover_class(seed):
 ALBUM_COVER = 140
 
 
+def cover_pixel_size(width, height, size):
+    """How large to draw artwork so it fills a square of this size.
+
+    Gtk.Image fits a paintable inside the square it is given, which letterboxes
+    anything that is not square - and a YouTube thumbnail is 16:9, so it would
+    be a strip of artwork floating in a band of placeholder colour. Scaling by
+    the long edge instead lands the short edge exactly on the square and lets
+    the frame clip what hangs over, which is the centre crop every music player
+    shows a video thumbnail as.
+    """
+    if width <= 0 or height <= 0:
+        return size
+    long_edge, short_edge = max(width, height), min(width, height)
+    # Rounded up, because a pixel short of the square would show a hairline of
+    # the frame's own background down one edge.
+    return (size * long_edge + short_edge - 1) // short_edge
+
+
 def make_cover(art_path, size, seed, extra_class=""):
     """A rounded square cover, from embedded art or a generated placeholder."""
-    frame = Gtk.Box()
+    # An Overlay rather than a Box because artwork wider than the square is
+    # what fills it: an overlay child is not measured, so a cropped cover
+    # cannot widen the row it sits in, while a Box would grow to its child. It
+    # is left without a main child for the same reason - the size request below
+    # is the whole of the square, and an Overlay measures nothing else.
+    frame = Gtk.Overlay()
     frame.add_css_class("sf-cover")
     if extra_class:
         frame.add_css_class(extra_class)
@@ -1769,8 +1972,12 @@ def make_cover(art_path, size, seed, extra_class=""):
         # every cell of the album grid 600px wide and collapse it to two
         # columns. Image honours pixel-size instead.
         image = Gtk.Image.new_from_paintable(texture)
-        image.set_pixel_size(size)
-        frame.append(image)
+        image.set_pixel_size(
+            cover_pixel_size(texture.get_width(), texture.get_height(), size)
+        )
+        image.set_halign(Gtk.Align.CENTER)
+        image.set_valign(Gtk.Align.CENTER)
+        frame.add_overlay(image)
     else:
         frame.add_css_class(cover_class(seed))
 
@@ -3159,16 +3366,23 @@ class IpodWindow(Adw.ApplicationWindow):
         return row
 
     def _preview_cover(self, result):
-        """A result's placeholder artwork, which plays it under the pointer.
+        """A result's artwork, which plays it under the pointer.
 
-        The generated placeholder rather than the video's thumbnail, which is a
-        separate piece of work. Using the same placeholder a local track with
-        no embedded cover gets, behind the same hover-to-play button a library
-        row has, keeps the two halves of the page reading as one list rather
-        than as two widgets that happen to be stacked.
+        The video's thumbnail once it has been fetched, and until then the
+        same generated placeholder a local track with no embedded cover gets.
+        Behind the same hover-to-play button a library row has, so the two
+        halves of the page read as one list rather than as two widgets that
+        happen to be stacked.
         """
         overlay = Gtk.Overlay(valign=Gtk.Align.CENTER)
-        overlay.set_child(make_cover(None, 36, result.video_id or result.title, "small"))
+        overlay.set_child(
+            make_cover(
+                youtube_art_path(result.video_id, ART_CACHE),
+                36,
+                result.video_id or result.title,
+                "small",
+            )
+        )
         play = Gtk.Button(icon_name="media-playback-start-symbolic")
         play.add_css_class("sf-cover-play")
         play.set_size_request(36, 36)
@@ -3347,6 +3561,61 @@ class IpodWindow(Adw.ApplicationWindow):
             self._set_search_note("No YouTube results for this search.")
         else:
             self._set_search_note("")
+        self._start_thumbnail_fetch(generation, results)
+        return False
+
+    def _start_thumbnail_fetch(self, generation, results):
+        """Fetch the results' artwork behind the rows that are already up.
+
+        After painting rather than before it: the titles are what the search
+        was for, and holding a list of results back for a set of images would
+        spend the fast half of the search on the slow half. Nothing moves when
+        they land either - each cover drops into a frame that was already
+        exactly its size, holding the placeholder.
+        """
+        wanted = [
+            result
+            for result in results
+            if result.thumbnail
+            and youtube_art_path(result.video_id, ART_CACHE) is None
+        ]
+        if not wanted:
+            return
+
+        def worker():
+            landed = False
+            for result in wanted:
+                if cache_thumbnail(result.video_id, result.thumbnail, ART_CACHE):
+                    landed = True
+            # One repaint for the set rather than one per image: rebuilding the
+            # rows three times under the pointer would flicker the hover state
+            # of a button the user may already be reaching for.
+            if landed:
+                GLib.idle_add(self._finish_thumbnail_fetch, generation)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_thumbnail_fetch(self, generation):
+        """Repaint the results with the artwork that has arrived for them."""
+        tracks = {
+            id(track): track
+            for track in (
+                *self.library.all_tracks(),
+                *self.player.queue,
+                self.player.track,
+            )
+            if track is not None
+        }
+        art_changed = False
+        for track in tracks.values():
+            if track.art is None:
+                track.art = cached_thumbnail_for(track.path)
+                art_changed = art_changed or track.art is not None
+        if art_changed:
+            self._refresh_current_view()
+            self._update_now_playing()
+        if generation == self.search_generation:
+            self._paint_youtube_section()
         return False
 
     def _clear_search(self):
@@ -4430,8 +4699,11 @@ class IpodWindow(Adw.ApplicationWindow):
         track = player.track
         loaded = track is not None and player.state != PLAY_IDLE
 
-        if self._painted_art != (None if track is None else (track.path, track.state)):
-            self._painted_art = None if track is None else (track.path, track.state)
+        painted_art = (
+            None if track is None else (track.path, track.state, track.art)
+        )
+        if self._painted_art != painted_art:
+            self._painted_art = painted_art
             child = self.playing_art.get_first_child()
             if child is not None:
                 self.playing_art.remove(child)
