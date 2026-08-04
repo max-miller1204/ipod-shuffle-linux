@@ -1,0 +1,32 @@
+{
+  "render_size": [1180, 760],
+  "now_playing_visual_bounds": {
+    "x": 0,
+    "width": 1180
+  },
+  "now_playing_content_allocation": {
+    "x": 18,
+    "width": 1144,
+    "margin_start": 0,
+    "margin_end": 0
+  },
+  "dark": {
+    "divider_row": 673,
+    "divider_rgb": [31, 31, 34],
+    "divider_content_span": [1, 1178],
+    "sample_row": 700,
+    "left_inner_edge_rgb": [10, 10, 11],
+    "right_inner_edge_rgb": [10, 10, 11],
+    "first_child_x": 18
+  },
+  "light": {
+    "divider_row": 673,
+    "divider_rgb": [227, 223, 217],
+    "divider_content_span": [1, 1178],
+    "sample_row": 700,
+    "left_inner_edge_rgb": [241, 239, 236],
+    "right_inner_edge_rgb": [241, 239, 236],
+    "first_child_x": 18
+  },
+  "note": "Rendered window pixels x=0 and x=1179 are libadwaita's one-pixel frame. The application content spans x=1..1178; every divider pixel in that span matches the theme rule, and the bar background reaches both inner edges."
+}
