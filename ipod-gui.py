@@ -3597,9 +3597,16 @@ class IpodWindow(Adw.ApplicationWindow):
 
     def _finish_thumbnail_fetch(self, generation):
         """Repaint the results with the artwork that has arrived for them."""
-        if generation != self.search_generation:
-            return False
-        self._paint_youtube_section()
+        art_changed = False
+        for track in self.library.all_tracks():
+            if track.art is None:
+                track.art = cached_thumbnail_for(track.path)
+                art_changed = art_changed or track.art is not None
+        if art_changed:
+            self._refresh_current_view()
+            self._update_now_playing()
+        if generation == self.search_generation:
+            self._paint_youtube_section()
         return False
 
     def _clear_search(self):
@@ -4683,8 +4690,11 @@ class IpodWindow(Adw.ApplicationWindow):
         track = player.track
         loaded = track is not None and player.state != PLAY_IDLE
 
-        if self._painted_art != (None if track is None else (track.path, track.state)):
-            self._painted_art = None if track is None else (track.path, track.state)
+        painted_art = (
+            None if track is None else (track.path, track.state, track.art)
+        )
+        if self._painted_art != painted_art:
+            self._painted_art = painted_art
             child = self.playing_art.get_first_child()
             if child is not None:
                 self.playing_art.remove(child)

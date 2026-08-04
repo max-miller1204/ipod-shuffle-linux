@@ -1224,9 +1224,18 @@ class ArtWindow:
     def __init__(self):
         self.search_generation = 7
         self.painted = 0
+        self.refreshed = 0
+        self.now_playing_updates = 0
+        self.library = ipod_gui.LibraryIndex()
 
     def _paint_youtube_section(self):
         self.painted += 1
+
+    def _refresh_current_view(self):
+        self.refreshed += 1
+
+    def _update_now_playing(self):
+        self.now_playing_updates += 1
 
 
 class ImmediateThread:
@@ -1272,9 +1281,19 @@ try:
     # Artwork that arrives for a query the user has already typed past must not
     # repaint the results of the one they are looking at now.
     stale_art = ArtWindow()
-    stale_art._start_thumbnail_fetch(stale_art.search_generation - 1, [result_with_art("stale")])
+    stale_preview = ipod_gui.Track(
+        "/cache/Queen/Preview [stale].opus", {}, ipod_gui.STATE_PREVIEW
+    )
+    assert stale_preview.art is None
+    stale_art.library.previews = [stale_preview]
+    stale_art._start_thumbnail_fetch(
+        stale_art.search_generation - 1, [result_with_art("stale")]
+    )
     assert (art_cache / "yt-stale.img").is_file()
     assert stale_art.painted == 0, stale_art.painted
+    assert stale_preview.art == str(art_cache / "yt-stale.img"), stale_preview.art
+    assert stale_art.refreshed == 1, stale_art.refreshed
+    assert stale_art.now_playing_updates == 1, stale_art.now_playing_updates
 
     # Nothing to fetch is not a repaint either: the rows already painted are
     # showing the cached artwork.
@@ -2403,6 +2422,10 @@ assert bar.playing_stack.opacity == 1.0
 assert bar.transport_buttons["next"].sensitive, "a queued next track was not offered"
 assert bar.playing_status.get_text() == "Opening…", bar.playing_status.get_text()
 assert not bar.seek_scale.sensitive
+placeholder_art = bar.playing_art.get_first_child()
+first.art = "/cache/art/late-thumbnail.img"
+bar._update_now_playing()
+assert bar.playing_art.get_first_child() is not placeholder_art
 # The tag's duration until the pipeline can be asked, rather than an empty
 # timeline for the second it takes to find out.
 assert bar.seek_total.get_text() == "3:00", bar.seek_total.get_text()
