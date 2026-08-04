@@ -120,6 +120,7 @@ Queueing an album or a track shows it as pending space in the storage meter, and
 The copy reports each file as it lands, which a 2GB device over USB 2.0 badly needed: the progress bar, the file list and the raw script output all sit in a bar above the player.
 
 The grid groups by album or by artist, and swaps for a sortable table of every track: click a column to sort by title, album, state or length.
+The state pills count and filter the collections shown in the grid, or the individual tracks shown in the table, so their totals always describe the active view.
 
 Local music folders are configurable under **Device & Settings**, which is also where the sync options, **Rebuild database**, **Wipe** and **Eject** live.
 **Add playlist file…** picks an M3U or PLS file and queues it with the tracks it references; **Sync** copies the tracks and keeps them grouped under the playlist's name, switching spoken playlist names on so the result can be found again on a device with no screen.
