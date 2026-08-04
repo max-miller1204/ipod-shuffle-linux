@@ -16,10 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The GUI smoke tests import ipod-gui.py, which imports PyGObject at
-      # module level, so the bindings are needed even though no window is ever
-      # opened. They come from the distribution because building PyGObject from
-      # pip would need the gobject-introspection and cairo development headers.
+      # The GUI smoke tests import the ipod_gui package, which imports
+      # PyGObject at module level, so the bindings are needed even though no
+      # window is ever opened. They come from the distribution because building
+      # PyGObject from pip would need the gobject-introspection and cairo
+      # development headers.
       - name: Install test dependencies
         run: |
           sudo apt-get update
@@ -29,8 +30,13 @@ jobs:
       - name: Shell lint
         run: shellcheck -x ./*.sh tests/product-e2e.sh
 
+      # Compiling catches a syntax error in any file, and the import catches
+      # what compiling cannot now that the GUI is a package: a name that moved
+      # to another module and left an import behind pointing at nothing.
       - name: Python syntax
-        run: python3 -m py_compile ipod-gui.py tests/*.py
+        run: |
+          python3 -m py_compile ipod-gui.py ipod_gui/*.py tests/*.py
+          python3 -c 'import ipod_gui'
 
       # The suite's playlist check runs the real upstream builder against the
       # rewritten list a sync produces, which the fake builder cannot vouch

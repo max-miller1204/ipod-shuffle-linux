@@ -12,7 +12,6 @@ which is the approach the other GUI checks use.
 """
 
 import http.server
-import importlib.util
 import json
 import os
 import re
@@ -22,10 +21,7 @@ import threading
 import time
 from pathlib import Path
 
-repo = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("ipod_gui", repo / "ipod-gui.py")
-ipod_gui = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ipod_gui)
+from harness import REPO, gui
 
 
 class Value:
@@ -118,7 +114,7 @@ class FakeLibrary:
         self.device_only = []
         self.previews = []
 
-    all_tracks = ipod_gui.LibraryIndex.all_tracks
+    all_tracks = gui.LibraryIndex.all_tracks
 
 
 class FakeWindow:
@@ -189,45 +185,45 @@ class FakeWindow:
     # The step that decides what to copy is the one under test, so it is the
     # real implementation rather than another stand-in. Same for the one that
     # empties the queue once a staged sync has succeeded.
-    _sync_downloaded = ipod_gui.IpodWindow._sync_downloaded
-    _clear_pending = ipod_gui.IpodWindow._clear_pending
-    _audio_files = ipod_gui.IpodWindow._audio_files
-    _pending_track = ipod_gui.IpodWindow._pending_track
-    _pending_accounting = ipod_gui.IpodWindow._pending_accounting
-    _pending_copy_tracks = ipod_gui.IpodWindow._pending_copy_tracks
-    _pending_change_count = ipod_gui.IpodWindow._pending_change_count
-    _record_for_track = staticmethod(ipod_gui.IpodWindow._record_for_track)
-    _merge_states = ipod_gui.IpodWindow._merge_states
-    _scan_pending_tracks = ipod_gui.IpodWindow._scan_pending_tracks
-    _finish_pending_enrichment = ipod_gui.IpodWindow._finish_pending_enrichment
-    _commit_queue_sources = ipod_gui.IpodWindow._commit_queue_sources
-    _queue_sources = ipod_gui.IpodWindow._queue_sources
-    _queue_paths = ipod_gui.IpodWindow._queue_paths
-    _queue_playlist = ipod_gui.IpodWindow._queue_playlist
-    _unqueue_track = ipod_gui.IpodWindow._unqueue_track
-    _scan_queued_sources = ipod_gui.IpodWindow._scan_queued_sources
-    _finish_pending_source_scan = ipod_gui.IpodWindow._finish_pending_source_scan
-    _launch_pending_sync = ipod_gui.IpodWindow._launch_pending_sync
-    _update_device_controls = ipod_gui.IpodWindow._update_device_controls
-    _confirmed_device = ipod_gui.IpodWindow._confirmed_device
-    _youtube_download_tooltip = ipod_gui.IpodWindow._youtube_download_tooltip
-    _can_download = ipod_gui.IpodWindow._can_download
-    _start_youtube_download = ipod_gui.IpodWindow._start_youtube_download
-    _populate_cache_card = ipod_gui.IpodWindow._populate_cache_card
+    _sync_downloaded = gui.IpodWindow._sync_downloaded
+    _clear_pending = gui.IpodWindow._clear_pending
+    _audio_files = gui.IpodWindow._audio_files
+    _pending_track = gui.IpodWindow._pending_track
+    _pending_accounting = gui.IpodWindow._pending_accounting
+    _pending_copy_tracks = gui.IpodWindow._pending_copy_tracks
+    _pending_change_count = gui.IpodWindow._pending_change_count
+    _record_for_track = staticmethod(gui.IpodWindow._record_for_track)
+    _merge_states = gui.IpodWindow._merge_states
+    _scan_pending_tracks = gui.IpodWindow._scan_pending_tracks
+    _finish_pending_enrichment = gui.IpodWindow._finish_pending_enrichment
+    _commit_queue_sources = gui.IpodWindow._commit_queue_sources
+    _queue_sources = gui.IpodWindow._queue_sources
+    _queue_paths = gui.IpodWindow._queue_paths
+    _queue_playlist = gui.IpodWindow._queue_playlist
+    _unqueue_track = gui.IpodWindow._unqueue_track
+    _scan_queued_sources = gui.IpodWindow._scan_queued_sources
+    _finish_pending_source_scan = gui.IpodWindow._finish_pending_source_scan
+    _launch_pending_sync = gui.IpodWindow._launch_pending_sync
+    _update_device_controls = gui.IpodWindow._update_device_controls
+    _confirmed_device = gui.IpodWindow._confirmed_device
+    _youtube_download_tooltip = gui.IpodWindow._youtube_download_tooltip
+    _can_download = gui.IpodWindow._can_download
+    _start_youtube_download = gui.IpodWindow._start_youtube_download
+    _populate_cache_card = gui.IpodWindow._populate_cache_card
 
 
 # ------------------------------------------------------------------ removal
 
 window = FakeWindow()
 relpath = "Road Trip/Disc 1/01 - Highway.mp3"
-original_volume_identity = ipod_gui.volume_identity
-ipod_gui.volume_identity = lambda _mount: window.device_identity
+original_volume_identity = gui.volume_identity
+gui.volume_identity = lambda _mount: window.device_identity
 try:
-    ipod_gui.IpodWindow._on_remove_response(
+    gui.IpodWindow._on_remove_response(
         window, None, "remove", relpath, window.device_identity
     )
 finally:
-    ipod_gui.volume_identity = original_volume_identity
+    gui.volume_identity = original_volume_identity
 
 removal = window.commands[0]
 assert removal[0].endswith("ipod-remove.sh"), removal
@@ -244,7 +240,7 @@ assert removal[-2:] == ["--", relpath], removal
 # Anything other than the destructive response must run nothing at all.
 for answer in ("cancel", "close"):
     quiet = FakeWindow()
-    ipod_gui.IpodWindow._on_remove_response(
+    gui.IpodWindow._on_remove_response(
         quiet, None, answer, relpath, quiet.device_identity
     )
     assert quiet.commands == [], (answer, quiet.commands)
@@ -253,17 +249,17 @@ disconnected_removal = FakeWindow()
 removed_device = disconnected_removal.device_identity
 disconnected_removal.mount_point = None
 disconnected_removal.device_identity = None
-ipod_gui.IpodWindow._on_remove_response(
+gui.IpodWindow._on_remove_response(
     disconnected_removal, None, "remove", relpath, removed_device
 )
 assert disconnected_removal.commands == [], disconnected_removal.commands
 assert "changed" in disconnected_removal.toasts[-1], disconnected_removal.toasts
 
 replaced_removal = FakeWindow()
-original_volume_identity = ipod_gui.volume_identity
-ipod_gui.volume_identity = lambda _mount: "uuid:replacement-ipod"
+original_volume_identity = gui.volume_identity
+gui.volume_identity = lambda _mount: "uuid:replacement-ipod"
 try:
-    ipod_gui.IpodWindow._on_remove_response(
+    gui.IpodWindow._on_remove_response(
         replaced_removal,
         None,
         "remove",
@@ -271,7 +267,7 @@ try:
         replaced_removal.device_identity,
     )
 finally:
-    ipod_gui.volume_identity = original_volume_identity
+    gui.volume_identity = original_volume_identity
 assert replaced_removal.commands == [], replaced_removal.commands
 assert "changed" in replaced_removal.toasts[-1], replaced_removal.toasts
 
@@ -280,32 +276,32 @@ assert "changed" in replaced_removal.toasts[-1], replaced_removal.toasts
 # The scripts colour their output for a terminal, and the GUI's log view would
 # show the escape sequences literally as "[36m==>[0m Removed 1 track(s)".
 coloured = "\x1b[36m==>\x1b[0m Removed 1 track(s)\n"
-assert ipod_gui.strip_ansi(coloured) == "==> Removed 1 track(s)\n", coloured
-assert ipod_gui.strip_ansi("plain\n") == "plain\n"
+assert gui.strip_ansi(coloured) == "==> Removed 1 track(s)\n", coloured
+assert gui.strip_ansi("plain\n") == "plain\n"
 
 # ------------------------------------------------------- playable formats
 #
 # The GUI cannot source lib.sh, so compare its necessary copy of the format
 # list with the canonical shell declaration.
-lib_sh = (repo / "lib.sh").read_text(encoding="utf-8")
+lib_sh = (REPO / "lib.sh").read_text(encoding="utf-8")
 declared = re.search(r'^readonly SUPPORTED_EXT="([^"]+)"', lib_sh, re.MULTILINE)
 assert declared, "lib.sh no longer declares SUPPORTED_EXT"
-assert {f".{e}" for e in declared.group(1).split("|")} == ipod_gui.AUDIO_EXTENSIONS, (
+assert {f".{e}" for e in declared.group(1).split("|")} == gui.AUDIO_EXTENSIONS, (
     declared.group(1),
-    ipod_gui.AUDIO_EXTENSIONS,
+    gui.AUDIO_EXTENSIONS,
 )
 
 scan_root = Path(tempfile.mkdtemp())
 (scan_root / "Artist").mkdir()
 (scan_root / "Artist" / "Fallback.mp3").write_bytes(b"not really an mp3")
 (scan_root / "Artist" / "ignored.txt").touch()
-original_interpreter = ipod_gui._tag_interpreter
-original_tag_python = ipod_gui.TAG_PYTHON
-original_reader = ipod_gui._TAG_READER
+original_interpreter = gui._tag_interpreter
+original_tag_python = gui.TAG_PYTHON
+original_reader = gui._TAG_READER
 try:
-    ipod_gui.TAG_PYTHON = None
-    ipod_gui._tag_interpreter = lambda: None
-    fallback, complete, skipped_symlinks = ipod_gui.scan_tracks(scan_root)
+    gui.TAG_PYTHON = None
+    gui._tag_interpreter = lambda: None
+    fallback, complete, skipped_symlinks = gui.scan_tracks(scan_root)
     assert complete
     assert skipped_symlinks == 0
     assert fallback == [
@@ -316,8 +312,8 @@ try:
         }
     ], fallback
 
-    ipod_gui.TAG_PYTHON = sys.executable
-    ipod_gui._TAG_READER = """
+    gui.TAG_PYTHON = sys.executable
+    gui._TAG_READER = """
 import json, sys, time
 print(json.dumps({"path": "Artist/Fallback.mp3", "title": "Fallback"}), flush=True)
 print(json.dumps({"path": "Artist/Fallback.mp3", "title": "Tagged"}), flush=True)
@@ -325,7 +321,7 @@ time.sleep(10)
 """
     streamed = []
     started = time.monotonic()
-    records, complete, skipped_symlinks = ipod_gui.scan_tracks(
+    records, complete, skipped_symlinks = gui.scan_tracks(
         scan_root, streamed.append, timeout=0.4
     )
     elapsed = time.monotonic() - started
@@ -336,7 +332,7 @@ time.sleep(10)
     assert [record["title"] for record in streamed] == ["Fallback", "Tagged"], streamed
 
     started = time.monotonic()
-    _records, complete, _skipped_symlinks = ipod_gui.scan_tracks(
+    _records, complete, _skipped_symlinks = gui.scan_tracks(
         scan_root,
         timeout=10,
         cancelled=lambda: time.monotonic() - started >= 0.1,
@@ -344,11 +340,11 @@ time.sleep(10)
     assert not complete, "a cancelled scan was reported as complete"
     assert time.monotonic() - started < 2, "cancelled scan left its reader running"
 finally:
-    ipod_gui._tag_interpreter = original_interpreter
-    ipod_gui.TAG_PYTHON = original_tag_python
-    ipod_gui._TAG_READER = original_reader
+    gui._tag_interpreter = original_interpreter
+    gui.TAG_PYTHON = original_tag_python
+    gui._TAG_READER = original_reader
 
-_records, complete, _skipped_symlinks = ipod_gui.scan_tracks(scan_root / "missing")
+_records, complete, _skipped_symlinks = gui.scan_tracks(scan_root / "missing")
 assert not complete, "a missing scan root was reported as complete"
 
 symlink_root = Path(tempfile.mkdtemp())
@@ -358,21 +354,21 @@ regular_track.write_bytes(b"regular")
 linked_directory = Path(tempfile.mkdtemp())
 (linked_directory / "nested.mp3").write_bytes(b"nested")
 (symlink_root / "linked-directory").symlink_to(linked_directory, target_is_directory=True)
-library_records, complete, skipped_symlinks = ipod_gui.scan_tracks(symlink_root)
+library_records, complete, skipped_symlinks = gui.scan_tracks(symlink_root)
 assert complete
 assert {record["path"] for record in library_records} == {
     "linked.mp3",
     "regular.mp3",
 }
 assert skipped_symlinks == 0
-symlink_records, complete, skipped_symlinks = ipod_gui.scan_tracks(
+symlink_records, complete, skipped_symlinks = gui.scan_tracks(
     symlink_root, skip_symlinks=True
 )
 assert complete
 assert [record["path"] for record in symlink_records] == ["regular.mp3"]
 assert skipped_symlinks == 2
 
-root_records, complete, skipped_symlinks = ipod_gui.scan_tracks(
+root_records, complete, skipped_symlinks = gui.scan_tracks(
     symlink_root / "linked-directory", skip_symlinks=True
 )
 assert complete
@@ -383,14 +379,14 @@ exact_track = scan_root / "Exact.mp3"
 exact_track.write_bytes(b"exact")
 unrelated = scan_root / "Artist" / "Unrelated.mp3"
 unrelated.write_bytes(b"unrelated")
-exact_records, complete, skipped_symlinks = ipod_gui.scan_tracks(files=[exact_track])
+exact_records, complete, skipped_symlinks = gui.scan_tracks(files=[exact_track])
 assert complete
 assert skipped_symlinks == 0
 assert [record["path"] for record in exact_records] == [str(exact_track)]
 
 exact_link = scan_root / "Exact Link.mp3"
 exact_link.symlink_to(exact_track)
-exact_records, complete, skipped_symlinks = ipod_gui.scan_tracks(files=[exact_link])
+exact_records, complete, skipped_symlinks = gui.scan_tracks(files=[exact_link])
 assert complete
 assert skipped_symlinks == 0
 assert [record["path"] for record in exact_records] == [str(exact_link)]
@@ -398,7 +394,7 @@ assert [record["path"] for record in exact_records] == [str(exact_link)]
 
 class FolderDiscoveryWindow:
     _finish_music_folder_discovery = (
-        ipod_gui.IpodWindow._finish_music_folder_discovery
+        gui.IpodWindow._finish_music_folder_discovery
     )
 
     def __init__(self):
@@ -416,10 +412,10 @@ class FolderDiscoveryWindow:
         self.worker_thread = threading.get_ident()
         track_path = str(Path(path) / "song.mp3")
         return [
-            ipod_gui.Track(
+            gui.Track(
                 track_path,
                 {"title": "Song", "artist": "Artist", "album": "Album"},
-                ipod_gui.STATE_LIBRARY,
+                gui.STATE_LIBRARY,
             )
         ], True, 0
 
@@ -440,7 +436,7 @@ class FolderDiscoveryWindow:
 discovery_window = FolderDiscoveryWindow()
 scheduled = []
 scheduled_event = threading.Event()
-original_glib = ipod_gui.GLib
+original_glib = gui.GLib
 
 
 def record_idle(callback, *args):
@@ -449,13 +445,13 @@ def record_idle(callback, *args):
     return 1
 
 
-ipod_gui.GLib = type("ImmediateGLib", (), {"idle_add": staticmethod(record_idle)})
+gui.GLib = type("ImmediateGLib", (), {"idle_add": staticmethod(record_idle)})
 try:
     main_thread = threading.get_ident()
-    ipod_gui.IpodWindow._discover_music_folder(discovery_window, "/music")
+    gui.IpodWindow._discover_music_folder(discovery_window, "/music")
     assert scheduled_event.wait(2), "folder discovery did not reach GLib"
 finally:
-    ipod_gui.GLib = original_glib
+    gui.GLib = original_glib
 assert discovery_window.worker_thread != main_thread, "folder walked on GTK thread"
 assert discovery_window.queued is None, "folder queued before the GLib boundary"
 callback, callback_args = scheduled[0]
@@ -468,10 +464,10 @@ assert not discovery_window.discovering_sources, "folder discovery stayed active
 failed_discovery = FolderDiscoveryWindow()
 failed_discovery.toasts = []
 failed_discovery._toast = failed_discovery.toasts.append
-partial_track = ipod_gui.Track(
-    "/music/partial.mp3", {"title": "Partial"}, ipod_gui.STATE_LIBRARY
+partial_track = gui.Track(
+    "/music/partial.mp3", {"title": "Partial"}, gui.STATE_LIBRARY
 )
-ipod_gui.IpodWindow._finish_music_folder_discovery(
+gui.IpodWindow._finish_music_folder_discovery(
     failed_discovery,
     failed_discovery.source_generation,
     failed_discovery.device_identity,
@@ -492,7 +488,7 @@ enrichment_window._update_device_controls = lambda: None
 def enrich_pending(paths, _generation):
     assert paths == {str(pending_only)}
     return {
-        str(pending_only): ipod_gui.Track(
+        str(pending_only): gui.Track(
             pending_only,
             {
                 "title": "Outside",
@@ -500,7 +496,7 @@ def enrich_pending(paths, _generation):
                 "album": "Album",
                 "duration": 120,
             },
-            ipod_gui.STATE_LIBRARY,
+            gui.STATE_LIBRARY,
         )
     }, True
 
@@ -508,7 +504,7 @@ def enrich_pending(paths, _generation):
 enrichment_window._scan_pending_tracks = enrich_pending
 scheduled = []
 scheduled_event = threading.Event()
-ipod_gui.GLib = type("ImmediateGLib", (), {"idle_add": staticmethod(record_idle)})
+gui.GLib = type("ImmediateGLib", (), {"idle_add": staticmethod(record_idle)})
 try:
     result = enrichment_window._queue_sources(
         {str(pending_only): [enrichment_window._pending_track(pending_only)]}
@@ -516,7 +512,7 @@ try:
     assert result is None, "pending-only tags were not enriched asynchronously"
     assert scheduled_event.wait(2), "pending enrichment did not reach GLib"
 finally:
-    ipod_gui.GLib = original_glib
+    gui.GLib = original_glib
 callback, callback_args = scheduled[0]
 callback(*callback_args)
 assert enrichment_window.pending_records[str(pending_only)]["artist"] == "Artist"
@@ -539,14 +535,14 @@ class VisibleView:
 
 
 class RefreshWindow:
-    _resolve_current_album = ipod_gui.IpodWindow._resolve_current_album
+    _resolve_current_album = gui.IpodWindow._resolve_current_album
 
     def __init__(self, visible):
-        old_track = ipod_gui.Track("old.mp3", {"album": "Album"}, ipod_gui.STATE_LIBRARY)
-        new_track = ipod_gui.Track("new.mp3", {"album": "Album"}, ipod_gui.STATE_LIBRARY)
-        self.current_album = ipod_gui.Album("Album", "Unknown artist")
+        old_track = gui.Track("old.mp3", {"album": "Album"}, gui.STATE_LIBRARY)
+        new_track = gui.Track("new.mp3", {"album": "Album"}, gui.STATE_LIBRARY)
+        self.current_album = gui.Album("Album", "Unknown artist")
         self.current_album.add(old_track)
-        replacement = ipod_gui.Album("Album", "Unknown artist")
+        replacement = gui.Album("Album", "Unknown artist")
         replacement.add(new_track)
         self.library = type("Library", (), {"collections": lambda _self, _mode: [replacement]})()
         self.group_mode = Selected(0)
@@ -570,12 +566,12 @@ class RefreshWindow:
 
 
 library_refresh = RefreshWindow("library")
-ipod_gui.IpodWindow._refresh_current_view(library_refresh)
+gui.IpodWindow._refresh_current_view(library_refresh)
 assert not library_refresh.shown, "a library repaint reopened stale album detail"
 
 album_refresh = RefreshWindow("album")
 stale_album = album_refresh.current_album
-ipod_gui.IpodWindow._refresh_current_view(album_refresh)
+gui.IpodWindow._refresh_current_view(album_refresh)
 assert album_refresh.current_album is not stale_album, "album detail kept stale tracks"
 assert album_refresh.shown == [album_refresh.current_album], album_refresh.shown
 
@@ -584,10 +580,10 @@ partial_album = partial_refresh.current_album
 partial_refresh.library = type(
     "EmptyLibrary", (), {"collections": lambda _self, _mode: []}
 )()
-ipod_gui.IpodWindow._refresh_current_view(partial_refresh, scan_complete=False)
+gui.IpodWindow._refresh_current_view(partial_refresh, scan_complete=False)
 assert partial_refresh.views.name == "album", "partial scan closed album detail"
 assert partial_refresh.current_album is partial_album, "partial scan dropped album state"
-ipod_gui.IpodWindow._refresh_current_view(partial_refresh, scan_complete=True)
+gui.IpodWindow._refresh_current_view(partial_refresh, scan_complete=True)
 assert partial_refresh.views.name == "library", "completed scan kept a missing album open"
 
 disconnected_scan = type(
@@ -595,7 +591,7 @@ disconnected_scan = type(
     (),
     {"tag_generation": 3, "mount_point": None},
 )()
-assert not ipod_gui.IpodWindow._apply_device_track_batch(
+assert not gui.IpodWindow._apply_device_track_batch(
     disconnected_scan, 3, "/media/iPod", []
 ), "a disconnected device scan was applied"
 
@@ -605,12 +601,12 @@ common = {
     "album": "Same Album",
     "duration": 200.2,
 }
-local_one = ipod_gui.Track("/music/one.mp3", common, ipod_gui.STATE_LIBRARY)
-local_two = ipod_gui.Track("/music/two.mp3", common, ipod_gui.STATE_LIBRARY)
-device_one = ipod_gui.Track(
+local_one = gui.Track("/music/one.mp3", common, gui.STATE_LIBRARY)
+local_two = gui.Track("/music/two.mp3", common, gui.STATE_LIBRARY)
+device_one = gui.Track(
     "/media/iPod/iPod_Control/Music/F00/AAAA.mp3",
     {**common, "duration": 200.4},
-    ipod_gui.STATE_IPOD,
+    gui.STATE_IPOD,
     relpath="F00/AAAA.mp3",
 )
 merge_library = type(
@@ -623,26 +619,26 @@ merge_window = type(
     (),
     {"library": merge_library, "device_tracks": [device_one]},
 )()
-ipod_gui.IpodWindow._merge_states(merge_window)
+gui.IpodWindow._merge_states(merge_window)
 assert sum(track.on_ipod for track in merge_library.tracks) == 1
 assert local_one.relpath == "F00/AAAA.mp3", local_one.relpath
 assert local_two.relpath == local_two.path, local_two.relpath
 
-other_album = ipod_gui.Track(
+other_album = gui.Track(
     "/media/iPod/iPod_Control/Music/F00/BBBB.mp3",
     {**common, "album": "Other Album"},
-    ipod_gui.STATE_IPOD,
+    gui.STATE_IPOD,
     relpath="F00/BBBB.mp3",
 )
 merge_window.device_tracks = [other_album]
-ipod_gui.IpodWindow._merge_states(merge_window)
+gui.IpodWindow._merge_states(merge_window)
 assert not any(track.on_ipod for track in merge_library.tracks)
 assert merge_library.device_only == [other_album]
 
 
 class SelectionWindow:
     def __init__(self):
-        queued = ipod_gui.Track("/music/queued.mp3", common, ipod_gui.STATE_LIBRARY)
+        queued = gui.Track("/music/queued.mp3", common, gui.STATE_LIBRARY)
         self.mount_point = "/media/A"
         self.device_identity = "uuid:A"
         self.discovering_sources = False
@@ -671,19 +667,19 @@ class SelectionWindow:
 
 
 identity_window = SelectionWindow()
-original_volume_identity = ipod_gui.volume_identity
-ipod_gui.volume_identity = lambda mount: {
+original_volume_identity = gui.volume_identity
+gui.volume_identity = lambda mount: {
     "/media/A-again": "uuid:A",
     "/media/B": "uuid:B",
 }.get(mount)
 try:
-    ipod_gui.IpodWindow._select_mount(identity_window, None)
+    gui.IpodWindow._select_mount(identity_window, None)
     assert identity_window.pending, "disconnect discarded a device-bound queue"
-    ipod_gui.IpodWindow._select_mount(identity_window, "/media/A-again")
+    gui.IpodWindow._select_mount(identity_window, "/media/A-again")
     assert identity_window.pending, "same device reconnect discarded its queue"
-    ipod_gui.IpodWindow._select_mount(identity_window, "/media/B")
+    gui.IpodWindow._select_mount(identity_window, "/media/B")
 finally:
-    ipod_gui.volume_identity = original_volume_identity
+    gui.volume_identity = original_volume_identity
 assert identity_window.pending == set(), identity_window.pending
 assert identity_window.pending_sources == {}, identity_window.pending_sources
 assert identity_window.toasts and "different iPod" in identity_window.toasts[-1]
@@ -697,14 +693,14 @@ playlist_track.touch()
 playlist_path = playlist_root / "Party Mix.m3u"
 playlist_path.write_text(f"{playlist_track.name}\n", encoding="utf-8")
 playlist_window.library.tracks = [
-    ipod_gui.Track(
+    gui.Track(
         playlist_track,
         {"title": "Party Song", "artist": "Artist"},
-        ipod_gui.STATE_LIBRARY,
+        gui.STATE_LIBRARY,
     )
 ]
 playlist_window._merge_states()
-ipod_gui.IpodWindow._add_playlist(playlist_window, playlist_path)
+gui.IpodWindow._add_playlist(playlist_window, playlist_path)
 
 assert playlist_window.commands == [], playlist_window.commands
 assert playlist_window.pending_sources == {
@@ -720,17 +716,17 @@ assert playlist_window.playlist_voiceover.active, "adding a playlist left voiceo
 
 silent_window = FakeWindow()
 silent_window.speech_engine_available = False
-ipod_gui.IpodWindow._add_playlist(silent_window, playlist_path)
+gui.IpodWindow._add_playlist(silent_window, playlist_path)
 assert not silent_window.playlist_voiceover.active, "voiceover flipped without an engine"
 assert not silent_window.commands, "a playlist was synced without spoken names"
 assert silent_window.toasts == ["No speech engine installed"], silent_window.toasts
 
 folder_window = FakeWindow()
 folder_members = [
-    ipod_gui.Track(
+    gui.Track(
         f"/music/Album/{name}.mp3",
         {"title": name},
-        ipod_gui.STATE_LIBRARY,
+        gui.STATE_LIBRARY,
     )
     for name in ("One", "Two")
 ]
@@ -772,7 +768,7 @@ busy_window.youtube_unavailable = None
 busy_window.speech_engine_available = False
 busy_window.pending = set()
 
-ipod_gui.IpodWindow._set_busy(busy_window, False)
+gui.IpodWindow._set_busy(busy_window, False)
 assert not busy_window.playlist_button.sensitive, "busy reset enabled Add Playlist"
 assert busy_window.youtube_button.sensitive, "busy reset left YouTube disabled"
 # Nothing is queued, so there is nothing for Sync to do.
@@ -824,14 +820,14 @@ for attr in (
     setattr(queued_window, attr, FakeWidget())
 queued_window.youtube_unavailable = None
 queued_window.speech_engine_available = True
-queued_track = ipod_gui.Track(
+queued_track = gui.Track(
     "/home/alex/Music/one.mp3",
     {"title": "one"},
-    ipod_gui.STATE_LIBRARY,
+    gui.STATE_LIBRARY,
 )
 queued_window.pending = {queued_track.path}
 queued_window.pending_sources = {queued_track.path: {queued_track.path}}
-ipod_gui.IpodWindow._set_busy(queued_window, False)
+gui.IpodWindow._set_busy(queued_window, False)
 assert queued_window.sync_button.sensitive, "queued changes could not be synced"
 queued_window._device_scan_active = True
 queued_window._device_snapshot_ready = False
@@ -844,10 +840,10 @@ assert queued_window.sync_button.sensitive
 # -------------------------------------------------------- playlist removal
 
 playlist_removal = FakeWindow()
-original_volume_identity = ipod_gui.volume_identity
-ipod_gui.volume_identity = lambda _mount: playlist_removal.device_identity
+original_volume_identity = gui.volume_identity
+gui.volume_identity = lambda _mount: playlist_removal.device_identity
 try:
-    ipod_gui.IpodWindow._on_playlist_remove_response(
+    gui.IpodWindow._on_playlist_remove_response(
         playlist_removal,
         None,
         "remove",
@@ -855,7 +851,7 @@ try:
         playlist_removal.device_identity,
     )
 finally:
-    ipod_gui.volume_identity = original_volume_identity
+    gui.volume_identity = original_volume_identity
 
 playlist_rm = playlist_removal.commands[0]
 assert playlist_rm[0].endswith("ipod-remove.sh"), playlist_rm
@@ -866,7 +862,7 @@ assert playlist_rm[-2:] == ["--", "twizzy"], playlist_rm
 
 for answer in ("cancel", "close"):
     quiet = FakeWindow()
-    ipod_gui.IpodWindow._on_playlist_remove_response(
+    gui.IpodWindow._on_playlist_remove_response(
         quiet, None, answer, "twizzy", quiet.device_identity
     )
     assert quiet.commands == [], (answer, quiet.commands)
@@ -875,7 +871,7 @@ disconnected_playlist_removal = FakeWindow()
 removed_device = disconnected_playlist_removal.device_identity
 disconnected_playlist_removal.mount_point = None
 disconnected_playlist_removal.device_identity = None
-ipod_gui.IpodWindow._on_playlist_remove_response(
+gui.IpodWindow._on_playlist_remove_response(
     disconnected_playlist_removal,
     None,
     "remove",
@@ -902,7 +898,7 @@ fake_volume = Path(tempfile.mkdtemp())
     encoding="utf-8",
 )
 (fake_volume / "iPod_Control").mkdir()
-parsed = ipod_gui.list_playlists(fake_volume)
+parsed = gui.list_playlists(fake_volume)
 assert parsed == [
     ("Party", ["Yeat/Song [x1].mp3", "/kept/as/written.mp3"]),
     ("Radio", ["Yeat/Song [x1].mp3", "/second.mp3"]),
@@ -911,14 +907,14 @@ assert parsed == [
 
 # ------------------------------------------------------------------ youtube
 
-assert ipod_gui.is_downloadable_url("https://www.youtube.com/watch?v=abc")
-assert ipod_gui.is_downloadable_url("  http://youtu.be/abc  ")
+assert gui.is_downloadable_url("https://www.youtube.com/watch?v=abc")
+assert gui.is_downloadable_url("  http://youtu.be/abc  ")
 for rejected in ("", "youtube.com/watch?v=abc", "not a link", "file:///etc/passwd"):
-    assert not ipod_gui.is_downloadable_url(rejected), rejected
+    assert not gui.is_downloadable_url(rejected), rejected
 
 window = FakeWindow()
 url = "https://www.youtube.com/watch?v=abc&list=PL123"
-ipod_gui.IpodWindow._on_youtube_response(
+gui.IpodWindow._on_youtube_response(
     window, None, "download", Value(url), Value(False)
 )
 
@@ -932,7 +928,7 @@ new_tracks = Path(fetch[fetch.index("--new-tracks") + 1])
 
 # A refused link must not start a download at all.
 rejected_window = FakeWindow()
-ipod_gui.IpodWindow._on_youtube_response(
+gui.IpodWindow._on_youtube_response(
     rejected_window, None, "download", Value("not a link"), Value(False)
 )
 assert rejected_window.commands == [], rejected_window.commands
@@ -947,12 +943,12 @@ downloaded.touch()
 (library / "Old Artist").mkdir()
 new_tracks.write_text(f"{downloaded}\n\n")
 
-ipod_gui.YOUTUBE_LIBRARY = library
+gui.YOUTUBE_LIBRARY = library
 window.library.tracks = [
-    ipod_gui.Track(
+    gui.Track(
         downloaded,
         {"title": "New Song", "artist": "New Artist"},
-        ipod_gui.STATE_LIBRARY,
+        gui.STATE_LIBRARY,
     )
 ]
 window._merge_states()
@@ -968,13 +964,13 @@ assert not new_tracks.exists(), "the track list outlived the sync that read it"
 # An empty list means the video had been downloaded before, so there is
 # nothing to queue and nothing to report as added.
 empty = Path(tempfile.mkstemp()[1])
-outcome = ipod_gui.IpodWindow._sync_downloaded(window, empty)
+outcome = gui.IpodWindow._sync_downloaded(window, empty)
 assert isinstance(outcome, str), outcome
 assert "Already downloaded" in outcome, outcome
 
 # A missing list means yt-dlp could not say, and the artist folders are then
 # the closest honest answer rather than silently queueing nothing.
-fallback = ipod_gui.fetched_sources(library / "never-written", library)
+fallback = gui.fetched_sources(library / "never-written", library)
 assert sorted(fallback) == sorted(
     [str(library / "New Artist"), str(library / "Old Artist")]
 ), fallback
@@ -986,7 +982,7 @@ assert sorted(fallback) == sorted(
 # and a JavaScript runtime as well. Getting that gating wrong either blanks a
 # working search or offers an Add that dies with HTTP 403 several steps later.
 
-phrase_search = ipod_gui.youtube_search_command("/venv/yt-dlp", "bohemian rhapsody")
+phrase_search = gui.youtube_search_command("/venv/yt-dlp", "bohemian rhapsody")
 assert phrase_search[0] == "/venv/yt-dlp", phrase_search
 assert phrase_search[-1] == "ytsearch3:bohemian rhapsody", phrase_search
 # Without this yt-dlp resolves every hit's media URLs, turning a one-second
@@ -1000,14 +996,14 @@ assert phrase_search[-2] == "--", phrase_search
 # A pasted link is looked up as itself. Searching for it would return whatever
 # YouTube makes of the URL as a phrase, which is never the linked video.
 link = "https://www.youtube.com/watch?v=abc"
-assert ipod_gui.youtube_search_command("/venv/yt-dlp", f"  {link}  ")[-1] == link
-assert ipod_gui.youtube_search_target("queen", limit=5) == "ytsearch5:queen"
+assert gui.youtube_search_command("/venv/yt-dlp", f"  {link}  ")[-1] == link
+assert gui.youtube_search_target("queen", limit=5) == "ytsearch5:queen"
 # A linked playlist is capped to the same shortlist a search returns, so
 # pasting an album link cannot flood the section.
-capped = ipod_gui.youtube_search_command("/venv/yt-dlp", link, limit=2)
+capped = gui.youtube_search_command("/venv/yt-dlp", link, limit=2)
 assert capped[capped.index("--playlist-items") + 1] == "1-2", capped
 
-parsed_results = ipod_gui.parse_search_results(
+parsed_results = gui.parse_search_results(
     [
         json.dumps(
             {
@@ -1038,11 +1034,11 @@ assert parsed_results[1].uploader == "YouTube", parsed_results[1].uploader
 
 # The skeleton reserves exactly as many rows as the search can return, so the
 # layout cannot jump at the moment the results land.
-assert ipod_gui.YOUTUBE_SEARCH_RESULTS == 3, ipod_gui.YOUTUBE_SEARCH_RESULTS
-flood = ipod_gui.parse_search_results(
+assert gui.YOUTUBE_SEARCH_RESULTS == 3, gui.YOUTUBE_SEARCH_RESULTS
+flood = gui.parse_search_results(
     [json.dumps({"id": f"id{n}", "title": str(n)}) for n in range(9)]
 )
-assert len(flood) == ipod_gui.YOUTUBE_SEARCH_RESULTS, len(flood)
+assert len(flood) == gui.YOUTUBE_SEARCH_RESULTS, len(flood)
 
 
 # ---------------------------------------------------------------- artwork
@@ -1051,7 +1047,7 @@ assert len(flood) == ipod_gui.YOUTUBE_SEARCH_RESULTS, len(flood)
 # video's thumbnail. Redirected at the real cache so that nothing here reads
 # or writes the one the user's own library fills.
 art_cache = Path(tempfile.mkdtemp()) / "art"
-ipod_gui.ART_CACHE = art_cache
+gui.ART_CACHE = art_cache
 
 # The smallest size that still covers the largest square artwork is drawn at.
 # Below it the album page is visibly soft; above it a quarter of a megabyte is
@@ -1061,15 +1057,15 @@ sizes = [
     {"url": "https://i.ytimg.com/vi/x/hq.jpg", "width": 480, "height": 360},
     {"url": "https://i.ytimg.com/vi/x/maxres.jpg", "width": 1280, "height": 720},
 ]
-assert ipod_gui.YOUTUBE_ART_SIZE == 360, ipod_gui.YOUTUBE_ART_SIZE
-assert ipod_gui.thumbnail_from_entry({"thumbnails": sizes}).endswith("hq.jpg")
-assert ipod_gui.thumbnail_from_entry({"thumbnails": sizes}, want=90).endswith(
+assert gui.YOUTUBE_ART_SIZE == 360, gui.YOUTUBE_ART_SIZE
+assert gui.thumbnail_from_entry({"thumbnails": sizes}).endswith("hq.jpg")
+assert gui.thumbnail_from_entry({"thumbnails": sizes}, want=90).endswith(
     "default.jpg"
 )
 # A thumbnail is cropped to its short edge, so that is what has to clear the
 # target: judging by width would take the wide one here and then have 200
 # pixels to stretch across a 400 pixel square.
-assert ipod_gui.thumbnail_from_entry(
+assert gui.thumbnail_from_entry(
     {
         "thumbnails": [
             {"url": "https://x.invalid/wide.jpg", "width": 450, "height": 200},
@@ -1079,55 +1075,55 @@ assert ipod_gui.thumbnail_from_entry(
     want=400,
 ).endswith("square.jpg")
 # Nothing big enough means the largest there is, rather than nothing at all.
-assert ipod_gui.thumbnail_from_entry({"thumbnails": sizes[:1]}).endswith(
+assert gui.thumbnail_from_entry({"thumbnails": sizes[:1]}).endswith(
     "default.jpg"
 )
 # Sizes are not always reported, and yt-dlp lists its best last.
-assert ipod_gui.thumbnail_from_entry(
+assert gui.thumbnail_from_entry(
     {"thumbnails": [{"url": "https://x.invalid/a.jpg"}, {"url": "https://x.invalid/b.jpg"}]}
 ) == "https://x.invalid/b.jpg"
 assert (
-    ipod_gui.thumbnail_from_entry({"thumbnail": "https://x.invalid/only.jpg"})
+    gui.thumbnail_from_entry({"thumbnail": "https://x.invalid/only.jpg"})
     == "https://x.invalid/only.jpg"
 )
 # Nothing usable is not a reason to break the result: it shows the placeholder.
-assert ipod_gui.thumbnail_from_entry({}) == ""
-assert ipod_gui.thumbnail_from_entry({"thumbnails": "not a list"}) == ""
-assert ipod_gui.thumbnail_from_entry({"thumbnails": [{"url": "/relative.jpg"}]}) == ""
-assert ipod_gui.thumbnail_from_entry({"thumbnail": "file:///etc/passwd"}) == ""
+assert gui.thumbnail_from_entry({}) == ""
+assert gui.thumbnail_from_entry({"thumbnails": "not a list"}) == ""
+assert gui.thumbnail_from_entry({"thumbnails": [{"url": "/relative.jpg"}]}) == ""
+assert gui.thumbnail_from_entry({"thumbnail": "file:///etc/passwd"}) == ""
 
-thumbed = ipod_gui.parse_search_results(
+thumbed = gui.parse_search_results(
     [json.dumps({"id": "abc", "title": "Art", "thumbnails": sizes})]
 )
 assert thumbed[0].thumbnail.endswith("hq.jpg"), thumbed[0].thumbnail
 
 # The id arrives over the network and this is the only thing between it and a
 # filename, so it is a whitelist rather than an attempt at escaping.
-assert ipod_gui.youtube_art_file("dQw4w9WgXcQ", art_cache) == (
+assert gui.youtube_art_file("dQw4w9WgXcQ", art_cache) == (
     art_cache / "yt-dQw4w9WgXcQ.img"
 )
 for hostile in ("../../etc/passwd", "a/b", "", "  ", "a" * 65, "a;rm -rf ~"):
-    assert ipod_gui.youtube_art_file(hostile, art_cache) is None, hostile
+    assert gui.youtube_art_file(hostile, art_cache) is None, hostile
 
 # The id ipod-fetch.sh writes into every filename is what lets a downloaded
 # file find the artwork the search already fetched. Read as the last bracketed
 # group, because a title can carry brackets of its own.
-assert ipod_gui.video_id_from_name("Song [Live] [dQw4w9WgXcQ].mp3") == "dQw4w9WgXcQ"
-assert ipod_gui.video_id_from_name("Song [Live].mp3") == "Live"
-assert ipod_gui.video_id_from_name("Ordinary Track.mp3") == ""
-assert ipod_gui.video_id_from_name("") == ""
+assert gui.video_id_from_name("Song [Live] [dQw4w9WgXcQ].mp3") == "dQw4w9WgXcQ"
+assert gui.video_id_from_name("Song [Live].mp3") == "Live"
+assert gui.video_id_from_name("Ordinary Track.mp3") == ""
+assert gui.video_id_from_name("") == ""
 
 # Artwork wider than the square is what fills it: the short edge lands on the
 # square exactly and the frame clips the rest, which is the centre crop every
 # music player shows a video thumbnail as.
-assert ipod_gui.cover_pixel_size(1280, 720, 36) == 64, "16:9 was not cropped to fill"
-assert ipod_gui.cover_pixel_size(600, 600, 140) == 140, "a square cover was scaled up"
-assert ipod_gui.cover_pixel_size(300, 600, 36) == 72, "a tall cover was not filled"
+assert gui.cover_pixel_size(1280, 720, 36) == 64, "16:9 was not cropped to fill"
+assert gui.cover_pixel_size(600, 600, 140) == 140, "a square cover was scaled up"
+assert gui.cover_pixel_size(300, 600, 36) == 72, "a tall cover was not filled"
 # Rounded up: a pixel short would show a hairline of the frame down one edge.
-assert ipod_gui.cover_pixel_size(101, 100, 100) == 101
+assert gui.cover_pixel_size(101, 100, 100) == 101
 # A texture that reports nothing is drawn at the size asked for rather than
 # dividing by zero.
-assert ipod_gui.cover_pixel_size(0, 0, 36) == 36
+assert gui.cover_pixel_size(0, 0, 36) == 36
 
 
 class ThumbnailServer(http.server.BaseHTTPRequestHandler):
@@ -1159,75 +1155,75 @@ threading.Thread(target=images.serve_forever, daemon=True).start()
 image_host = f"http://127.0.0.1:{images.server_address[1]}"
 
 landed = art_cache / "yt-thumbtest.img"
-assert ipod_gui.fetch_thumbnail(f"{image_host}/thumb.jpg", landed) is True
+assert gui.fetch_thumbnail(f"{image_host}/thumb.jpg", landed) is True
 assert landed.read_bytes() == ThumbnailServer.bodies["/thumb.jpg"]
 
 # Every failure leaves the row showing its placeholder rather than an error the
 # user cannot act on, and leaves nothing half-written behind for the next paint
 # to try to load.
 missing_art = art_cache / "yt-missing.img"
-assert ipod_gui.fetch_thumbnail(f"{image_host}/gone.jpg", missing_art) is False
-assert ipod_gui.fetch_thumbnail(f"{image_host}/empty.jpg", missing_art) is False
+assert gui.fetch_thumbnail(f"{image_host}/gone.jpg", missing_art) is False
+assert gui.fetch_thumbnail(f"{image_host}/empty.jpg", missing_art) is False
 # A URL off the network is checked rather than trusted: urlopen is as happy to
 # read file:// as https://.
-assert ipod_gui.fetch_thumbnail("file:///etc/passwd", missing_art) is False
-assert ipod_gui.fetch_thumbnail("", missing_art) is False
+assert gui.fetch_thumbnail("file:///etc/passwd", missing_art) is False
+assert gui.fetch_thumbnail("", missing_art) is False
 
-real_max = ipod_gui.THUMBNAIL_MAX_BYTES
-ipod_gui.THUMBNAIL_MAX_BYTES = 64
+real_max = gui.THUMBNAIL_MAX_BYTES
+gui.THUMBNAIL_MAX_BYTES = 64
 try:
-    assert ipod_gui.fetch_thumbnail(f"{image_host}/huge.jpg", missing_art) is False
+    assert gui.fetch_thumbnail(f"{image_host}/huge.jpg", missing_art) is False
 finally:
-    ipod_gui.THUMBNAIL_MAX_BYTES = real_max
+    gui.THUMBNAIL_MAX_BYTES = real_max
 assert not missing_art.exists(), "a failed fetch left a file behind"
 assert not list(art_cache.glob("*.part")), sorted(p.name for p in art_cache.iterdir())
 
 # An image is fetched once and then belongs to every later search, preview and
 # scan naming the same video, so a cached one is never asked for again.
-assert ipod_gui.youtube_art_path("thumbtest", art_cache) == str(landed)
-assert ipod_gui.youtube_art_path("notfetched", art_cache) is None
-assert ipod_gui.youtube_art_path("../escape", art_cache) is None
+assert gui.youtube_art_path("thumbtest", art_cache) == str(landed)
+assert gui.youtube_art_path("notfetched", art_cache) is None
+assert gui.youtube_art_path("../escape", art_cache) is None
 assert (
-    ipod_gui.cache_thumbnail("thumbtest", "http://127.0.0.1:1/unreachable", art_cache)
+    gui.cache_thumbnail("thumbtest", "http://127.0.0.1:1/unreachable", art_cache)
     == str(landed)
 ), "a cached thumbnail was downloaded a second time"
-assert ipod_gui.cache_thumbnail("../escape", f"{image_host}/thumb.jpg", art_cache) is None
-assert ipod_gui.cache_thumbnail("second", f"{image_host}/thumb.jpg", art_cache) == str(
+assert gui.cache_thumbnail("../escape", f"{image_host}/thumb.jpg", art_cache) is None
+assert gui.cache_thumbnail("second", f"{image_host}/thumb.jpg", art_cache) == str(
     art_cache / "yt-second.img"
 )
 
 # What connects a result's artwork to the track it becomes. Embedded art still
 # wins: a file that carries its own cover is showing the album's, not the
 # video's.
-from_youtube = ipod_gui.Track(
-    "/music/youtube/Queen/Bohemian [thumbtest].mp3", {}, ipod_gui.STATE_LIBRARY
+from_youtube = gui.Track(
+    "/music/youtube/Queen/Bohemian [thumbtest].mp3", {}, gui.STATE_LIBRARY
 )
 assert from_youtube.art == str(landed), from_youtube.art
-tagged_art = ipod_gui.Track(
+tagged_art = gui.Track(
     "/music/youtube/Queen/Bohemian [thumbtest].mp3",
     {"art": "/cache/art/abc.img"},
-    ipod_gui.STATE_LIBRARY,
+    gui.STATE_LIBRARY,
 )
 assert tagged_art.art == "/cache/art/abc.img", tagged_art.art
-assert ipod_gui.Track("/music/ripped/track.mp3", {}, ipod_gui.STATE_LIBRARY).art is None
+assert gui.Track("/music/ripped/track.mp3", {}, gui.STATE_LIBRARY).art is None
 # The bar names a preview before it has a file at all, and that must not send
 # an empty path looking for artwork.
-assert ipod_gui.Track("", {"title": "Fetching"}, ipod_gui.STATE_PREVIEW).art is None
+assert gui.Track("", {"title": "Fetching"}, gui.STATE_PREVIEW).art is None
 
 
 class ArtWindow:
     """The parts of the window a search's thumbnail pass touches."""
 
-    _start_thumbnail_fetch = ipod_gui.IpodWindow._start_thumbnail_fetch
-    _finish_thumbnail_fetch = ipod_gui.IpodWindow._finish_thumbnail_fetch
+    _start_thumbnail_fetch = gui.IpodWindow._start_thumbnail_fetch
+    _finish_thumbnail_fetch = gui.IpodWindow._finish_thumbnail_fetch
 
     def __init__(self):
         self.search_generation = 7
         self.painted = 0
         self.refreshed = 0
         self.now_playing_updates = 0
-        self.library = ipod_gui.LibraryIndex()
-        self.player = ipod_gui.PreviewPlayer(lambda: None)
+        self.library = gui.LibraryIndex()
+        self.player = gui.PreviewPlayer(lambda: None)
 
     def _paint_youtube_section(self):
         self.painted += 1
@@ -1257,15 +1253,15 @@ class ImmediateThread:
 
 
 def result_with_art(video_id, path="/thumb.jpg"):
-    return ipod_gui.SearchResult(
+    return gui.SearchResult(
         video_id, "Uploader", 0, f"https://youtu.be/{video_id}", video_id,
         f"{image_host}{path}",
     )
 
 
-real_thread, real_idle = ipod_gui.threading.Thread, ipod_gui.GLib.idle_add
-ipod_gui.threading.Thread = ImmediateThread
-ipod_gui.GLib.idle_add = lambda callback, *args: callback(*args)
+real_thread, real_idle = gui.threading.Thread, gui.GLib.idle_add
+gui.threading.Thread = ImmediateThread
+gui.GLib.idle_add = lambda callback, *args: callback(*args)
 try:
     fetching = ArtWindow()
     fetching._start_thumbnail_fetch(
@@ -1282,11 +1278,11 @@ try:
     # Artwork that arrives for a query the user has already typed past must not
     # repaint the results of the one they are looking at now.
     stale_art = ArtWindow()
-    stale_preview = ipod_gui.Track(
-        "/cache/Queen/Preview [stale].opus", {}, ipod_gui.STATE_PREVIEW
+    stale_preview = gui.Track(
+        "/cache/Queen/Preview [stale].opus", {}, gui.STATE_PREVIEW
     )
-    playing_preview = ipod_gui.Track(
-        "/cache/Queen/Preview [stale].opus", {}, ipod_gui.STATE_PREVIEW
+    playing_preview = gui.Track(
+        "/cache/Queen/Preview [stale].opus", {}, gui.STATE_PREVIEW
     )
     assert stale_preview.art is None
     assert playing_preview.art is None
@@ -1320,8 +1316,8 @@ try:
     assert unreachable.painted == 0, unreachable.painted
     assert not (art_cache / "yt-nothing.img").exists()
 finally:
-    ipod_gui.threading.Thread = real_thread
-    ipod_gui.GLib.idle_add = real_idle
+    gui.threading.Thread = real_thread
+    gui.GLib.idle_add = real_idle
     images.shutdown()
 
 
@@ -1333,7 +1329,7 @@ def stub_yt_dlp(script):
     return str(path)
 
 
-original_lib_output = ipod_gui.lib_function_output
+original_lib_output = gui.lib_function_output
 found_line = json.dumps({"id": "abc", "title": "Found", "duration": 12})
 for script, expected_results, expected_reached, why in (
     (f"echo '{found_line}'", ["Found"], True, "a working search"),
@@ -1343,82 +1339,82 @@ for script, expected_results, expected_reached, why in (
     ("exit 0", [], True, "a search with no matches"),
     ("echo 'ERROR: unable to download' >&2; exit 1", [], False, "an offline search"),
 ):
-    ipod_gui.lib_function_output = lambda _name, s=script: stub_yt_dlp(s)
+    gui.lib_function_output = lambda _name, s=script: stub_yt_dlp(s)
     try:
-        found, reached = ipod_gui.search_youtube("anything", timeout=20)
+        found, reached = gui.search_youtube("anything", timeout=20)
     finally:
-        ipod_gui.lib_function_output = original_lib_output
+        gui.lib_function_output = original_lib_output
     assert [r.title for r in found] == expected_results, why
     assert reached is expected_reached, why
 
 # With no yt-dlp at all there is nothing to run, and that is a failure to
 # reach YouTube rather than an empty result set.
-ipod_gui.lib_function_output = lambda _name: None
+gui.lib_function_output = lambda _name: None
 try:
-    missing_found, missing_reached = ipod_gui.search_youtube("anything")
+    missing_found, missing_reached = gui.search_youtube("anything")
 finally:
-    ipod_gui.lib_function_output = original_lib_output
+    gui.lib_function_output = original_lib_output
 assert missing_found == [] and missing_reached is False
 
 # Searching survives what downloading cannot. yt-dlp reads metadata without
 # ffmpeg and without a JavaScript runtime; only the media URL is signed.
-original_succeeds = ipod_gui.lib_function_succeeds
-original_which = ipod_gui.shutil.which
-ipod_gui.lib_function_succeeds = lambda name: name == "yt_dlp_bin"
-ipod_gui.shutil.which = lambda _name: None
+original_succeeds = gui.lib_function_succeeds
+original_which = gui.shutil.which
+gui.lib_function_succeeds = lambda name: name == "yt_dlp_bin"
+gui.shutil.which = lambda _name: None
 try:
-    assert ipod_gui.youtube_search_unavailable_reason() is None, "search over-gated"
-    download_reason = ipod_gui.youtube_unavailable_reason()
+    assert gui.youtube_search_unavailable_reason() is None, "search over-gated"
+    download_reason = gui.youtube_unavailable_reason()
 finally:
-    ipod_gui.lib_function_succeeds = original_succeeds
-    ipod_gui.shutil.which = original_which
+    gui.lib_function_succeeds = original_succeeds
+    gui.shutil.which = original_which
 assert download_reason and "ffmpeg" in download_reason, download_reason
 
-ipod_gui.lib_function_succeeds = lambda _name: False
+gui.lib_function_succeeds = lambda _name: False
 try:
-    assert "yt-dlp" in (ipod_gui.youtube_search_unavailable_reason() or "")
-    assert ipod_gui.preview_unavailable_reason() == (
+    assert "yt-dlp" in (gui.youtube_search_unavailable_reason() or "")
+    assert gui.preview_unavailable_reason() == (
         "GStreamer is not installed - see Preview playback in the README"
     )
 finally:
-    ipod_gui.lib_function_succeeds = original_succeeds
+    gui.lib_function_succeeds = original_succeeds
 
 # The local half. Every word has to match, in any order, across title, artist
 # and album, because a phrase match would need whatever order the tagger used.
 search_library = [
-    ipod_gui.Track(
+    gui.Track(
         "/music/queen/bohemian.mp3",
         {"title": "Bohemian Rhapsody", "artist": "Queen", "album": "A Night At The Opera"},
-        ipod_gui.STATE_LIBRARY,
+        gui.STATE_LIBRARY,
     ),
-    ipod_gui.Track(
+    gui.Track(
         "/music/queen/love.mp3",
         {"title": "Somebody To Love", "artist": "Queen", "album": "A Day At The Races"},
-        ipod_gui.STATE_IPOD,
+        gui.STATE_IPOD,
     ),
-    ipod_gui.Track(
+    gui.Track(
         "/music/other/rain.mp3",
         {"title": "Rain", "artist": "Someone Else", "album": "Weather"},
-        ipod_gui.STATE_LIBRARY,
+        gui.STATE_LIBRARY,
     ),
 ]
-assert [t.title for t in ipod_gui.local_search_matches(search_library, "queen rhapsody")] == [
+assert [t.title for t in gui.local_search_matches(search_library, "queen rhapsody")] == [
     "Bohemian Rhapsody"
 ]
-assert [t.title for t in ipod_gui.local_search_matches(search_library, "QUEEN")] == [
+assert [t.title for t in gui.local_search_matches(search_library, "QUEEN")] == [
     "Somebody To Love",
     "Bohemian Rhapsody",
 ], "artist matches were not ordered by album"
 # A track that lives only on the device is still findable, or music copied
 # from another machine would be invisible to the one field that searches.
-assert ipod_gui.local_search_matches(search_library, "races")[0].state == ipod_gui.STATE_IPOD
-assert ipod_gui.local_search_matches(search_library, "   ") == []
-assert ipod_gui.local_search_matches(search_library, "queen rain") == []
+assert gui.local_search_matches(search_library, "races")[0].state == gui.STATE_IPOD
+assert gui.local_search_matches(search_library, "   ") == []
+assert gui.local_search_matches(search_library, "queen rain") == []
 
 # Adding a result runs the same download the dialog does, and refuses in every
 # case where it could not finish.
 result_window = FakeWindow()
-found_result = ipod_gui.SearchResult(
+found_result = gui.SearchResult(
     title="Bohemian Rhapsody",
     uploader="Queen Official",
     duration=360.0,
@@ -1427,7 +1423,7 @@ found_result = ipod_gui.SearchResult(
 )
 result_window._set_search_note = lambda text: result_window.notes.append(text)
 result_window.notes = []
-ipod_gui.IpodWindow._download_result(result_window, found_result)
+gui.IpodWindow._download_result(result_window, found_result)
 result_fetch = result_window.commands[-1]
 assert result_fetch[0].endswith("ipod-fetch.sh"), result_fetch
 assert result_fetch[-1] == link, result_fetch
@@ -1448,14 +1444,14 @@ for attribute, value, why in (
     refusing = FakeWindow()
     refusing._set_search_note = lambda _text: None
     setattr(refusing, attribute, value)
-    assert not ipod_gui.IpodWindow._can_download(refusing), why
-    ipod_gui.IpodWindow._download_result(refusing, found_result)
+    assert not gui.IpodWindow._can_download(refusing), why
+    gui.IpodWindow._download_result(refusing, found_result)
     assert refusing.commands == [], why
 
 # A download refused before it started must not leave its list file behind.
 refused_run = FakeWindow()
 refused_run._run = lambda *_a, **_k: False
-refused_fetch = ipod_gui.IpodWindow._start_youtube_download(
+refused_fetch = gui.IpodWindow._start_youtube_download(
     refused_run, link, single=True, busy_message="Downloading"
 )
 refused_list = Path(refused_fetch[refused_fetch.index("--new-tracks") + 1])
@@ -1488,7 +1484,7 @@ class FailureWindow:
 # A download that dies part-way has to say so where the user is looking, which
 # is the row they pressed Add on; the toast has gone by the time they look back.
 failure_window = FailureWindow()
-ipod_gui.IpodWindow._finish(
+gui.IpodWindow._finish(
     failure_window,
     1,
     "Downloaded",
@@ -1502,13 +1498,13 @@ assert failure_window.sync_revealer.revealed, "a failure hid the script output"
 assert failure_window.toasts == [], "an inline failure also raised a toast"
 
 generic_failure_window = FailureWindow()
-ipod_gui.IpodWindow._finish(generic_failure_window, 2, "Finished")
+gui.IpodWindow._finish(generic_failure_window, 2, "Finished")
 assert generic_failure_window.toasts == ["Failed (exit 2) - see Details"]
 
 # Success must not fire it, or every finished download would claim to have
 # failed as well.
 success_window = FailureWindow()
-ipod_gui.IpodWindow._finish(
+gui.IpodWindow._finish(
     success_window,
     0,
     "Downloaded",
@@ -1568,12 +1564,12 @@ class SearchWindow:
         # only has to exist, so that landing results never reaches the network.
         self.artwork_wanted.append([result.video_id for result in results])
 
-    _on_search_changed = ipod_gui.IpodWindow._on_search_changed
-    _clear_search = ipod_gui.IpodWindow._clear_search
-    _cancel_search_timeout = ipod_gui.IpodWindow._cancel_search_timeout
-    _set_search_note = ipod_gui.IpodWindow._set_search_note
-    _finish_youtube_search = ipod_gui.IpodWindow._finish_youtube_search
-    _navigate = ipod_gui.IpodWindow._navigate
+    _on_search_changed = gui.IpodWindow._on_search_changed
+    _clear_search = gui.IpodWindow._clear_search
+    _cancel_search_timeout = gui.IpodWindow._cancel_search_timeout
+    _set_search_note = gui.IpodWindow._set_search_note
+    _finish_youtube_search = gui.IpodWindow._finish_youtube_search
+    _navigate = gui.IpodWindow._navigate
 
 
 typing = SearchWindow()
@@ -1657,10 +1653,10 @@ queue_window.sync_total = 0
 sync_source = Path(tempfile.mkdtemp()) / "Music"
 sync_source.mkdir()
 queued_paths = {
-    str(path): ipod_gui.Track(
+    str(path): gui.Track(
         path,
         {"title": Path(path).stem, "size": size},
-        ipod_gui.STATE_LIBRARY,
+        gui.STATE_LIBRARY,
     )
     for path, size in (
         (sync_source / "01 Nightbus.mp3", 1024),
@@ -1671,10 +1667,10 @@ for path, track in queued_paths.items():
     Path(path).write_bytes(b"x" * track.size)
 copied_path = sync_source / "02 Dawn.mp3"
 copied_path.write_bytes(b"x" * 4096)
-already_copied = ipod_gui.Track(
+already_copied = gui.Track(
     copied_path,
     {"title": "Dawn", "size": 4096},
-    ipod_gui.STATE_LIBRARY,
+    gui.STATE_LIBRARY,
 )
 already_copied.on_ipod = True
 queue_window.library.tracks = [*queued_paths.values(), already_copied]
@@ -1686,10 +1682,10 @@ queue_window.pending_device_identity = queue_window.device_identity
 queue_window._merge_states()
 assert queue_window._pending_change_count() == len(queued_paths)
 assert sum(track.size for track in queue_window._pending_copy_tracks()) == 3072
-replacement = ipod_gui.Track(
+replacement = gui.Track(
     already_copied.path,
     {"title": "Dawn", "size": 4096},
-    ipod_gui.STATE_LIBRARY,
+    gui.STATE_LIBRARY,
 )
 queue_window.library.tracks = [*queued_paths.values(), replacement]
 queue_window._merge_states()
@@ -1703,10 +1699,10 @@ skipped_source = Path(tempfile.mkdtemp()) / "Only Links"
 skipped_source.mkdir()
 removed_before_sync = skipped_source / "Removed.mp3"
 removed_before_sync.write_bytes(b"removed")
-removed_track = ipod_gui.Track(
+removed_track = gui.Track(
     removed_before_sync,
     {"title": "Removed", "size": len(b"removed")},
-    ipod_gui.STATE_LIBRARY,
+    gui.STATE_LIBRARY,
 )
 queue_window.library.tracks.append(removed_track)
 queue_window.pending.add(removed_track.path)
@@ -1725,20 +1721,20 @@ def record_preflight_command(argv, busy_message, done_message, then=None, clear=
 
 
 queue_window._run = record_preflight_command
-original_volume_identity = ipod_gui.volume_identity
-original_glib = ipod_gui.GLib
-ipod_gui.volume_identity = lambda _mount: queue_window.device_identity
-ipod_gui.GLib = type(
+original_volume_identity = gui.volume_identity
+original_glib = gui.GLib
+gui.volume_identity = lambda _mount: queue_window.device_identity
+gui.GLib = type(
     "ImmediateGLib",
     (),
     {"idle_add": staticmethod(lambda callback, *args: callback(*args))},
 )
 try:
-    ipod_gui.IpodWindow.on_sync_pending(queue_window, None)
+    gui.IpodWindow.on_sync_pending(queue_window, None)
     assert command_ready.wait(5), "queued sources were not re-read before sync"
 finally:
-    ipod_gui.volume_identity = original_volume_identity
-    ipod_gui.GLib = original_glib
+    gui.volume_identity = original_volume_identity
+    gui.GLib = original_glib
 
 staged = queue_window.commands[0]
 assert staged[0].endswith("ipod-sync.sh"), staged
@@ -1754,7 +1750,7 @@ assert queue_window.pending_skipped_symlinks == {
     str(skipped_source): 1,
     str(sync_source): 1,
 }
-assert ipod_gui.IpodWindow._pending_symlink_note(queue_window) == (
+assert gui.IpodWindow._pending_symlink_note(queue_window) == (
     " · 2 symlinked items skipped"
 )
 assert queue_window.toasts[-1] == (
@@ -1790,26 +1786,26 @@ def record_failure(message):
 
 
 failed_sync._toast = record_failure
-original_volume_identity = ipod_gui.volume_identity
-original_glib = ipod_gui.GLib
-ipod_gui.volume_identity = lambda _mount: failed_sync.device_identity
-ipod_gui.GLib = type(
+original_volume_identity = gui.volume_identity
+original_glib = gui.GLib
+gui.volume_identity = lambda _mount: failed_sync.device_identity
+gui.GLib = type(
     "ImmediateGLib",
     (),
     {"idle_add": staticmethod(lambda callback, *args: callback(*args))},
 )
 try:
-    ipod_gui.IpodWindow.on_sync_pending(failed_sync, None)
+    gui.IpodWindow.on_sync_pending(failed_sync, None)
     assert failure_ready.wait(5), "failed source scan did not report its refusal"
 finally:
-    ipod_gui.volume_identity = original_volume_identity
-    ipod_gui.GLib = original_glib
+    gui.volume_identity = original_volume_identity
+    gui.GLib = original_glib
 assert failed_sync.commands == [], failed_sync.commands
 assert not failed_sync.busy
 assert "cancelled" in failed_sync.toasts[-1]
 
 outside_window = FakeWindow()
-outside_track = ipod_gui.Track(
+outside_track = gui.Track(
     "/outside/Album/Song.mp3",
     {
         "title": "Song",
@@ -1818,10 +1814,10 @@ outside_track = ipod_gui.Track(
         "duration": 120,
         "size": 8192,
     },
-    ipod_gui.STATE_LIBRARY,
+    gui.STATE_LIBRARY,
 )
 outside_window.device_tracks = [
-    ipod_gui.Track(
+    gui.Track(
         "/media/iPod/iPod_Control/Music/F00/ABCD.mp3",
         {
             "title": "Song",
@@ -1829,7 +1825,7 @@ outside_window.device_tracks = [
             "album": "Album",
             "duration": 120,
         },
-        ipod_gui.STATE_IPOD,
+        gui.STATE_IPOD,
         relpath="F00/ABCD.mp3",
     )
 ]
@@ -1840,7 +1836,7 @@ assert outside_window._pending_accounting()[1:] == (0, 0)
 
 
 class RunGuardWindow:
-    _device_command_is_current = ipod_gui.IpodWindow._device_command_is_current
+    _device_command_is_current = gui.IpodWindow._device_command_is_current
 
     def __init__(self):
         self.toasts = []
@@ -1858,7 +1854,7 @@ class RunGuardWindow:
 
 
 run_guard = RunGuardWindow()
-started = ipod_gui.IpodWindow._run(
+started = gui.IpodWindow._run(
     run_guard,
     ["ipod-sync.sh", "--ipod", None],
     "Running",
@@ -1868,17 +1864,17 @@ assert started is False
 assert run_guard.toasts == ["Connect an iPod before running this action"]
 
 run_guard = RunGuardWindow()
-original_volume_identity = ipod_gui.volume_identity
-ipod_gui.volume_identity = lambda _mount: "uuid:replacement"
+original_volume_identity = gui.volume_identity
+gui.volume_identity = lambda _mount: "uuid:replacement"
 try:
-    started = ipod_gui.IpodWindow._run(
+    started = gui.IpodWindow._run(
         run_guard,
         ["ipod-sync.sh", "--ipod", run_guard.mount_point, "--rebuild-only"],
         "Running",
         "Done",
     )
 finally:
-    ipod_gui.volume_identity = original_volume_identity
+    gui.volume_identity = original_volume_identity
 assert started is False
 assert "changed" in run_guard.toasts[-1]
 
@@ -1897,12 +1893,12 @@ class EjectGuardWindow:
 
 
 eject_guard = EjectGuardWindow()
-original_volume_identity = ipod_gui.volume_identity
-ipod_gui.volume_identity = lambda _mount: "uuid:replacement"
+original_volume_identity = gui.volume_identity
+gui.volume_identity = lambda _mount: "uuid:replacement"
 try:
-    ipod_gui.IpodWindow.on_eject(eject_guard, None)
+    gui.IpodWindow.on_eject(eject_guard, None)
 finally:
-    ipod_gui.volume_identity = original_volume_identity
+    gui.volume_identity = original_volume_identity
 assert eject_guard.toasts, "stale device eject failed silently"
 
 
@@ -1928,7 +1924,7 @@ class FinishWindow:
 
 
 finish_window = FinishWindow()
-ipod_gui.IpodWindow._finish(
+gui.IpodWindow._finish(
     finish_window, 0, "Done", device_command=True
 )
 assert finish_window.events[0] == "invalidate", finish_window.events
@@ -1940,7 +1936,7 @@ idle_window.pending = set()
 idle_window.pending_sources = {}
 idle_window.sync_files = []
 idle_window.sync_total = 0
-ipod_gui.IpodWindow.on_sync_pending(idle_window, None)
+gui.IpodWindow.on_sync_pending(idle_window, None)
 assert idle_window.commands == [], idle_window.commands
 
 # -------------------------------------------------------- playlist reordering
@@ -1964,20 +1960,20 @@ m3u.write_text(
     encoding="utf-8",
 )
 
-assert ipod_gui.playlist_file(reorder_root, "Morning Ride") == m3u
-assert ipod_gui.playlist_file(reorder_root, "Nonexistent") is None
+assert gui.playlist_file(reorder_root, "Morning Ride") == m3u
+assert gui.playlist_file(reorder_root, "Nonexistent") is None
 
-parsed_order = dict(ipod_gui.list_playlists(reorder_root))["Morning Ride"]
+parsed_order = dict(gui.list_playlists(reorder_root))["Morning Ride"]
 reordered = [parsed_order[1], parsed_order[0], parsed_order[2]]
 reorder_identity = "uuid:reorder"
-original_volume_identity = ipod_gui.volume_identity
-ipod_gui.volume_identity = lambda _mount: reorder_identity
+original_volume_identity = gui.volume_identity
+gui.volume_identity = lambda _mount: reorder_identity
 try:
-    assert ipod_gui.write_playlist(
+    assert gui.write_playlist(
         reorder_root, reorder_identity, m3u, reordered
     )
 finally:
-    ipod_gui.volume_identity = original_volume_identity
+    gui.volume_identity = original_volume_identity
 
 written = [
     line
@@ -1990,14 +1986,14 @@ assert written == [
     str(absolute_entry),
 ], written
 original = m3u.read_text(encoding="utf-8")
-original_volume_identity = ipod_gui.volume_identity
-ipod_gui.volume_identity = lambda _mount: "uuid:replacement"
+original_volume_identity = gui.volume_identity
+gui.volume_identity = lambda _mount: "uuid:replacement"
 try:
-    assert not ipod_gui.write_playlist(
+    assert not gui.write_playlist(
         reorder_root, reorder_identity, m3u, parsed_order
     )
 finally:
-    ipod_gui.volume_identity = original_volume_identity
+    gui.volume_identity = original_volume_identity
 assert m3u.read_text(encoding="utf-8") == original
 # The rewrite is atomic, so no half-written list can be left behind for the
 # firmware to choke on if the device is pulled mid-write.
@@ -2005,17 +2001,17 @@ assert not list(reorder_root.glob(".*tmp")), list(reorder_root.glob(".*tmp"))
 
 pls = reorder_root / "Gym.pls"
 pls.write_text("[playlist]\nFile1=iPod_Control/Music/F00/LDPX.mp3\n", encoding="utf-8")
-original_volume_identity = ipod_gui.volume_identity
-ipod_gui.volume_identity = lambda _mount: reorder_identity
+original_volume_identity = gui.volume_identity
+gui.volume_identity = lambda _mount: reorder_identity
 try:
-    assert ipod_gui.write_playlist(
+    assert gui.write_playlist(
         reorder_root,
         reorder_identity,
         pls,
         ["F00/QMRT.mp3", "F00/LDPX.mp3"],
     )
 finally:
-    ipod_gui.volume_identity = original_volume_identity
+    gui.volume_identity = original_volume_identity
 pls_text = pls.read_text(encoding="utf-8")
 assert "NumberOfEntries=2" in pls_text, pls_text
 assert "File1=iPod_Control/Music/F00/QMRT.mp3" in pls_text, pls_text
@@ -2029,27 +2025,27 @@ assert "File2=iPod_Control/Music/F00/LDPX.mp3" in pls_text, pls_text
 # replace the key function with None, so every sortable column raised
 # TypeError and quietly did nothing.
 def sortable(title):
-    return ipod_gui.TrackItem(
-        ipod_gui.Track("/tmp/x.mp3", {"title": title}, ipod_gui.STATE_LIBRARY), 1
+    return gui.TrackItem(
+        gui.Track("/tmp/x.mp3", {"title": title}, gui.STATE_LIBRARY), 1
     )
 
 
-Gtk = ipod_gui.Gtk
-by_title = ipod_gui.track_sorter(lambda track: track.title.lower())
+Gtk = gui.Gtk
+by_title = gui.track_sorter(lambda track: track.title.lower())
 assert by_title.compare(sortable("a"), sortable("b")) == Gtk.Ordering.SMALLER
 assert by_title.compare(sortable("b"), sortable("a")) == Gtk.Ordering.LARGER
 assert by_title.compare(sortable("a"), sortable("A")) == Gtk.Ordering.EQUAL
 
-by_duration = ipod_gui.track_sorter(lambda track: track.duration)
+by_duration = gui.track_sorter(lambda track: track.duration)
 short, long_ = sortable("short"), sortable("long")
 short.track.duration, long_.track.duration = 10.0, 400.0
 assert by_duration.compare(short, long_) == Gtk.Ordering.SMALLER
 
 # Every sortable column must produce a usable sorter, not just the one above.
-for _key, _title, _expand, sort_key in ipod_gui.TRACK_COLUMNS:
+for _key, _title, _expand, sort_key in gui.TRACK_COLUMNS:
     if sort_key is None:
         continue
-    built = ipod_gui.track_sorter(sort_key)
+    built = gui.track_sorter(sort_key)
     assert built.compare(sortable("a"), sortable("b")) in (
         Gtk.Ordering.SMALLER,
         Gtk.Ordering.EQUAL,
@@ -2060,21 +2056,21 @@ for _key, _title, _expand, sort_key in ipod_gui.TRACK_COLUMNS:
 #
 # ipod-sync.sh prints one of these per file; the sync bar counts them. The
 # destination can contain spaces, so the pattern must not stop at one.
-progress = ipod_gui.COPIED_LINE.match("  + Harbour Light.mp3 -> F00/LDPX.mp3\n".rstrip())
+progress = gui.COPIED_LINE.match("  + Harbour Light.mp3 -> F00/LDPX.mp3\n".rstrip())
 assert progress, "per-file sync line no longer parses"
 assert progress.group("name") == "Harbour Light.mp3", progress.group("name")
 assert progress.group("dest") == "F00/LDPX.mp3", progress.group("dest")
 
-spaced = ipod_gui.COPIED_LINE.match("  + A Song.mp3 -> Some Folder/B QRST.mp3")
+spaced = gui.COPIED_LINE.match("  + A Song.mp3 -> Some Folder/B QRST.mp3")
 assert spaced, "a destination containing a space did not parse"
 assert spaced.group("dest") == "Some Folder/B QRST.mp3", spaced.group("dest")
 
 # Aggregate lines are not per-file lines and must not be counted as copies.
 for line in ("==> Copied 4 file(s)", "warning: Skipped 1 unsupported file(s)"):
-    assert ipod_gui.COPIED_LINE.match(line) is None, line
+    assert gui.COPIED_LINE.match(line) is None, line
 
 # The shell script must still emit the format the bar parses.
-sync_sh = (repo / "ipod-sync.sh").read_text(encoding="utf-8")
+sync_sh = (REPO / "ipod-sync.sh").read_text(encoding="utf-8")
 assert "'  + %s -> %s\\n'" in sync_sh, "ipod-sync.sh stopped reporting each file"
 
 # ------------------------------------------------------------ preview player
@@ -2182,25 +2178,25 @@ class FakeGst:
         return f"file://{path}"
 
 
-ipod_gui.gst = lambda: FakeGst
+gui.gst = lambda: FakeGst
 
 
 def preview_track(name, duration=180.0, state=None):
-    return ipod_gui.Track(
+    return gui.Track(
         Path("/music") / f"{name}.mp3",
         {"title": name, "artist": "Someone", "album": "Somewhere",
          "duration": duration},
-        state or ipod_gui.STATE_LIBRARY,
+        state or gui.STATE_LIBRARY,
     )
 
 
 repaints = []
-player = ipod_gui.PreviewPlayer(lambda: repaints.append(True))
+player = gui.PreviewPlayer(lambda: repaints.append(True))
 first, second = preview_track("First"), preview_track("Second", 90.0)
 player.play([first, second], 0)
 
 pipeline = FakeGst.pipeline
-assert player.state == ipod_gui.PLAY_LOADING, player.state
+assert player.state == gui.PLAY_LOADING, player.state
 assert player.track is first
 assert player.queue == [first, second] and player.index == 0
 assert pipeline.properties["uri"] == "file:///music/First.mp3", pipeline.properties
@@ -2219,11 +2215,11 @@ assert not pipeline.seeks, "a seek was sent before playback finished opening"
 pipeline.bus.deliver(
     "message::state-changed", FakeMessage(src=object(), state=FakeGst.State.PLAYING)
 )
-assert player.state == ipod_gui.PLAY_LOADING, player.state
+assert player.state == gui.PLAY_LOADING, player.state
 pipeline.bus.deliver(
     "message::state-changed", FakeMessage(src=pipeline, state=FakeGst.State.PLAYING)
 )
-assert player.state == ipod_gui.PLAY_PLAYING, player.state
+assert player.state == gui.PLAY_PLAYING, player.state
 
 # The poll is what moves the timeline, and a decoded duration replaces the one
 # the tag claimed.
@@ -2241,7 +2237,7 @@ player.seek(0.5)
 assert pipeline.seeks == [100 * FakeGst.SECOND], pipeline.seeks
 assert player.position == 100.0, player.position
 pipeline.position = 30 * FakeGst.SECOND
-for _ in range(ipod_gui.SEEK_SETTLE_POLLS):
+for _ in range(gui.SEEK_SETTLE_POLLS):
     player._tick()
     assert player.position == 100.0, player.position
 player._tick()
@@ -2257,13 +2253,13 @@ assert pipeline.seeks[-1] == 0, pipeline.seeks
 # The end of a track moves to the next one in the list it was started from.
 pipeline.bus.deliver("message::eos", FakeMessage())
 assert player.track is second and player.index == 1, player.index
-assert player.state == ipod_gui.PLAY_LOADING, player.state
+assert player.state == gui.PLAY_LOADING, player.state
 assert pipeline.properties["uri"] == "file:///music/Second.mp3"
 
 # The end of the queue stops rather than wrapping: a queue started from one
 # album would otherwise play forever with nothing in the bar saying it looped.
 pipeline.bus.deliver("message::eos", FakeMessage())
-assert player.state == ipod_gui.PLAY_IDLE, player.state
+assert player.state == gui.PLAY_IDLE, player.state
 assert player.track is None, player.track
 assert pipeline.states[-1] == "null", pipeline.states
 
@@ -2278,9 +2274,9 @@ pipeline.bus.deliver(
     "message::state-changed", FakeMessage(src=pipeline, state=FakeGst.State.PLAYING)
 )
 pipeline.duration = 90 * FakeGst.SECOND
-pipeline.position = int((ipod_gui.RESTART_WINDOW + 1) * FakeGst.SECOND)
+pipeline.position = int((gui.RESTART_WINDOW + 1) * FakeGst.SECOND)
 player._tick()
-assert player.position > ipod_gui.RESTART_WINDOW, player.position
+assert player.position > gui.RESTART_WINDOW, player.position
 seek_count = len(pipeline.seeks)
 player.previous()
 assert player.index == 1, "previous stepped back from the middle of a track"
@@ -2293,7 +2289,7 @@ player.play([first], 0)
 pipeline.bus.deliver(
     "message::error", FakeMessage(error=FakeError("Missing decoder for audio/x-flac"))
 )
-assert player.state == ipod_gui.PLAY_IDLE, player.state
+assert player.state == gui.PLAY_IDLE, player.state
 assert player.error == "Missing decoder for audio/x-flac", player.error
 assert player.track is first, "the bar lost the name of the track that failed"
 
@@ -2303,13 +2299,13 @@ assert player.error is None, player.error
 
 # With no GStreamer at all the player says so rather than raising into a click
 # handler, and nothing is left running behind the message.
-ipod_gui.gst = lambda: None
-silent = ipod_gui.PreviewPlayer(None)
+gui.gst = lambda: None
+silent = gui.PreviewPlayer(None)
 silent.play([first], 0)
-assert silent.state == ipod_gui.PLAY_IDLE, silent.state
-assert silent.error == ipod_gui.GSTREAMER_UNAVAILABLE, silent.error
+assert silent.state == gui.PLAY_IDLE, silent.state
+assert silent.error == gui.GSTREAMER_UNAVAILABLE, silent.error
 assert silent._pipeline is None, "a player with no GStreamer built a pipeline"
-ipod_gui.gst = lambda: FakeGst
+gui.gst = lambda: FakeGst
 
 # ------------------------------------------------------------ now-playing bar
 
@@ -2366,7 +2362,7 @@ class BarWindow:
 
     def __init__(self, unavailable=None):
         self.preview_unavailable = unavailable
-        self._painted_art = ipod_gui.UNPAINTED
+        self._painted_art = gui.UNPAINTED
         self.playing_art = BarWidget()
         self.playing_title = BarWidget()
         self.playing_artist = BarWidget()
@@ -2385,24 +2381,24 @@ class BarWindow:
         self._preview_process = None
         self._preview_lock = threading.Lock()
         self._preview_closed = False
-        self.player = ipod_gui.PreviewPlayer(self._update_now_playing)
+        self.player = gui.PreviewPlayer(self._update_now_playing)
 
-    _update_now_playing = ipod_gui.IpodWindow._update_now_playing
-    _playing_status = ipod_gui.IpodWindow._playing_status
-    play_from = ipod_gui.IpodWindow.play_from
-    _supersede_preview_fetch = ipod_gui.IpodWindow._supersede_preview_fetch
-    _cancel_preview_fetch = ipod_gui.IpodWindow._cancel_preview_fetch
+    _update_now_playing = gui.IpodWindow._update_now_playing
+    _playing_status = gui.IpodWindow._playing_status
+    play_from = gui.IpodWindow.play_from
+    _supersede_preview_fetch = gui.IpodWindow._supersede_preview_fetch
+    _cancel_preview_fetch = gui.IpodWindow._cancel_preview_fetch
     _terminate_preview_process = staticmethod(
-        ipod_gui.IpodWindow._terminate_preview_process
+        gui.IpodWindow._terminate_preview_process
     )
 
 
 # The bar builds artwork and labels as it repaints, which needs a display it
 # does not have here. Patched for this section only; every other check in the
 # file runs against the real helpers.
-real_label, real_cover = ipod_gui.label, ipod_gui.make_cover
-ipod_gui.label = BarWidget
-ipod_gui.make_cover = lambda *_args, **_kwargs: BarWidget()
+real_label, real_cover = gui.label, gui.make_cover
+gui.label = BarWidget
+gui.make_cover = lambda *_args, **_kwargs: BarWidget()
 
 bar = BarWindow()
 bar._update_now_playing()
@@ -2427,7 +2423,7 @@ assert bar.playing_title.get_text() == "First"
 assert "sf-dim" not in bar.playing_title.classes
 assert bar.playing_artist.get_text() == "Someone"
 assert bar.playing_subtitle.visible
-assert ipod_gui.STATE_LIBRARY in bar.playing_state_dot.classes
+assert gui.STATE_LIBRARY in bar.playing_state_dot.classes
 assert bar.playing_stack.opacity == 1.0
 assert bar.transport_buttons["next"].sensitive, "a queued next track was not offered"
 assert bar.playing_status.get_text() == "Opening…", bar.playing_status.get_text()
@@ -2447,7 +2443,7 @@ FakeGst.pipeline.bus.deliver(
 assert bar.transport_buttons["play"].icon == "media-playback-pause-symbolic"
 assert bar.playing_status.get_text() == "Preview on this computer"
 bar.player.toggle()
-assert bar.player.state == ipod_gui.PLAY_PAUSED
+assert bar.player.state == gui.PLAY_PAUSED
 assert bar.player._poll is None
 assert bar.transport_buttons["play"].icon == "media-playback-start-symbolic"
 
@@ -2455,9 +2451,9 @@ assert bar.transport_buttons["play"].icon == "media-playback-start-symbolic"
 # doing nothing until the pipeline gets where it was already going. The
 # transition that completes afterwards must not undo that.
 bar.player.play([first], 0)
-assert bar.player.state == ipod_gui.PLAY_LOADING
+assert bar.player.state == gui.PLAY_LOADING
 bar.player.toggle()
-assert bar.player.state == ipod_gui.PLAY_PAUSED, bar.player.state
+assert bar.player.state == gui.PLAY_PAUSED, bar.player.state
 assert not bar.seek_scale.sensitive
 seek_count = len(FakeGst.pipeline.seeks)
 bar.player.seek(0.5)
@@ -2471,7 +2467,7 @@ FakeGst.pipeline.bus.deliver(
     "message::state-changed",
     FakeMessage(src=FakeGst.pipeline, state=FakeGst.State.PLAYING),
 )
-assert bar.player.state == ipod_gui.PLAY_PAUSED, "a paused track resumed itself"
+assert bar.player.state == gui.PLAY_PAUSED, "a paused track resumed itself"
 
 # The last track of a queue offers no next, or the button would promise
 # something pressing it cannot deliver.
@@ -2481,13 +2477,13 @@ assert not bar.transport_buttons["next"].sensitive
 # A previewed track is a download kept only so it could be heard, and the bar
 # says so: mistaking one for a track already in the library is how a preview
 # gets lost when the cache is pruned.
-previewed = preview_track("Fetched", 120.0, ipod_gui.STATE_PREVIEW)
+previewed = preview_track("Fetched", 120.0, gui.STATE_PREVIEW)
 
 # Before any of that, the download itself. It takes seconds rather than the
 # instant a local file takes, so the bar carries the wait - named, because a
 # bar that stays idle for four seconds reads as a play button that did nothing.
 bar.player.fetch(previewed)
-assert bar.player.state == ipod_gui.PLAY_FETCHING, bar.player.state
+assert bar.player.state == gui.PLAY_FETCHING, bar.player.state
 assert bar.playing_title.get_text() == "Fetched"
 assert bar.playing_status.get_text() == "Fetching preview…", bar.playing_status.text
 # There is no pipeline yet, so there is nothing for the transport to do. Live
@@ -2498,12 +2494,12 @@ assert not bar.transport_buttons["next"].sensitive
 assert bar.playing_stack.opacity < 1.0, "the fetching transport was not dimmed"
 assert not bar.seek_scale.sensitive
 bar.player.toggle()
-assert bar.player.state == ipod_gui.PLAY_FETCHING, "toggle disturbed a fetch"
+assert bar.player.state == gui.PLAY_FETCHING, "toggle disturbed a fetch"
 
 # A download that never arrives says so where the track was named, and takes
 # the queue with it: a play button offering a file that was never downloaded
 # fails again on every press.
-bar.player.fail(previewed, ipod_gui.PREVIEW_FAILED)
+bar.player.fail(previewed, gui.PREVIEW_FAILED)
 assert bar.playing_stack.child_name == "message"
 assert "ipod-fetch.sh --update" in bar.playing_message.get_text()
 assert bar.player.queue == [], bar.player.queue
@@ -2513,7 +2509,7 @@ bar.player.play([previewed], 0)
 # Opening, not fetching: the file is on disk by now, and this is the same
 # second any library track takes to start.
 assert bar.playing_status.get_text() == "Opening…", bar.playing_status.text
-assert ipod_gui.STATE_PREVIEW in bar.playing_state_dot.classes
+assert gui.STATE_PREVIEW in bar.playing_state_dot.classes
 FakeGst.pipeline.bus.deliver(
     "message::state-changed",
     FakeMessage(src=FakeGst.pipeline, state=FakeGst.State.PLAYING),
@@ -2535,7 +2531,7 @@ assert bar.playing_status.get_text() == ""
 
 # No GStreamer means the reason replaces the transport permanently, rather than
 # dead buttons that give no hint why pressing them does nothing.
-missing = BarWindow(unavailable=ipod_gui.GSTREAMER_UNAVAILABLE)
+missing = BarWindow(unavailable=gui.GSTREAMER_UNAVAILABLE)
 missing._update_now_playing()
 assert missing.playing_stack.child_name == "message"
 assert missing.playing_message.get_text() == (
@@ -2545,7 +2541,7 @@ assert missing.playing_message.get_text() == (
 
 class FakeModel:
     def __init__(self, tracks):
-        self.items = [ipod_gui.TrackItem(track, n) for n, track in enumerate(tracks, 1)]
+        self.items = [gui.TrackItem(track, n) for n, track in enumerate(tracks, 1)]
 
     def get_n_items(self):
         return len(self.items)
@@ -2577,7 +2573,7 @@ assert queued.player.index == 1, queued.player.index
 queued.play_from(view, preview_track("Vanished"))
 assert len(queued.player.queue) == 1 and queued.player.index == 0
 
-ipod_gui.label, ipod_gui.make_cover = real_label, real_cover
+gui.label, gui.make_cover = real_label, real_cover
 
 
 # ----------------------------------------------------------- preview cache
@@ -2590,9 +2586,9 @@ ipod_gui.label, ipod_gui.make_cover = real_label, real_cover
 
 preview_cache = Path(tempfile.mkdtemp())
 preview_library = Path(tempfile.mkdtemp())
-ipod_gui.PREVIEW_CACHE = preview_cache
-ipod_gui.PREVIEW_INCOMING = preview_cache / ".incoming"
-ipod_gui.YOUTUBE_LIBRARY = preview_library
+gui.PREVIEW_CACHE = preview_cache
+gui.PREVIEW_INCOMING = preview_cache / ".incoming"
+gui.YOUTUBE_LIBRARY = preview_library
 
 
 def cache_file(relative, contents="audio", when=None):
@@ -2607,7 +2603,7 @@ def cache_file(relative, contents="audio", when=None):
 # The preview form takes no --new-tracks: it downloads into a directory of its
 # own, so what that directory holds afterwards is the report, and it works with
 # a yt-dlp too old to say what it fetched.
-preview_fetch = ipod_gui.fetch_command("https://youtu.be/abc", preview_cache)
+preview_fetch = gui.fetch_command("https://youtu.be/abc", preview_cache)
 assert preview_fetch[0].endswith("ipod-fetch.sh"), preview_fetch
 assert preview_fetch[preview_fetch.index("--output") + 1] == str(preview_cache)
 assert "--new-tracks" not in preview_fetch, preview_fetch
@@ -2620,35 +2616,35 @@ new = cache_file("Nirvana/Lithium [abc123].mp3", "y" * 60, when=2_000)
 cache_file("Sleeves/cover.jpg", "not audio")
 cache_file(".incoming/tmp1/Half Downloaded [zzz].mp3", "partial")
 
-entries = ipod_gui.preview_cache_entries(preview_cache)
+entries = gui.preview_cache_entries(preview_cache)
 assert [path for path, _size, _mtime in entries] == [old, new], entries
 # A download still running lives under .incoming and is not a preview yet;
 # counting it would put a half-written file in the grid and in the figures.
 assert all(".incoming" not in str(path) for path, _s, _m in entries), entries
 
-assert ipod_gui.cached_preview_path("abc123", preview_cache) == new
-assert ipod_gui.cached_preview_path("fJ9rUzIMcZQ", preview_cache) == old
-assert ipod_gui.cached_preview_path("", preview_cache) is None
-assert ipod_gui.cached_preview_path("nosuchid", preview_cache) is None
+assert gui.cached_preview_path("abc123", preview_cache) == new
+assert gui.cached_preview_path("fJ9rUzIMcZQ", preview_cache) == old
+assert gui.cached_preview_path("", preview_cache) is None
+assert gui.cached_preview_path("nosuchid", preview_cache) is None
 # The id is matched as the text ipod-fetch.sh wrote into the filename, not as
 # a glob: "[abc123]" read as a pattern is a character class matching a file
 # named "1.mp3", and the cache would then hand back the wrong song.
-assert ipod_gui.cached_preview_path("a", preview_cache) is None
-assert ipod_gui.cached_preview_path("abc", preview_cache) is None
+assert gui.cached_preview_path("a", preview_cache) is None
+assert gui.cached_preview_path("abc", preview_cache) is None
 
 # Oldest first, and only as far as it takes to get back under the limit.
-assert ipod_gui.prunable_previews(entries, 1000) == []
-assert ipod_gui.prunable_previews(entries, 60) == [old]
-assert ipod_gui.prunable_previews(entries, 0) == [old, new]
+assert gui.prunable_previews(entries, 1000) == []
+assert gui.prunable_previews(entries, 60) == [old]
+assert gui.prunable_previews(entries, 0) == [old, new]
 # Never what is playing: the bar would be left naming a file that is gone.
-assert ipod_gui.prunable_previews(entries, 0, keep=[old]) == [new]
+assert gui.prunable_previews(entries, 0, keep=[old]) == [new]
 
-assert ipod_gui.promote_destination(new, preview_cache, preview_library) == (
+assert gui.promote_destination(new, preview_cache, preview_library) == (
     preview_library / "Nirvana" / "Lithium [abc123].mp3"
 )
 # A file that somehow sits outside the cache still lands somewhere sensible
 # rather than raising on the way out of it.
-assert ipod_gui.promote_destination(
+assert gui.promote_destination(
     "/elsewhere/Stray.mp3", preview_cache, preview_library
 ) == preview_library / "Stray.mp3"
 
@@ -2686,7 +2682,7 @@ class PreviewWindow:
         self.cache_clear = FakeWidget()
         self.preview_unavailable = None
         self.youtube_unavailable = None
-        self.player = ipod_gui.PreviewPlayer(lambda: None)
+        self.player = gui.PreviewPlayer(lambda: None)
 
     def _toast(self, message):
         self.toasts.append(message)
@@ -2703,42 +2699,42 @@ class PreviewWindow:
     def _update_device_controls(self):
         pass
 
-    _populate_cache_card = ipod_gui.IpodWindow._populate_cache_card
-    on_clear_cache = ipod_gui.IpodWindow.on_clear_cache
-    _promote_preview = ipod_gui.IpodWindow._promote_preview
-    _prune_preview_cache = ipod_gui.IpodWindow._prune_preview_cache
+    _populate_cache_card = gui.IpodWindow._populate_cache_card
+    on_clear_cache = gui.IpodWindow.on_clear_cache
+    _promote_preview = gui.IpodWindow._promote_preview
+    _prune_preview_cache = gui.IpodWindow._prune_preview_cache
     _forget_empty_preview_folders = staticmethod(
-        ipod_gui.IpodWindow._forget_empty_preview_folders
+        gui.IpodWindow._forget_empty_preview_folders
     )
-    _finish_preview_fetch = ipod_gui.IpodWindow._finish_preview_fetch
-    _fail_preview_fetch = ipod_gui.IpodWindow._fail_preview_fetch
-    _apply_preview_scan = ipod_gui.IpodWindow._apply_preview_scan
-    _supersede_preview_fetch = ipod_gui.IpodWindow._supersede_preview_fetch
-    _cancel_preview_fetch = ipod_gui.IpodWindow._cancel_preview_fetch
+    _finish_preview_fetch = gui.IpodWindow._finish_preview_fetch
+    _fail_preview_fetch = gui.IpodWindow._fail_preview_fetch
+    _apply_preview_scan = gui.IpodWindow._apply_preview_scan
+    _supersede_preview_fetch = gui.IpodWindow._supersede_preview_fetch
+    _cancel_preview_fetch = gui.IpodWindow._cancel_preview_fetch
     _terminate_preview_process = staticmethod(
-        ipod_gui.IpodWindow._terminate_preview_process
+        gui.IpodWindow._terminate_preview_process
     )
-    _preview_track = ipod_gui.IpodWindow._preview_track
-    preview_result = ipod_gui.IpodWindow.preview_result
-    _preview_unavailable_reason = ipod_gui.IpodWindow._preview_unavailable_reason
-    _merge_states = ipod_gui.IpodWindow._merge_states
-    _queue_sources = ipod_gui.IpodWindow._queue_sources
-    _commit_queue_sources = ipod_gui.IpodWindow._commit_queue_sources
-    _pending_accounting = ipod_gui.IpodWindow._pending_accounting
-    _pending_change_count = ipod_gui.IpodWindow._pending_change_count
-    _pending_track = ipod_gui.IpodWindow._pending_track
-    _record_for_track = staticmethod(ipod_gui.IpodWindow._record_for_track)
+    _preview_track = gui.IpodWindow._preview_track
+    preview_result = gui.IpodWindow.preview_result
+    _preview_unavailable_reason = gui.IpodWindow._preview_unavailable_reason
+    _merge_states = gui.IpodWindow._merge_states
+    _queue_sources = gui.IpodWindow._queue_sources
+    _commit_queue_sources = gui.IpodWindow._commit_queue_sources
+    _pending_accounting = gui.IpodWindow._pending_accounting
+    _pending_change_count = gui.IpodWindow._pending_change_count
+    _pending_track = gui.IpodWindow._pending_track
+    _record_for_track = staticmethod(gui.IpodWindow._record_for_track)
 
 
 def previewed(path):
-    return ipod_gui.Track(
+    return gui.Track(
         path,
         {
             "title": Path(path).stem,
             "artist": Path(path).parent.name,
             "size": Path(path).stat().st_size,
         },
-        ipod_gui.STATE_PREVIEW,
+        gui.STATE_PREVIEW,
     )
 
 
@@ -2748,7 +2744,7 @@ cache_window = PreviewWindow()
 cache_window.library.previews = [previewed(old), previewed(new)]
 assert len(cache_window.library.all_tracks()) == 2
 assert {t.state for t in cache_window.library.all_tracks()} == {
-    ipod_gui.STATE_PREVIEW
+    gui.STATE_PREVIEW
 }
 
 cache_window._populate_cache_card()
@@ -2775,7 +2771,7 @@ assert not new.exists(), "the preview was copied rather than moved"
 # The artist folder goes with the last file to leave it, or the cache fills up
 # with empty folders nothing will ever clear.
 assert not (preview_cache / "Nirvana").exists(), "an empty artist folder was left"
-assert kept.state == ipod_gui.STATE_LIBRARY, kept.state
+assert kept.state == gui.STATE_LIBRARY, kept.state
 assert kept.path == str(destination), kept.path
 assert promote_window.library.previews == [], promote_window.library.previews
 assert [t.path for t in promote_window.library.tracks] == [str(destination)]
@@ -2792,7 +2788,7 @@ detached._merge_states()
 detached._promote_preview(alone)
 assert (preview_library / "Pixies" / "Debaser [pix1].mp3").is_file()
 assert detached.pending == set(), detached.pending
-assert detached.toasts[-1] == f"Kept in {ipod_gui.home_relative(preview_library)}"
+assert detached.toasts[-1] == f"Kept in {gui.home_relative(preview_library)}"
 
 # The same video downloaded directly on an earlier day. The library copy is
 # the one to keep; the cached duplicate is dropped rather than written over it.
@@ -2830,8 +2826,8 @@ landing = PreviewWindow()
 landed = cache_file("Blur/Song 2 [blur2].mp3", "b" * 30, when=3_000)
 stale = cache_file("Old/Filler [fill1].mp3", "c" * 90, when=500)
 landing.library.previews = [previewed(stale)]
-real_limit = ipod_gui.PREVIEW_CACHE_LIMIT
-ipod_gui.PREVIEW_CACHE_LIMIT = 50
+real_limit = gui.PREVIEW_CACHE_LIMIT
+gui.PREVIEW_CACHE_LIMIT = 50
 landing._finish_preview_fetch(
     landing.preview_generation,
     str(landed),
@@ -2844,8 +2840,8 @@ assert landed.is_file(), "the preview being played was pruned"
 assert not stale.exists(), "the oldest preview survived a full cache"
 assert [t.path for t in landing.library.previews] == [str(landed)]
 assert landing.player.track is landing.library.previews[0]
-assert landing.player.state == ipod_gui.PLAY_LOADING, landing.player.state
-ipod_gui.PREVIEW_CACHE_LIMIT = real_limit
+assert landing.player.state == gui.PLAY_LOADING, landing.player.state
+gui.PREVIEW_CACHE_LIMIT = real_limit
 
 # A download the user has already moved on from must not take the bar back off
 # whatever they started instead.
@@ -2862,7 +2858,7 @@ assert superseded.player.error is None
 # Playing a result already in the cache costs nothing: no download is started,
 # and the capability check says so by not asking for one.
 cached_window = PreviewWindow()
-result = ipod_gui.SearchResult("Song 2", "Blur", 120.0, "https://youtu.be/blur2", "blur2")
+result = gui.SearchResult("Song 2", "Blur", 120.0, "https://youtu.be/blur2", "blur2")
 cached_window.youtube_unavailable = "yt-dlp is not installed"
 assert cached_window._preview_unavailable_reason(result) is None
 cached_window.preview_result(result)
@@ -2873,11 +2869,11 @@ assert cached_window.library.previews[0].path == str(landed)
 # One that is not cached has to be downloaded first, so it needs everything a
 # download needs, and a disabled button that says why beats an Add that fails
 # several steps later.
-uncached = ipod_gui.SearchResult("Nothing", "Nobody", 0, "https://youtu.be/none", "none")
+uncached = gui.SearchResult("Nothing", "Nobody", 0, "https://youtu.be/none", "none")
 assert cached_window._preview_unavailable_reason(uncached) == "yt-dlp is not installed"
 # No GStreamer means nothing can be previewed at all, cached or not.
-cached_window.preview_unavailable = ipod_gui.GSTREAMER_UNAVAILABLE
-assert cached_window._preview_unavailable_reason(result) == ipod_gui.GSTREAMER_UNAVAILABLE
+cached_window.preview_unavailable = gui.GSTREAMER_UNAVAILABLE
+assert cached_window._preview_unavailable_reason(result) == gui.GSTREAMER_UNAVAILABLE
 
 # Clearing throws the tree away rather than the files that are listed, so a
 # half-finished download goes with them, and stops a preview that is playing
@@ -2899,8 +2895,8 @@ assert "freed" in clearing.toasts[-1], clearing.toasts
 
 # A cache that does not exist is a cache holding nothing, not an error: this is
 # every machine that has never previewed anything.
-assert ipod_gui.preview_cache_entries(preview_cache) == []
-assert ipod_gui.cached_preview_path("blur2", preview_cache) is None
+assert gui.preview_cache_entries(preview_cache) == []
+assert gui.cached_preview_path("blur2", preview_cache) is None
 
 print(
     json.dumps(
@@ -2914,7 +2910,7 @@ print(
             "queued_after_fetch": sorted(window.pending_sources),
             "nothing_new_outcome": outcome,
             "unreported_download_sources": sorted(fallback),
-            "chosen_thumbnail": ipod_gui.thumbnail_from_entry({"thumbnails": sizes}),
+            "chosen_thumbnail": gui.thumbnail_from_entry({"thumbnails": sizes}),
             "cached_artwork": sorted(path.name for path in art_cache.iterdir()),
             "artwork_for_downloaded_file": from_youtube.art,
         },

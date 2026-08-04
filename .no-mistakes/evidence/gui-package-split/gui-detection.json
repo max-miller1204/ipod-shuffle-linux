@@ -1,0 +1,12 @@
+{
+  "two_connected": {
+    "selected": null,
+    "message": "Multiple iPods connected. Disconnect all but the one you want to manage.",
+    "mount_offered": false
+  },
+  "none_connected": {
+    "selected": null,
+    "message": "No iPod connected. Plug one in, or mount it if it is already attached.",
+    "mount_offered": true
+  }
+}

@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 """Focused checks for GUI playlist state and command-line mapping."""
 
-import importlib.util
 import json
 import sys
 from pathlib import Path
 
-
-repo = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("ipod_gui", repo / "ipod-gui.py")
-ipod_gui = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ipod_gui)
+from harness import gui
 
 
 class Value:
@@ -33,7 +28,7 @@ class FakeWindow:
 
 
 mount_point = Path(sys.argv[1])
-state = ipod_gui.saved_sync_options(mount_point)
+state = gui.saved_sync_options(mount_point)
 assert state == (
     3,
     ["--id3-playlists={genre}"],
@@ -41,7 +36,7 @@ assert state == (
     True,
 ), state
 
-command_options = ipod_gui.IpodWindow._sync_options(FakeWindow())
+command_options = gui.IpodWindow._sync_options(FakeWindow())
 assert command_options == [
     "--id3-playlists={genre}",
     "--voiceover",

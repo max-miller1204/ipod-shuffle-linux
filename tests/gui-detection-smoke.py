@@ -10,14 +10,9 @@ methods are called unbound against a stand-in recording what the real widgets
 would have been told, which is the same approach gui-state-smoke.py uses.
 """
 
-import importlib.util
 import json
-from pathlib import Path
 
-repo = Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("ipod_gui", repo / "ipod-gui.py")
-ipod_gui = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(ipod_gui)
+from harness import gui
 
 
 class Recorder:
@@ -65,14 +60,14 @@ class FakeWindow:
 
 def refresh_with(mounts):
     """Run the detection path with find_ipods returning the given mounts."""
-    original = ipod_gui.find_ipods
-    ipod_gui.find_ipods = lambda: list(mounts)
+    original = gui.find_ipods
+    gui.find_ipods = lambda: list(mounts)
     try:
         window = FakeWindow()
-        ipod_gui.IpodWindow.refresh(window)
+        gui.IpodWindow.refresh(window)
         return window
     finally:
-        ipod_gui.find_ipods = original
+        gui.find_ipods = original
 
 
 # Two connected iPods must select neither, and must say why rather than
