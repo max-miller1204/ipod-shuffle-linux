@@ -3597,8 +3597,17 @@ class IpodWindow(Adw.ApplicationWindow):
 
     def _finish_thumbnail_fetch(self, generation):
         """Repaint the results with the artwork that has arrived for them."""
+        tracks = {
+            id(track): track
+            for track in (
+                *self.library.all_tracks(),
+                *self.player.queue,
+                self.player.track,
+            )
+            if track is not None
+        }
         art_changed = False
-        for track in self.library.all_tracks():
+        for track in tracks.values():
             if track.art is None:
                 track.art = cached_thumbnail_for(track.path)
                 art_changed = art_changed or track.art is not None

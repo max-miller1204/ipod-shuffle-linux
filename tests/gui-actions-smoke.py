@@ -1227,6 +1227,7 @@ class ArtWindow:
         self.refreshed = 0
         self.now_playing_updates = 0
         self.library = ipod_gui.LibraryIndex()
+        self.player = ipod_gui.PreviewPlayer(lambda: None)
 
     def _paint_youtube_section(self):
         self.painted += 1
@@ -1284,14 +1285,23 @@ try:
     stale_preview = ipod_gui.Track(
         "/cache/Queen/Preview [stale].opus", {}, ipod_gui.STATE_PREVIEW
     )
+    playing_preview = ipod_gui.Track(
+        "/cache/Queen/Preview [stale].opus", {}, ipod_gui.STATE_PREVIEW
+    )
     assert stale_preview.art is None
+    assert playing_preview.art is None
     stale_art.library.previews = [stale_preview]
+    stale_art.player.track = playing_preview
+    stale_art.player.queue = [playing_preview]
     stale_art._start_thumbnail_fetch(
         stale_art.search_generation - 1, [result_with_art("stale")]
     )
     assert (art_cache / "yt-stale.img").is_file()
     assert stale_art.painted == 0, stale_art.painted
     assert stale_preview.art == str(art_cache / "yt-stale.img"), stale_preview.art
+    assert playing_preview.art == str(
+        art_cache / "yt-stale.img"
+    ), playing_preview.art
     assert stale_art.refreshed == 1, stale_art.refreshed
     assert stale_art.now_playing_updates == 1, stale_art.now_playing_updates
 
