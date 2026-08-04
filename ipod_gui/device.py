@@ -10,9 +10,15 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 from gi.repository import Gio, GLib
+
+
+# Reads and mutations must not overlap on the device bus. Callers take this
+# only on worker threads so waiting for the device never blocks the window.
+DEVICE_IO_LOCK = threading.Lock()
 
 
 def find_ipods():
@@ -400,17 +406,34 @@ def probe_device(cancelled=None):
     and a 2GB device full of small files makes the count alone slow enough to
     stall a redraw, so none of this may run where the window draws.
     """
+    with DEVICE_IO_LOCK:
+        return _probe_device(cancelled)
+
+
+def _probe_device(cancelled=None):
     candidates = find_ipods()
     if len(candidates) != 1:
+        return DeviceProbe(candidates)
+    if cancelled is not None and cancelled():
         return DeviceProbe(candidates)
 
     mount_point = candidates[0]
     try:
         identity = volume_identity(mount_point)
+        if cancelled is not None and cancelled():
+            return DeviceProbe(candidates)
         sync_options = saved_sync_options(mount_point)
+        if cancelled is not None and cancelled():
+            return DeviceProbe(candidates)
         playlists = list_playlists(mount_point)
+        if cancelled is not None and cancelled():
+            return DeviceProbe(candidates)
         spoken = spoken_playlists(mount_point)
+        if cancelled is not None and cancelled():
+            return DeviceProbe(candidates)
         track_count = count_tracks(mount_point, cancelled=cancelled)
+        if cancelled is not None and cancelled():
+            return DeviceProbe(candidates)
     except OSError:
         # The volume went away between findmnt answering and this walk, which
         # is routine: unplugging is what fires the refresh in the first place.
@@ -424,6 +447,8 @@ def probe_device(cancelled=None):
         # be read is still a device worth showing, and always has been.
         usage = None
 
+    if cancelled is not None and cancelled():
+        return DeviceProbe(candidates)
     if (
         not Path(mount_point, "iPod_Control").is_dir()
         or volume_identity(mount_point) != identity

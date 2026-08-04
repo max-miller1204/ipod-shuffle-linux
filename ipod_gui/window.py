@@ -37,6 +37,7 @@ from .text import (
 )
 from .tags import scan_tracks
 from .device import (
+    DEVICE_IO_LOCK,
     playlist_file,
     probe_device,
     resolve_device,
@@ -3885,29 +3886,37 @@ class IpodWindow(Adw.ApplicationWindow):
 
         def worker():
             code = -1
+
+            def run_process():
+                nonlocal code
+                try:
+                    proc = subprocess.Popen(
+                        argv,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                    )
+                    if proc.stdout is not None:
+                        for line in proc.stdout:
+                            GLib.idle_add(self._log, line)
+                    code = proc.wait()
+                except (OSError, TypeError, ValueError) as exc:
+                    GLib.idle_add(self._log, f"failed to run: {exc}\n")
+
             if device_command:
-                mount_index = argv.index("--ipod") + 1
-                mount_point = str(argv[mount_index])
-                if (
-                    mount_point != self.mount_point
-                    or resolve_device(mount_point, expected_identity) is None
-                ):
-                    GLib.idle_add(self._cancel_device_command)
-                    return
-            try:
-                proc = subprocess.Popen(
-                    argv,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                )
-                if proc.stdout is not None:
-                    for line in proc.stdout:
-                        GLib.idle_add(self._log, line)
-                code = proc.wait()
-            except (OSError, TypeError, ValueError) as exc:
-                GLib.idle_add(self._log, f"failed to run: {exc}\n")
+                with DEVICE_IO_LOCK:
+                    mount_index = argv.index("--ipod") + 1
+                    mount_point = str(argv[mount_index])
+                    if (
+                        mount_point != self.mount_point
+                        or resolve_device(mount_point, expected_identity) is None
+                    ):
+                        GLib.idle_add(self._cancel_device_command)
+                        return
+                    run_process()
+            else:
+                run_process()
             GLib.idle_add(
                 self._finish, code, done_message, then, device_command, on_failure
             )
@@ -4396,9 +4405,14 @@ class IpodWindow(Adw.ApplicationWindow):
         self._set_busy(True, "Ejecting")
 
         def worker():
-            current = resolve_device(
-                self.mount_point, expected_identity, require_block=True
-            )
+            with DEVICE_IO_LOCK:
+                current = resolve_device(
+                    self.mount_point, expected_identity, require_block=True
+                )
+                if current is not None:
+                    ok, message = udisks_filesystem_call(
+                        current.block_device, "Unmount"
+                    )
             if current is None:
                 GLib.idle_add(
                     self._finish_dbus,
@@ -4407,9 +4421,6 @@ class IpodWindow(Adw.ApplicationWindow):
                     "the connected iPod changed; eject was cancelled",
                 )
                 return
-            ok, message = udisks_filesystem_call(
-                current.block_device, "Unmount"
-            )
             GLib.idle_add(
                 self._finish_dbus, ok, "Safe to unplug", message, True
             )
@@ -4436,16 +4447,17 @@ class IpodWindow(Adw.ApplicationWindow):
         self._set_busy(True, "Mounting")
 
         def worker():
-            for device in candidates:
-                ok, message = udisks_filesystem_call(device, "Mount")
-                if not ok:
-                    continue
-                if Path(message, "iPod_Control").is_dir():
-                    GLib.idle_add(self._finish_dbus, True, "iPod mounted", "")
-                    return
-                # Something else on the bus. Put it back as it was rather
-                # than leaving an unrelated volume mounted.
-                udisks_filesystem_call(device, "Unmount")
+            with DEVICE_IO_LOCK:
+                for device in candidates:
+                    ok, message = udisks_filesystem_call(device, "Mount")
+                    if not ok:
+                        continue
+                    if Path(message, "iPod_Control").is_dir():
+                        GLib.idle_add(self._finish_dbus, True, "iPod mounted", "")
+                        return
+                    # Something else on the bus. Put it back as it was rather
+                    # than leaving an unrelated volume mounted.
+                    udisks_filesystem_call(device, "Unmount")
             GLib.idle_add(
                 self._finish_dbus, False, "", "no iPod among the connected volumes"
             )

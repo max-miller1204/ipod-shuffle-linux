@@ -1902,6 +1902,129 @@ assert started is False
 assert "changed" in run_guard.toasts[-1]
 
 
+class SerializedRunWindow:
+    _device_command_is_current = gui.IpodWindow._device_command_is_current
+
+    def __init__(self):
+        self.mount_point = "/media/iPod"
+        self.device_identity = "uuid:expected"
+        self.probe_generation = 0
+        self.busy = False
+        self.toasts = []
+        self.finished = threading.Event()
+
+    def _toast(self, message):
+        self.toasts.append(message)
+
+    def _clear_log(self):
+        pass
+
+    def _set_busy(self, busy, _message=""):
+        if busy:
+            self.probe_generation += 1
+        self.busy = busy
+
+    def _cancel_device_command(self):
+        raise AssertionError("current command was cancelled")
+
+    def _log(self, _line):
+        pass
+
+    def _finish(self, *_args):
+        self.finished.set()
+
+
+class CompletedProcess:
+    stdout = ()
+
+    def wait(self):
+        return 0
+
+
+serialized_run = SerializedRunWindow()
+probe_entered = threading.Event()
+release_probe = threading.Event()
+process_started = threading.Event()
+probe_generation = serialized_run.probe_generation
+
+
+def blocking_count(_mount_point, cancelled=None):
+    probe_entered.set()
+    release_probe.wait(5)
+    return 0
+
+
+original_find_ipods = gui.find_ipods
+original_volume_identity = gui.volume_identity
+original_saved_sync_options = gui.saved_sync_options
+original_list_playlists = gui.list_playlists
+original_spoken_playlists = gui.spoken_playlists
+original_count_tracks = gui.count_tracks
+original_resolve_device = gui.resolve_device
+original_popen = gui.subprocess.Popen
+original_idle_add = gui.GLib.idle_add
+gui.find_ipods = lambda: [serialized_run.mount_point]
+gui.volume_identity = lambda _mount: serialized_run.device_identity
+gui.saved_sync_options = lambda _mount: (0, [], False, False)
+gui.list_playlists = lambda _mount: []
+gui.spoken_playlists = lambda _mount: set()
+gui.count_tracks = blocking_count
+gui.resolve_device = lambda mount, identity, require_block=False: gui.DeviceHandle(
+    mount, identity, "/dev/sdz"
+)
+
+
+def locked_popen(*_args, **_kwargs):
+    process_started.set()
+    return CompletedProcess()
+
+
+gui.subprocess.Popen = locked_popen
+gui.GLib.idle_add = lambda callback, *args: callback(*args)
+probe_thread = threading.Thread(
+    target=lambda: gui.probe_device(
+        cancelled=lambda: probe_generation != serialized_run.probe_generation
+    )
+)
+try:
+    probe_thread.start()
+    assert probe_entered.wait(5), "probe did not reach the device walk"
+    failsafe = threading.Timer(2, release_probe.set)
+    failsafe.start()
+    began = time.monotonic()
+    started = gui.IpodWindow._run(
+        serialized_run,
+        [
+            "ipod-sync.sh",
+            "--ipod",
+            serialized_run.mount_point,
+            "--rebuild-only",
+        ],
+        "Running",
+        "Done",
+    )
+    returned_after = time.monotonic() - began
+    assert started is True
+    assert returned_after < 1, returned_after
+    assert not process_started.is_set(), "command overlapped the device probe"
+    failsafe.cancel()
+    release_probe.set()
+    assert process_started.wait(5), "command did not start after the probe"
+    assert serialized_run.finished.wait(5), "command worker did not finish"
+finally:
+    release_probe.set()
+    probe_thread.join(5)
+    gui.find_ipods = original_find_ipods
+    gui.volume_identity = original_volume_identity
+    gui.saved_sync_options = original_saved_sync_options
+    gui.list_playlists = original_list_playlists
+    gui.spoken_playlists = original_spoken_playlists
+    gui.count_tracks = original_count_tracks
+    gui.resolve_device = original_resolve_device
+    gui.subprocess.Popen = original_popen
+    gui.GLib.idle_add = original_idle_add
+
+
 class EjectGuardWindow:
     def __init__(self):
         self.mount_point = "/media/iPod"
