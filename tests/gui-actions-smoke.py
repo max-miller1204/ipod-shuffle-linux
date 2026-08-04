@@ -124,6 +124,8 @@ class FakeWindow:
         self.mount_point = "/media/alex/Alex's iPod"
         self.device_identity = "uuid:test-ipod"
         self.busy = False
+        self.probe_generation = 0
+        self.tag_generation = 0
         self.discovering_sources = False
         self.source_generation = 0
         self._device_scan_active = False
@@ -666,20 +668,15 @@ class SelectionWindow:
         self.toasts.append(message)
 
 
+# The identity arrives beside the mount point rather than being read here:
+# recognising the device is a decision the probe already paid for over USB, so
+# selecting one costs nothing and cannot block a repaint.
 identity_window = SelectionWindow()
-original_volume_identity = gui.volume_identity
-gui.volume_identity = lambda mount: {
-    "/media/A-again": "uuid:A",
-    "/media/B": "uuid:B",
-}.get(mount)
-try:
-    gui.IpodWindow._select_mount(identity_window, None)
-    assert identity_window.pending, "disconnect discarded a device-bound queue"
-    gui.IpodWindow._select_mount(identity_window, "/media/A-again")
-    assert identity_window.pending, "same device reconnect discarded its queue"
-    gui.IpodWindow._select_mount(identity_window, "/media/B")
-finally:
-    gui.volume_identity = original_volume_identity
+gui.IpodWindow._select_mount(identity_window, None, None)
+assert identity_window.pending, "disconnect discarded a device-bound queue"
+gui.IpodWindow._select_mount(identity_window, "/media/A-again", "uuid:A")
+assert identity_window.pending, "same device reconnect discarded its queue"
+gui.IpodWindow._select_mount(identity_window, "/media/B", "uuid:B")
 assert identity_window.pending == set(), identity_window.pending
 assert identity_window.pending_sources == {}, identity_window.pending_sources
 assert identity_window.toasts and "different iPod" in identity_window.toasts[-1]
@@ -767,6 +764,78 @@ for attr in (
 busy_window.youtube_unavailable = None
 busy_window.speech_engine_available = False
 busy_window.pending = set()
+
+scan_entered = threading.Event()
+allow_scan_exit = threading.Event()
+scan_cancelled = threading.Event()
+concurrent_reader_acquired = threading.Event()
+writer_acquired = threading.Event()
+release_writer = threading.Event()
+blocked_reader_acquired = threading.Event()
+original_scan_tracks = gui.scan_tracks
+
+
+def blocking_device_scan(_music, on_record=None, cancelled=None):
+    scan_entered.set()
+    while not cancelled() and not allow_scan_exit.wait(0.01):
+        pass
+    if cancelled():
+        scan_cancelled.set()
+    return [], False, 0
+
+
+def read_device_io(acquired):
+    with gui.DEVICE_IO_LOCK.read():
+        acquired.set()
+
+
+def write_device_io():
+    with gui.DEVICE_IO_LOCK.write():
+        writer_acquired.set()
+        release_writer.wait(5)
+
+
+gui.scan_tracks = blocking_device_scan
+try:
+    gui.IpodWindow._load_device_tracks_async(busy_window)
+    assert scan_entered.wait(5), "device tag scan did not start"
+    concurrent_reader = threading.Thread(
+        target=read_device_io, args=(concurrent_reader_acquired,), daemon=True
+    )
+    concurrent_reader.start()
+    assert concurrent_reader_acquired.wait(5), "device readers blocked each other"
+
+    writer = threading.Thread(target=write_device_io, daemon=True)
+    writer.start()
+    assert not writer_acquired.wait(0.1), "writer overlapped a device reader"
+
+    tag_generation = busy_window.tag_generation
+
+    def tag_cancelled():
+        return tag_generation != busy_window.tag_generation
+
+    probe_generation = busy_window.probe_generation
+
+    def probe_cancelled():
+        return probe_generation != busy_window.probe_generation
+
+    gui.IpodWindow._set_busy(busy_window, True, "Changing the device")
+    assert tag_cancelled(), "starting a command left the tag scan current"
+    assert probe_cancelled(), "starting a command left the device probe running"
+    assert scan_cancelled.wait(5), "device tag scan did not stop"
+    assert writer_acquired.wait(5), "writer did not start after readers drained"
+
+    blocked_reader = threading.Thread(
+        target=read_device_io, args=(blocked_reader_acquired,), daemon=True
+    )
+    blocked_reader.start()
+    assert not blocked_reader_acquired.wait(0.1), "reader overlapped a writer"
+    release_writer.set()
+    assert blocked_reader_acquired.wait(5), "reader did not follow the writer"
+finally:
+    allow_scan_exit.set()
+    release_writer.set()
+    gui.scan_tracks = original_scan_tracks
 
 gui.IpodWindow._set_busy(busy_window, False)
 assert not busy_window.playlist_button.sensitive, "busy reset enabled Add Playlist"
@@ -904,6 +973,28 @@ assert parsed == [
     ("Radio", ["Yeat/Song [x1].mp3", "/second.mp3"]),
     ("mix..v2", ["Yeat/Song [x1].mp3"]),
 ], parsed
+
+# One probe brings all of that back at once, off the main loop. The window
+# paints from what it returns and never asks the device again, so anything the
+# probe drops is a row, a count or a meter that silently goes empty.
+(fake_volume / "iPod_Control" / "Music" / "F00").mkdir(parents=True)
+(fake_volume / "iPod_Control" / "Music" / "F00" / "AAAA.mp3").write_text("song")
+(fake_volume / "iPod_Control" / "Speakable" / "Playlists").mkdir(parents=True)
+(fake_volume / "iPod_Control" / "Speakable" / "Playlists" / "Party.wav").write_text(
+    "spoken"
+)
+original_find_ipods = gui.find_ipods
+gui.find_ipods = lambda: [str(fake_volume)]
+try:
+    volume_probe = gui.probe_device()
+finally:
+    gui.find_ipods = original_find_ipods
+assert volume_probe.mount_point == str(fake_volume), volume_probe.mount_point
+assert volume_probe.readable is True, volume_probe.readable
+assert volume_probe.playlists == parsed, volume_probe.playlists
+assert volume_probe.spoken == {"party"}, volume_probe.spoken
+assert volume_probe.track_count == 1, volume_probe.track_count
+assert volume_probe.usage is not None, volume_probe.usage
 
 # ------------------------------------------------------------------ youtube
 
@@ -1877,6 +1968,129 @@ finally:
     gui.volume_identity = original_volume_identity
 assert started is False
 assert "changed" in run_guard.toasts[-1]
+
+
+class SerializedRunWindow:
+    _device_command_is_current = gui.IpodWindow._device_command_is_current
+
+    def __init__(self):
+        self.mount_point = "/media/iPod"
+        self.device_identity = "uuid:expected"
+        self.probe_generation = 0
+        self.busy = False
+        self.toasts = []
+        self.finished = threading.Event()
+
+    def _toast(self, message):
+        self.toasts.append(message)
+
+    def _clear_log(self):
+        pass
+
+    def _set_busy(self, busy, _message=""):
+        if busy:
+            self.probe_generation += 1
+        self.busy = busy
+
+    def _cancel_device_command(self):
+        raise AssertionError("current command was cancelled")
+
+    def _log(self, _line):
+        pass
+
+    def _finish(self, *_args):
+        self.finished.set()
+
+
+class CompletedProcess:
+    stdout = ()
+
+    def wait(self):
+        return 0
+
+
+serialized_run = SerializedRunWindow()
+probe_entered = threading.Event()
+release_probe = threading.Event()
+process_started = threading.Event()
+probe_generation = serialized_run.probe_generation
+
+
+def blocking_count(_mount_point, cancelled=None):
+    probe_entered.set()
+    release_probe.wait(5)
+    return 0
+
+
+original_find_ipods = gui.find_ipods
+original_volume_identity = gui.volume_identity
+original_saved_sync_options = gui.saved_sync_options
+original_list_playlists = gui.list_playlists
+original_spoken_playlists = gui.spoken_playlists
+original_count_tracks = gui.count_tracks
+original_resolve_device = gui.resolve_device
+original_popen = gui.subprocess.Popen
+original_idle_add = gui.GLib.idle_add
+gui.find_ipods = lambda: [serialized_run.mount_point]
+gui.volume_identity = lambda _mount: serialized_run.device_identity
+gui.saved_sync_options = lambda _mount: (0, [], False, False)
+gui.list_playlists = lambda _mount: []
+gui.spoken_playlists = lambda _mount: set()
+gui.count_tracks = blocking_count
+gui.resolve_device = lambda mount, identity, require_block=False: gui.DeviceHandle(
+    mount, identity, "/dev/sdz"
+)
+
+
+def locked_popen(*_args, **_kwargs):
+    process_started.set()
+    return CompletedProcess()
+
+
+gui.subprocess.Popen = locked_popen
+gui.GLib.idle_add = lambda callback, *args: callback(*args)
+probe_thread = threading.Thread(
+    target=lambda: gui.probe_device(
+        cancelled=lambda: probe_generation != serialized_run.probe_generation
+    )
+)
+try:
+    probe_thread.start()
+    assert probe_entered.wait(5), "probe did not reach the device walk"
+    failsafe = threading.Timer(2, release_probe.set)
+    failsafe.start()
+    began = time.monotonic()
+    started = gui.IpodWindow._run(
+        serialized_run,
+        [
+            "ipod-sync.sh",
+            "--ipod",
+            serialized_run.mount_point,
+            "--rebuild-only",
+        ],
+        "Running",
+        "Done",
+    )
+    returned_after = time.monotonic() - began
+    assert started is True
+    assert returned_after < 1, returned_after
+    assert not process_started.is_set(), "command overlapped the device probe"
+    failsafe.cancel()
+    release_probe.set()
+    assert process_started.wait(5), "command did not start after the probe"
+    assert serialized_run.finished.wait(5), "command worker did not finish"
+finally:
+    release_probe.set()
+    probe_thread.join(5)
+    gui.find_ipods = original_find_ipods
+    gui.volume_identity = original_volume_identity
+    gui.saved_sync_options = original_saved_sync_options
+    gui.list_playlists = original_list_playlists
+    gui.spoken_playlists = original_spoken_playlists
+    gui.count_tracks = original_count_tracks
+    gui.resolve_device = original_resolve_device
+    gui.subprocess.Popen = original_popen
+    gui.GLib.idle_add = original_idle_add
 
 
 class EjectGuardWindow:

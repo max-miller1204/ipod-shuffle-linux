@@ -1,17 +1,80 @@
 """Finding the iPod and reading what is on it, over USB.
 
-Everything here talks to a mounted device or to udisks, so every call can be
-slow enough to matter on the main loop.
+Device-facing operations here talk to a mounted device or to udisks, so they
+can be slow enough to matter on the main loop.
 """
 
 import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from gi.repository import Gio, GLib
+
+
+class _DeviceIOLock:
+    """Let device readers overlap while excluding mutations.
+
+    Probes and tag scans only read, so blocking one behind the other can hide
+    an unplugged device for the full timeout of a stuck read. Writers wait for
+    all readers and prevent new readers until the mutation is complete.
+    """
+
+    def __init__(self):
+        self._condition = threading.Condition()
+        self._readers = 0
+        self._writer = False
+        self._waiting_writers = 0
+        self._owners = set()
+
+    @contextmanager
+    def read(self):
+        thread_id = threading.get_ident()
+        with self._condition:
+            if thread_id in self._owners:
+                raise RuntimeError("device I/O lock is not reentrant")
+            while self._writer or self._waiting_writers:
+                self._condition.wait()
+            self._readers += 1
+            self._owners.add(thread_id)
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._owners.remove(thread_id)
+                self._readers -= 1
+                if self._readers == 0:
+                    self._condition.notify_all()
+
+    @contextmanager
+    def write(self):
+        thread_id = threading.get_ident()
+        with self._condition:
+            if thread_id in self._owners:
+                raise RuntimeError("device I/O lock is not reentrant")
+            self._waiting_writers += 1
+            try:
+                while self._writer or self._readers:
+                    self._condition.wait()
+                self._writer = True
+                self._owners.add(thread_id)
+            finally:
+                self._waiting_writers -= 1
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._owners.remove(thread_id)
+                self._writer = False
+                self._condition.notify_all()
+
+
+DEVICE_IO_LOCK = _DeviceIOLock()
 
 
 def find_ipods():
@@ -202,11 +265,24 @@ def unmounted_vfat_devices():
     return devices
 
 
-def count_tracks(mount_point):
+def count_tracks(mount_point, cancelled=None):
+    """How many files the device holds, walking it over USB.
+
+    Takes the same cancellation callback as the tag scan, because this is the
+    one call in here whose cost grows with the size of the library: a walk
+    superseded by a newer one should stop competing for the bus rather than
+    finish a count nothing will read.
+    """
     music = Path(mount_point, "iPod_Control", "Music")
     if not music.is_dir():
         return 0
-    return sum(1 for p in music.rglob("*") if p.is_file())
+    total = 0
+    for path in music.rglob("*"):
+        if cancelled is not None and cancelled():
+            break
+        if path.is_file():
+            total += 1
+    return total
 
 
 def list_tracks(mount_point, limit=None):
@@ -327,3 +403,125 @@ def spoken_playlists(mount_point):
     if not speakable.is_dir():
         return set()
     return {p.stem.lower() for p in speakable.iterdir() if p.is_file()}
+
+
+class DeviceProbe:
+    """One reading of the connected device, as the window paints it.
+
+    The window used to make each of these calls itself, one at a time, from
+    the main loop. Gathering them into a value means the crossing to the
+    device happens once, on a worker thread, and painting afterwards touches
+    nothing but memory.
+    """
+
+    __slots__ = (
+        "candidates",
+        "mount_point",
+        "identity",
+        "sync_options",
+        "playlists",
+        "spoken",
+        "track_count",
+        "usage",
+        "readable",
+    )
+
+    def __init__(
+        self,
+        candidates,
+        mount_point=None,
+        identity=None,
+        sync_options=None,
+        playlists=None,
+        spoken=None,
+        track_count=0,
+        usage=None,
+        readable=True,
+    ):
+        self.candidates = candidates
+        # A probe is built complete or not at all: every field a connected
+        # device has is passed at once, so a device read half way cannot be
+        # mistaken for one holding nothing.
+        self.mount_point = mount_point
+        self.identity = identity
+        self.sync_options = sync_options or (0, [], False, False)
+        self.playlists = playlists or []
+        self.spoken = spoken or set()
+        self.track_count = track_count
+        self.usage = usage
+        # False only when detection answered and the volume then stopped
+        # answering, which is what unplugging mid-read looks like.
+        self.readable = readable
+
+
+def probe_device(cancelled=None):
+    """Read everything the window needs from the device, off the main loop.
+
+    Detection, identity, saved options, playlists, the track count and free
+    space in one pass. Every one of them is a subprocess or a walk over USB,
+    and a 2GB device full of small files makes the count alone slow enough to
+    stall a redraw, so none of this may run where the window draws.
+    """
+    if cancelled is not None and cancelled():
+        return DeviceProbe([])
+    with DEVICE_IO_LOCK.read():
+        if cancelled is not None and cancelled():
+            return DeviceProbe([])
+        return _probe_device(cancelled)
+
+
+def _probe_device(cancelled=None):
+    candidates = find_ipods()
+    if len(candidates) != 1:
+        return DeviceProbe(candidates)
+    if cancelled is not None and cancelled():
+        return DeviceProbe(candidates)
+
+    mount_point = candidates[0]
+    try:
+        identity = volume_identity(mount_point)
+        if cancelled is not None and cancelled():
+            return DeviceProbe(candidates)
+        sync_options = saved_sync_options(mount_point)
+        if cancelled is not None and cancelled():
+            return DeviceProbe(candidates)
+        playlists = list_playlists(mount_point)
+        if cancelled is not None and cancelled():
+            return DeviceProbe(candidates)
+        spoken = spoken_playlists(mount_point)
+        if cancelled is not None and cancelled():
+            return DeviceProbe(candidates)
+        track_count = count_tracks(mount_point, cancelled=cancelled)
+        if cancelled is not None and cancelled():
+            return DeviceProbe(candidates)
+    except OSError:
+        # The volume went away between findmnt answering and this walk, which
+        # is routine: unplugging is what fires the refresh in the first place.
+        # Reported as unreadable rather than as an iPod holding nothing.
+        return DeviceProbe(candidates, readable=False)
+
+    try:
+        usage = shutil.disk_usage(mount_point)
+    except OSError:
+        # Asked apart from the reads above, because a device whose size cannot
+        # be read is still a device worth showing, and always has been.
+        usage = None
+
+    if cancelled is not None and cancelled():
+        return DeviceProbe(candidates)
+    if (
+        not Path(mount_point, "iPod_Control").is_dir()
+        or volume_identity(mount_point) != identity
+    ):
+        return DeviceProbe(candidates, readable=False)
+
+    return DeviceProbe(
+        candidates,
+        mount_point=mount_point,
+        identity=identity,
+        sync_options=sync_options,
+        playlists=playlists,
+        spoken=spoken,
+        track_count=track_count,
+        usage=usage,
+    )
