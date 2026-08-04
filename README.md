@@ -260,7 +260,8 @@ A linked track is copied and a linked folder is descended, wherever they point -
 The copy still lands where the link sits inside the source folder rather than where it points, so the layout on the device mirrors the library you see.
 Tracks are copied and never linked, because the device is FAT and will be unplugged from the computer holding the originals.
 
-A link pointing at a file that is not there is named and counted rather than silently dropped, and a folder that links back into itself is walked once instead of forever.
+A supported-audio link pointing at a file that is not there is named and counted rather than silently dropped; broken links to other file types stay quiet.
+A folder that links back into itself is walked once instead of forever.
 
 A `.m3u` or `.pls` file works too, and becomes a playlist on the device; see [Playlists](#playlists).
 
