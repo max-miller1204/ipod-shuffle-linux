@@ -1,0 +1,5 @@
+bar-idle: state=idle; status='Preview on this computer'; elapsed=0:00; total=0:00
+bar-opening-local: state=loading; status='Opening…'; elapsed=0:00; total=0:12
+bar-playing-local: state=playing; status='Preview on this computer'; elapsed=0:01; total=0:12
+bar-fetching-preview: state=loading; status='Fetching preview…'; elapsed=0:00; total=0:12
+bar-playing-preview: state=playing; status='Previewed - add to keep'; elapsed=0:00; total=0:12
