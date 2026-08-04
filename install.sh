@@ -76,6 +76,30 @@ else
     needed+=("python3-gi" "gir1.2-gtk-4.0" "gir1.2-adw-1")
 fi
 
+# Preview playback on this computer's speakers. Optional in a way the window is
+# built around: without it the GUI still runs and the now-playing bar says what
+# is missing, so this is offered like ffmpeg rather than withheld like the
+# JavaScript runtime. That exception exists because Ubuntu's nodejs can be older
+# than yt-dlp accepts, so installing it would spend a privileged transaction on
+# a runtime the probe then rejects; GStreamer's packages have no such hazard.
+#
+# All four are offered together because they are one working set: plugins-base
+# carries the player, plugins-good the MP3 and WAV decoders and the connection
+# to the sound card, and plugins-bad the AAC decoder .m4a needs. The probe
+# proves the player and the sink; a machine holding some of the rest and not
+# others is reported by the GUI per file, in GStreamer's own words, since those
+# name the plugin to install.
+if gst_available; then
+    info "Preview playback: GStreamer present"
+else
+    needed+=(
+        "gir1.2-gstreamer-1.0"
+        "gstreamer1.0-plugins-base"
+        "gstreamer1.0-plugins-good"
+        "gstreamer1.0-plugins-bad"
+    )
+fi
+
 if command -v pico2wave >/dev/null || command -v espeak >/dev/null; then
     info "Voiceover: speech engine present"
 else
@@ -277,9 +301,9 @@ printf '\n'
 info "Verifying"
 
 if "$VENV_PYTHON" -c 'import mutagen' 2>/dev/null; then
-    info "  metadata support   ok"
+    info "  metadata support    ok"
 else
-    warn "  metadata support   missing"
+    warn "  metadata support    missing"
 fi
 
 if [[ -x "$VENV_YT_DLP" ]]; then
@@ -287,24 +311,33 @@ if [[ -x "$VENV_YT_DLP" ]]; then
 elif command -v yt-dlp >/dev/null 2>&1; then
     verification_ytdlp="$(command -v yt-dlp)"
 else
-    warn "  youtube downloads unavailable (no yt-dlp)"
+    warn "  youtube downloads   unavailable (no yt-dlp)"
     verification_ytdlp=
 fi
 
 if [[ -n "$verification_ytdlp" ]] && ! yt_dlp_supports "$verification_ytdlp" --js-runtimes; then
-    warn "  youtube downloads limited (yt-dlp lacks --js-runtimes)"
+    warn "  youtube downloads   limited (yt-dlp lacks --js-runtimes)"
 elif [[ -n "$verification_ytdlp" ]] && ! js_runtime >/dev/null; then
     # Reporting "ok" on yt-dlp alone would promise a feature that then fails
     # with HTTP 403 on everything except the oldest unrestricted videos.
-    warn "  youtube downloads unavailable (no supported JavaScript runtime)"
+    warn "  youtube downloads   unavailable (no supported JavaScript runtime)"
 elif [[ -n "$verification_ytdlp" ]]; then
-    info "  youtube downloads ok"
+    info "  youtube downloads   ok"
 fi
 
 if gui_python="$(find_gui_python 2>/dev/null)"; then
     info "  graphical interface ok ($gui_python)"
 else
     warn "  graphical interface unavailable"
+fi
+
+# Reported after the interface it belongs to, and separately from it, because
+# the window is worth having without playback and this line is the only place
+# that says so before the first track is pressed.
+if gst_available; then
+    info "  preview playback    ok"
+else
+    warn "  preview playback    unavailable (no GStreamer)"
 fi
 
 printf '\n'

@@ -55,6 +55,7 @@ Everything else is installed or reported for you:
 | `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | system | The graphical interface |
 | `libttspico-utils` | system | Spoken track and playlist names via VoiceOver |
 | `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats, including YouTube's Opus |
+| [GStreamer](#preview-playback) | system | Previewing a track through this computer's speakers |
 | [Supported JavaScript runtime](#downloading-from-youtube) | system | Solving YouTube's signature challenge |
 
 Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
@@ -70,6 +71,9 @@ PyGObject cannot.
 Building it from pip requires the gobject-introspection and cairo development headers, so pip-installing it would mean adding three `-dev` system packages in order to avoid adding one runtime package.
 GTK4 itself is a C library that no virtualenv can contain.
 The distro's `python3-gi` is smaller, already built, and better tested.
+
+GStreamer is reached through those same bindings, so its typelib and plugins are system packages for the same reason.
+They are also codecs rather than Python at all, and no virtualenv can hold one.
 
 `pico2wave` and `ffmpeg` are plain binaries rather than Python packages, so they have no virtualenv to go in either.
 
@@ -164,7 +168,9 @@ Playing a row queues the rest of the list it was clicked in, in the order that l
 **Previous** restarts the current track, unless you press it within the first three seconds, when it steps back one.
 The timeline can be dragged, the end of a track moves to the next one, and the end of the queue stops rather than looping back to the start.
 
-Preview playback needs GStreamer, which is a separate set of packages from the GTK bindings:
+Preview playback needs GStreamer, which is a separate set of packages from the GTK bindings.
+`install.sh` probes for it and offers the packages along with the rest, and its closing report says `preview playback ok` once they are in place.
+To install them by hand, after `--no-system` or after declining:
 
 ```bash
 sudo apt install gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base \
@@ -172,6 +178,8 @@ sudo apt install gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base \
 ```
 
 `plugins-base` carries the player itself, `plugins-good` the MP3 and WAV decoders and the connection to your sound card, and `plugins-bad` the AAC decoder the shuffle's `.m4a` files need.
+All four are offered together because they are one working set.
+The probe proves the player and the sound card, so a machine holding some of the decoders and not others is reported a file at a time instead, which is the case below.
 
 Without them the window still runs and everything else still works.
 The bar states what is missing in place of its controls rather than offering buttons that quietly do nothing, and a file GStreamer cannot decode is reported the same way, in GStreamer's own words, because those are what name the plugin you would have to install.
