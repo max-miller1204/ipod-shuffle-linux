@@ -370,6 +370,101 @@ grep -Fq 'Desktop entry removed because the GUI dependencies are unavailable' \
 grep -Fq 'Requesting privileges' \
     "$EVIDENCE_DIR/install-desktop-entry-removed.txt"
 
+# Preview playback is offered like any other optional dependency rather than
+# only documented, and the offer follows the capability rather than the machine
+# having GTK. The two are separate packages, so a window that runs perfectly
+# well can still have no way to play a note; a check that only ever saw a
+# machine with neither could not tell those apart.
+#
+# Stand-in bindings decide the answer, because CI installs GTK4 and never
+# GStreamer, so the present case would otherwise never be exercised at all.
+# Both runs stop at the blocked tools dir, immediately after the report.
+GST_STUB_ROOT="$TEST_ROOT/gi-stubs"
+for variant in gtk-only gtk-and-gst; do
+    mkdir -p "$GST_STUB_ROOT/$variant/gi/repository"
+    printf '%s\n' \
+        'class _Namespace:' \
+        '    """Enough of a namespace for the probes to import."""' \
+        '' \
+        '' \
+        'Gtk = _Namespace()' \
+        'Adw = _Namespace()' \
+        > "$GST_STUB_ROOT/$variant/gi/repository/__init__.py"
+done
+
+# GTK4 answers, GStreamer is absent: exactly the machine the packages are for.
+printf '%s\n' \
+    'def require_version(namespace, version):' \
+    '    if namespace == "Gst":' \
+    '        raise ValueError("Namespace Gst is not available")' \
+    > "$GST_STUB_ROOT/gtk-only/gi/__init__.py"
+
+printf '%s\n' \
+    'def require_version(namespace, version):' \
+    '    """Every namespace these probes ask for is installed here."""' \
+    > "$GST_STUB_ROOT/gtk-and-gst/gi/__init__.py"
+printf '%s\n' \
+    'class _ElementFactory:' \
+    '    @staticmethod' \
+    '    def make(factory, name):' \
+    '        return object()' \
+    '' \
+    '' \
+    'class _Gst:' \
+    '    ElementFactory = _ElementFactory' \
+    '' \
+    '    @staticmethod' \
+    '    def init(argv):' \
+    '        return None' \
+    '' \
+    '' \
+    'Gst = _Gst()' \
+    >> "$GST_STUB_ROOT/gtk-and-gst/gi/repository/__init__.py"
+
+if PYTHONPATH="$GST_STUB_ROOT/gtk-only" \
+    IPOD_TOOLS_DIR="$INSTALL_BLOCKER" \
+    XDG_DATA_HOME="$TEST_ROOT/xdg-data-no-gst" \
+    "$ROOT/install.sh" --no-system \
+    > "$EVIDENCE_DIR/install-no-gstreamer.txt" 2>&1; then
+    echo "installer unexpectedly continued past the blocked tools dir" >&2
+    exit 1
+fi
+grep -Fq 'GUI: GTK4 bindings present' "$EVIDENCE_DIR/install-no-gstreamer.txt"
+if grep -Fq 'Preview playback: GStreamer present' \
+    "$EVIDENCE_DIR/install-no-gstreamer.txt"; then
+    echo "installer claimed GStreamer on a machine without it" >&2
+    exit 1
+fi
+# The whole working set, not just the typelib the probe imported: a player with
+# no decoders reaches the user as silence, one track at a time.
+for package in gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good gstreamer1.0-plugins-bad; do
+    grep -Fq "$package" "$EVIDENCE_DIR/install-no-gstreamer.txt" \
+        || { echo "installer did not offer $package" >&2; exit 1; }
+done
+# GTK was satisfied here, so the offer came from the playback probe alone. A
+# missing runtime is still reported rather than installed; that exception is
+# about nodejs versions and does not extend to GStreamer.
+if grep -Eq '^\s+python3-gi$' "$EVIDENCE_DIR/install-no-gstreamer.txt"; then
+    echo "installer offered GUI packages it had just found present" >&2
+    exit 1
+fi
+
+if PYTHONPATH="$GST_STUB_ROOT/gtk-and-gst" \
+    IPOD_TOOLS_DIR="$INSTALL_BLOCKER" \
+    XDG_DATA_HOME="$TEST_ROOT/xdg-data-with-gst" \
+    "$ROOT/install.sh" --no-system \
+    > "$EVIDENCE_DIR/install-with-gstreamer.txt" 2>&1; then
+    echo "installer unexpectedly continued past the blocked tools dir" >&2
+    exit 1
+fi
+grep -Fq 'Preview playback: GStreamer present' \
+    "$EVIDENCE_DIR/install-with-gstreamer.txt"
+if grep -Fq 'gstreamer1.0-' "$EVIDENCE_DIR/install-with-gstreamer.txt"; then
+    echo "installer offered GStreamer packages it had just found present" >&2
+    exit 1
+fi
+
 WEIRD_ROOT="$TEST_ROOT/checkout %f \"quoted\" \\slash \$cash \`tick\`"
 WEIRD_DESKTOP_DATA="$TEST_ROOT/xdg-data-weird"
 mkdir -p "$WEIRD_ROOT/desktop"
@@ -1596,6 +1691,7 @@ printf '%s\n' \
     "PASS: installer reported a missing runtime instead of offering a stale nodejs" \
     "PASS: installer generated the app-grid entry pointing at this checkout" \
     "PASS: installer removed a stale launcher when GUI dependencies disappeared" \
+    "PASS: installer offered the GStreamer working set only when playback was missing" \
     "PASS: desktop entry paths preserved reserved characters through Gio parsing" \
     "PASS: runtime probe rejected unsupported versions and accepted supported boundaries" \
     "PASS: old PATH yt-dlp fallback omitted its unsupported runtime option" \
