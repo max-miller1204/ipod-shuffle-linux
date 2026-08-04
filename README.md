@@ -125,7 +125,6 @@ That view is deliberately not sortable: a playlist's order is the one thing you 
 The search field at the top of the window queries two sources at once.
 Your indexed music folders answer immediately, matching every word of the query in any order across title, artist and album, so "queen rhapsody" finds a track tagged *Bohemian Rhapsody* by *Queen*.
 For queries of at least two characters, YouTube answers a second or so later with up to three matches; a reserved three-row placeholder keeps the page steady while it waits.
-Each result is shown with the video's thumbnail as its cover, which arrives just behind the row itself.
 Hovering a result's artwork turns it into a play button, the same as a track you already have, and pressing it downloads that video into the preview cache and plays it.
 Once an iPod is connected, adding one of those results downloads it as MP3 and queues it, the same as pasting its link would.
 Pasting a link into the search field looks that link up rather than searching for its text, so you can see what a URL actually is before adding it.
@@ -193,8 +192,8 @@ Nothing in the cache is on the iPod, and nothing in it is lost by clearing it be
 ### Artwork
 
 A track from your own library shows the cover art embedded in the file.
-A YouTube result has no file to read one out of, so it shows the video's thumbnail instead, fetched into `~/.cache/ipod-shuffle-linux/art` alongside the covers extracted from your own music.
-The results appear first and their artwork drops in a moment later, into placeholders that were already exactly its size, so nothing on the page moves when it lands.
+A YouTube result has no file to read one out of, so it shows the video's thumbnail instead, fetched into `~/.cache/ipod-shuffle-linux/art` by default, or under `$XDG_CACHE_HOME` when it is set, alongside the covers extracted from your own music.
+The results appear first and their artwork drops in a moment later, into placeholders that were already exactly their size, so nothing on the page moves when it lands.
 A thumbnail that cannot be fetched leaves that placeholder in place rather than an error: artwork is the one part of a result that is allowed to be missing.
 
 Thumbnails are cached under the video's id, which is also in the name of every file `ipod-fetch.sh` writes.
