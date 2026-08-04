@@ -2052,7 +2052,11 @@ class PreviewPlayer:
 
     def seek(self, fraction):
         """Jump to a fraction of the track, 0 to 1."""
-        if self._pipeline is None or self.duration <= 0:
+        if (
+            self._pipeline is None
+            or self.state not in (PLAY_PLAYING, PLAY_PAUSED)
+            or self.duration <= 0
+        ):
             return
         module = gst()
         if module is None:
@@ -2167,22 +2171,27 @@ class PreviewPlayer:
         self.state = state
         if state == PLAY_PLAYING:
             self._start_polling()
+        elif state == PLAY_PAUSED:
+            self._stop_polling()
         self._changed()
 
     def _start_polling(self):
         if self._poll is None:
             self._poll = GLib.timeout_add(PLAYER_POLL_MS, self._tick)
 
-    def _teardown(self):
-        module = gst()
-        if self._pipeline is not None and module is not None:
-            self._pipeline.set_state(module.State.NULL)
+    def _stop_polling(self):
         if self._poll is not None:
             GLib.source_remove(self._poll)
             self._poll = None
 
+    def _teardown(self):
+        module = gst()
+        if self._pipeline is not None and module is not None:
+            self._pipeline.set_state(module.State.NULL)
+        self._stop_polling()
+
     def _tick(self):
-        if self._pipeline is None or self.state == PLAY_IDLE:
+        if self._pipeline is None or self.state not in (PLAY_LOADING, PLAY_PLAYING):
             self._poll = None
             return False
         module = gst()
@@ -3845,7 +3854,9 @@ class IpodWindow(Adw.ApplicationWindow):
         # bar: insensitive controls alone still read as controls you could use.
         self.playing_stack.set_opacity(1.0 if loaded else 0.32)
 
-        seekable = loaded and player.duration > 0
+        seekable = (
+            player.state in (PLAY_PLAYING, PLAY_PAUSED) and player.duration > 0
+        )
         self.seek_scale.set_sensitive(seekable)
         self.seek_scale.set_value(
             min(1.0, player.position / player.duration) if seekable else 0.0

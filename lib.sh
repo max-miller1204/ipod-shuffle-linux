@@ -360,7 +360,7 @@ PROBE
 gst_available() {
     local python
     python="$(find_gui_python)" || return 1
-    "$python" - <<'PROBE' >/dev/null 2>&1
+    "$python" - <<'GST_PROBE' >/dev/null 2>&1
 import gi
 
 gi.require_version("Gst", "1.0")
@@ -370,7 +370,7 @@ Gst.init(None)
 for element in ("playbin3", "autoaudiosink"):
     if Gst.ElementFactory.make(element, None) is None:
         raise SystemExit(1)
-PROBE
+GST_PROBE
 }
 
 # Where the playlist and voiceover options of the last sync are remembered.

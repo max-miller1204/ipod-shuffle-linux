@@ -1890,6 +1890,8 @@ assert pipeline.states == ["null", "playing"], pipeline.states
 assert "video-sink" in pipeline.properties
 assert pipeline.bus.watched, "nothing is listening for end of stream or errors"
 assert repaints, "starting a track did not repaint the bar"
+player.seek(0.5)
+assert not pipeline.seeks, "a seek was sent before playback finished opening"
 
 # Only the pipeline's own transition means audio is coming out; every element
 # in it reports its own, and one of those arriving first would clear the
@@ -2095,6 +2097,7 @@ assert ipod_gui.STATE_LIBRARY in bar.playing_state_dot.classes
 assert bar.playing_stack.opacity == 1.0
 assert bar.transport_buttons["next"].sensitive, "a queued next track was not offered"
 assert bar.playing_status.get_text() == "Opening…", bar.playing_status.get_text()
+assert not bar.seek_scale.sensitive
 # The tag's duration until the pipeline can be asked, rather than an empty
 # timeline for the second it takes to find out.
 assert bar.seek_total.get_text() == "3:00", bar.seek_total.get_text()
@@ -2107,6 +2110,7 @@ assert bar.transport_buttons["play"].icon == "media-playback-pause-symbolic"
 assert bar.playing_status.get_text() == "Preview on this computer"
 bar.player.toggle()
 assert bar.player.state == ipod_gui.PLAY_PAUSED
+assert bar.player._poll is None
 assert bar.transport_buttons["play"].icon == "media-playback-start-symbolic"
 
 # Pressing play again while a track is still opening stops it, rather than

@@ -489,7 +489,7 @@ import sys
 from pathlib import Path
 
 body = Path(sys.argv[1]).read_text(encoding="utf-8")
-probe = re.search(r"<<'PROBE'[^\n]*\n(.*?)\nPROBE\n", body, re.DOTALL)
+probe = re.search(r"<<'GST_PROBE'[^\n]*\n(.*?)\nGST_PROBE\n", body, re.DOTALL)
 assert probe, "gst_available no longer embeds a probe"
 ast.parse(probe.group(1))
 print("probe parses")
