@@ -1689,8 +1689,6 @@ class IpodWindow(Adw.ApplicationWindow):
         bar = Gtk.Box(spacing=16)
         bar.add_css_class("sf-bottom-bar")
         bar.set_size_request(-1, 84)
-        bar.set_margin_start(18)
-        bar.set_margin_end(18)
 
         left = Gtk.Box(spacing=11)
         left.set_size_request(150, -1)
