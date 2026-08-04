@@ -1,0 +1,16 @@
+{
+  "before_add": {
+    "cache_file_exists": true,
+    "cache_card": "33.6 KB \u00b7 1 file",
+    "track_state": "preview"
+  },
+  "after_add": {
+    "cache_file_exists": false,
+    "library_file_exists": true,
+    "library_path": "Music/youtube/Test Artist/Test Track [testvideo].mp3",
+    "track_state": "library",
+    "cache_card": "0 B \u00b7 0 files",
+    "queued_for_sync": true,
+    "toast": "Kept in ~/Music/youtube and queued for sync"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "cached_file": "Test Artist/Test Track [testvideo].mp3",
+  "state": "preview",
+  "played_after_download": true,
+  "redownloaded_after_leaving_cache": true,
+  "failed_download_message": "Could not download that preview. Details has what yt-dlp reported; ./ipod-fetch.sh --update is the usual fix when downloads stop working."
+}

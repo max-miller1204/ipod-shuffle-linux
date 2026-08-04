@@ -997,9 +997,9 @@ def fetched_sources(list_path, library):
 def fetch_command(url, output, new_tracks=None, single=True):
     """The ipod-fetch.sh invocation behind every download the GUI starts.
 
-    One builder for all three callers - the link dialog, a search result's Add
-    and a preview - because the only thing that legitimately differs between
-    them is where the audio is written to.
+    One builder keeps the shared flags consistent for the link dialog, a
+    search result's Add and a preview while letting each supply its output,
+    new-track manifest and playlist scope.
     """
     command = [str(FETCH_SCRIPT), "--output", str(output)]
     if new_tracks is not None:
@@ -1064,9 +1064,8 @@ def cached_preview_path(video_id, root):
 def prunable_previews(entries, limit, keep=()):
     """Which cached previews to drop to bring the cache back under limit.
 
-    Oldest first, and never whatever is playing: deleting that would leave the
-    now-playing bar naming a file that no longer exists, and pressing play
-    again would fail on a track still on screen.
+    Oldest first, excluding paths the caller marks to keep. The window uses
+    that exclusion for the track being played and the one that just arrived.
     """
     kept = {str(path) for path in keep}
     total = sum(size for _path, size, _mtime in entries)

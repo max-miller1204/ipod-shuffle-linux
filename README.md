@@ -181,7 +181,7 @@ The bar states what is missing in place of its controls rather than offering but
 Previewing a YouTube result downloads it before playing, which takes a few seconds rather than starting instantly.
 That is deliberate: `yt-dlp`'s media URLs are short-lived and tied to the address that asked for them, seeking over one is unreliable, and streaming would throw the work away, so adding the track afterwards would fetch the whole thing a second time.
 
-Those downloads go to `~/.cache/ipod-shuffle-linux/previews`, not to your music folder.
+Those downloads go to `~/.cache/ipod-shuffle-linux/previews` by default, or under `$XDG_CACHE_HOME` when it is set, not to your music folder.
 A previewed track shows up in your library grid with a dashed marker, and pressing **Add** on it is what moves it into `~/Music/youtube` and out of the cache, queueing it for the next sync at the same time if an iPod is connected.
 Unlike every other **Add**, that works with nothing plugged in, because keeping a download is something you do to your own music folder.
 
