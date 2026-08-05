@@ -1,0 +1,9 @@
+GUI queued paths: 4
+Device copied paths: 4
+Linked track copied as a regular file: yes
+Broken audio link reported: yes
+Broken non-audio link stayed quiet: yes
+Parent loop warned and terminated: yes
+GUI tag scan and GUI queue walk agree: yes
+Two links/routes to one directory both retained: yes
+GUI twin paths and find -L twin paths agree: yes

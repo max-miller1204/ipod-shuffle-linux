@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 35,
+  "revision": 45,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -93,10 +93,10 @@
     {
       "id": "let-ipod-sync-sh-copy-symlinked-music",
       "title": "Let ipod-sync.sh copy symlinked music",
-      "description": "ipod-sync.sh:424 enumerates a source with 'find \"$src\" -type f -print0'. find does not dereference symlinks by default, so a symlinked audio file is -type l and is silently never copied, and a symlinked subdirectory is never descended. Symlinked library layouts are common, so this is a real long-standing limitation rather than a deliberate policy - it just was not visible before, because nothing counted what was about to be copied.\n\nVerified 2026-08-03: for a directory containing a symlink to an mp3, 'find -type f' returns nothing while Python's os.walk plus Path.is_file() counts the file.\n\nThe GUI redesign surfaced this as a mismatch (review-23 in the no-mistakes run merged as PR #11) because it counts queued tracks to drive a progress bar: counting a symlinked track the script then skips means the sync exits successfully with progress short of 100 percent. That was resolved by aligning the GUI DOWNWARD to the script - it now skips symlinks too - so the counts are honest. Making the script actually copy them is the better long-term answer and remains open.\n\nWork: switch to 'find -L' (or -follow) in the source enumeration, then add e2e coverage for the cases that makes newly reachable - a symlink loop, a broken symlink, a symlinked directory, and a symlink pointing outside the source tree - and decide whether a symlink escaping the selected folder should be copied at all. Remove the GUI-side symlink skip and its user-facing note at the same time, otherwise the two halves disagree again in the opposite direction.",
-      "status": "open",
+      "description": "ipod-sync.sh:424 enumerates a source with 'find \"$src\" -type f -print0'. find does not dereference symlinks by default, so a symlinked audio file is -type l and is silently never copied, and a symlinked subdirectory is never descended. Symlinked library layouts are common, so this is a real long-standing limitation rather than a deliberate policy - it just was not visible before, because nothing counted what was about to be copied.\n\nVerified 2026-08-03: for a directory containing a symlink to an mp3, 'find -type f' returns nothing while Python's os.walk plus Path.is_file() counts the file.\n\nThe GUI redesign surfaced this as a mismatch (review-23 in the no-mistakes run merged as PR #11) because it counts queued tracks to drive a progress bar: counting a symlinked track the script then skips means the sync exits successfully with progress short of 100 percent. That was resolved by aligning the GUI DOWNWARD to the script - it now skips symlinks too - so the counts are honest. Making the script actually copy them was the better long-term answer.\n\nWork: switch to 'find -L' (or -follow) in the source enumeration, then add e2e coverage for the cases that makes newly reachable - a symlink loop, a broken symlink, a symlinked directory, and a symlink pointing outside the source tree - and decide whether a symlink escaping the selected folder should be copied at all. Remove the GUI-side symlink skip and its user-facing note at the same time, otherwise the two halves disagree again in the opposite direction.\n\nDone 2026-08-04. ipod-sync.sh enumerates a source with 'find -L \"$src\" \\( -type f -o -type l \\) -print0', so a symlinked track is copied and a symlinked folder is descended. A link is followed wherever it points, including out of the folder being synced, because that is what a linked layout is for and the link is only ever read: the copy lands where the link sits inside the source and never where it points, so following one cannot write outside the music directory. That is the opposite of ipod-remove.sh, which resolves before checking containment because it deletes.\n\nUnder -L, -type l matches only a link that cannot be resolved, so one walk finds the tracks and the broken links together. A broken link named like a track is reported by path and counted; one named like a cover image stays quiet, because it was never going to be copied. find detects a folder that links back into itself, walks it once and reports it on stderr while exiting 1 - that used to arrive as raw find output in the middle of the copy log, and is now captured and repeated in the script's own voice, which covers an unreadable folder the same way.\n\nThe GUI side went the other way, as the goal asked: skip_symlinks, the recursive-no-symlinks reader mode, the per-source skipped counts and the 'symlinked item skipped' toasts and queue-label note are gone, and scan_tracks returns (records, complete). The scan follows links to agree with the script, which needed a loop guard of its own: os.walk has no loop detection and would have recursed forever, so each directory carries its ancestry and one that is its own ancestor is dropped. It deliberately does not dedupe more widely, because two links to one folder are two folders to find, which copies both. tags.walk_following_links holds that rule for _audio_files; the reader cannot call it, being source text run by whichever interpreter has mutagen, so the two are kept deliberately alike.\n\nFixed along the way: a single dangling *.mp3 link anywhere under a music root made the whole library scan exit 2, so the user saw an empty library because of one broken link. Verified before the change - a folder with good.mp3 next to a dangling link returned no records and complete false.\n\nCovered end to end on its own device, since a source holding a filesystem loop is not something to leave in the shared one: a linked track, a linked folder with a subfolder, a link out of the tree, a dangling audio link, a dangling non-audio link that stays quiet, and a parent loop. tests/gui-scan-paths.py prints what the scan finds so the suite can hold it against what the sync copied, which is the mismatch this goal existed to close. Mutation-checked: reverting to 'find -type f' aborts the suite exactly at that scenario, copying 1 of 4 tracks.",
+      "status": "done",
       "createdAt": "2026-08-03T22:50:56.844Z",
-      "updatedAt": "2026-08-04T18:25:44.150Z",
+      "updatedAt": "2026-08-04T20:11:08.641Z",
       "previousIds": [
         "goal-msdtp4gc-7359b5e9"
       ]
@@ -111,6 +111,31 @@
       "previousIds": [
         "goal-mse5o5qg-49bb037d"
       ]
+    },
+    {
+      "id": "make-it-easier-to-create-a-new-playlist",
+      "title": "Make it easier to create a new playlist",
+      "status": "open",
+      "createdAt": "2026-08-04T19:53:03.767Z",
+      "updatedAt": "2026-08-04T19:59:12.257Z",
+      "description": "Currently, in order to create a new playlist, you need to choose a playlist file.\n\nInstead, creating a playlist should be low friction like spotify where it creates everything for you, and you just get the option to name the new playlist (start with default name like Playlist #_ if none is typed). \n\nThen it should be easy to add songs to the playlist from yt-dlp or from the existing library. It should also be easy to move songs between playlists and remove back to the standard library.\n\nIf you have any other suggestions let me know, i'm open to anything."
+    },
+    {
+      "id": "add-top-bar-to-maximize-minimize-close",
+      "title": "Add top bar to maximize/minimize/close the window",
+      "status": "open",
+      "createdAt": "2026-08-04T20:00:24.363Z",
+      "updatedAt": "2026-08-04T20:00:24.363Z"
+    },
+    {
+      "id": "wipe-the-ipod-and-redownload-everything",
+      "title": "wipe the ipod and redownload everything",
+      "status": "open",
+      "createdAt": "2026-08-04T20:00:44.881Z",
+      "updatedAt": "2026-08-04T20:00:44.881Z"
     }
+  ],
+  "retiredIds": [
+    "test"
   ]
 }

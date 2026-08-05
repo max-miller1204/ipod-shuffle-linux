@@ -1,0 +1,14 @@
+[36m==>[0m iPod: /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ77EDKNSG8S6H18XWQV14RB/.no-mistakes/symlink-test.cxBMXt/symlink-target
+[33mwarning:[0m Broken symlink, skipped: Disc 1/04 - Gone.mp3
+  + 02 - Linked.mp3 -> Linked Library/Disc 1/02 - Linked.mp3
+  + 01 - Real.mp3 -> Linked Library/Disc 1/01 - Real.mp3
+  + 03 - Encore.mp3 -> Linked Library/Linked Album/Live/03 - Encore.mp3
+  + 02 - Archived.mp3 -> Linked Library/Linked Album/02 - Archived.mp3
+[33mwarning:[0m Part of 'Linked Library' could not be searched:
+[33mwarning:[0m   File system loop detected; ‘/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ77EDKNSG8S6H18XWQV14RB/.no-mistakes/symlink-test.cxBMXt/Linked Library/Disc 1/loop’ is part of the same file system loop as ‘/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZ77EDKNSG8S6H18XWQV14RB/.no-mistakes/symlink-test.cxBMXt/Linked Library’.
+[36m==>[0m Copied 4 file(s)
+[33mwarning:[0m Skipped 1 symlink(s) pointing at a file that is not there.
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 4 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

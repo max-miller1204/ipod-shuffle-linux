@@ -1,0 +1,4 @@
+Disc 1/01 - Real.mp3 | 5 bytes | regular file
+Disc 1/02 - Linked.mp3 | 5 bytes | regular file
+Linked Album/02 - Archived.mp3 | 5 bytes | regular file
+Linked Album/Live/03 - Encore.mp3 | 7 bytes | regular file

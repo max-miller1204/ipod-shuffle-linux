@@ -182,6 +182,7 @@ fi
 copied=0
 skipped=0
 duplicates=0
+broken=0
 COPY_TARGET=""
 declare -A PLAYLIST_TARGET_SOURCES=()
 declare -A PLAYLIST_TARGET_NAMES=()
@@ -399,6 +400,12 @@ sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
     info "Playlist '$device_stem': $added track(s)"
 }
 
+# One listing buffer for the whole run, removed however the script leaves:
+# a copy that dies part way through should not leave it behind in /tmp.
+enum_errors="$(mktemp -t ipod-sync-sources.XXXXXX)" \
+    || die "Could not create temporary storage for the source listing."
+trap 'rm -f -- "${enum_errors:-}"' EXIT
+
 for src in "$@"; do
     [[ -e "$src" ]] || { warn "No such path, skipping: $src"; continue; }
     src="${src%/}"
@@ -419,10 +426,51 @@ for src in "$@"; do
     # to have something to group by.
     dest="$MUSIC_DIR/$(basename "$src")"
 
+    # -L, so that a symlinked track is copied and a symlinked folder is
+    # descended. Without it a link is -type l, matches neither, and a library
+    # assembled out of links syncs as an empty folder with nothing said about
+    # it. Linked layouts are common enough that this was a real limitation
+    # rather than a policy.
+    #
+    # A link is followed wherever it points, including outside the folder
+    # being synced, because that is what a linked layout is for and the link
+    # is only ever read. Where the copy lands comes from where the link sits
+    # inside "$src" and never from its target, so following one cannot write
+    # outside "$MUSIC_DIR". (Contrast ipod-remove.sh, which resolves before
+    # checking containment because it deletes.)
+    #
+    # -type l still matches under -L, but only for a link that cannot be
+    # resolved, so one walk finds the tracks and the broken links both.
+    : > "$enum_errors"
     while IFS= read -r -d '' f; do
+        if [[ ! -e "$f" ]]; then
+            # Only for a name the firmware could have played. A dangling link
+            # to a cover image was never going to be copied, so reporting it
+            # would be noise about something the user did not ask for.
+            if [[ "${f,,}" =~ \.(${SUPPORTED_EXT})$ ]]; then
+                broken=$((broken + 1))
+                warn "Broken symlink, skipped: ${f#"$src"/}"
+            fi
+            continue
+        fi
         copy_track "$f" "$dest/${f#"$src"/}"
-    done < <(find "$src" -type f -print0)
+    done < <(find -L "$src" \( -type f -o -type l \) -print0 2>"$enum_errors")
+    # find walks a folder that links back into itself once and then refuses to
+    # go round again, reporting that on stderr and exiting 1. Left alone it
+    # arrives as raw find output in the middle of the copy log, so it is
+    # repeated here in the script's own voice instead. Anything else find
+    # could not read - an unreadable folder, most likely - reads the same way.
+    if [[ -s "$enum_errors" ]]; then
+        warn "Part of '$(basename -- "$src")' could not be searched:"
+        while IFS= read -r line; do
+            warn "  ${line#*: }"
+        done < "$enum_errors"
+    fi
 done
+
+rm -f -- "$enum_errors"
+enum_errors=""
+trap - EXIT
 
 if (( ! REBUILD_ONLY )); then
     info "Copied $copied file(s)"
@@ -434,6 +482,9 @@ if (( ! REBUILD_ONLY )); then
         # on the dense frames a 256k encode of real music produces.
         warn "Skipped $skipped unsupported file(s). Convert them first, for example:"
         warn "  ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3"
+    fi
+    if (( broken > 0 )); then
+        warn "Skipped $broken symlink(s) pointing at a file that is not there."
     fi
     if (( copied == 0 && CLEAR == 0 )); then
         warn "Nothing new copied; rebuilding the database anyway."
