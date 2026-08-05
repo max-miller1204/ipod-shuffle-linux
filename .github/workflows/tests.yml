@@ -17,15 +17,17 @@ jobs:
       - uses: actions/checkout@v4
 
       # The GUI smoke tests import the ipod_gui package, which imports
-      # PyGObject at module level, so the bindings are needed even though no
-      # window is ever opened. They come from the distribution because building
-      # PyGObject from pip would need the gobject-introspection and cairo
-      # development headers.
+      # PyGObject at module level, so the bindings are needed even though most
+      # of them never open a window. They come from the distribution because
+      # building PyGObject from pip would need the gobject-introspection and
+      # cairo development headers. xvfb is for the one check that does build a
+      # window: GTK4 has no headless backend, so it needs a display server
+      # rather than an environment variable.
       - name: Install test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck
+            python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck xvfb
 
       - name: Shell lint
         run: shellcheck -x ./*.sh tests/product-e2e.sh
@@ -37,6 +39,20 @@ jobs:
         run: |
           python3 -m py_compile ipod-gui.py ipod_gui/*.py tests/*.py
           python3 -c 'import ipod_gui'
+
+      # The window is one class assembled from mixins over one self, so what
+      # they share is written down and checked rather than left to review.
+      # Needs no iPod and no display, so it gates before the suite rather than
+      # inside it.
+      - name: GUI mixin contract
+        run: python3 tests/gui-mixin-contract.py
+
+      # The only check that constructs the window. Every other GUI check runs
+      # methods unbound against a stand-in, so none of them would notice a
+      # builder that stopped being called or a widget that never reached the
+      # stack. -a picks a free display number rather than assuming :99 is free.
+      - name: GUI window builds
+        run: xvfb-run -a python3 tests/gui-window-build.py
 
       # The suite's playlist check runs the real upstream builder against the
       # rewritten list a sync produces, which the fake builder cannot vouch

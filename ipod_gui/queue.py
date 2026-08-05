@@ -1,0 +1,617 @@
+"""What is staged for the next sync, and how it gets there.
+
+Nothing is copied when a track is added: it joins a queue held against one
+device identity, and the sync is a separate, explicit act. Owns `pending`,
+`pending_sources` and `pending_records`, the accounting that turns them into a
+count and a byte total, `source_generation` for the scans that enrich them, the
+sync launch, and the YouTube download whose result is queued rather than the
+folder it wrote into.
+
+Borrows from the window: `mount_point` and `device_identity`, which the queue
+is only ever valid against, `library` for tracks it already knows, and `_run`,
+`_set_busy`, `_toast`, `_merge_states`, `_populate_device_summary`,
+`_update_device_controls` and `_refresh_current_view`.
+"""
+
+import os
+import tempfile
+import threading
+from pathlib import Path
+
+from gi.repository import Adw, Gdk, GLib, Gtk
+
+from .config import (
+    AUDIO_EXTENSIONS,
+    PLAYLIST_EXTENSIONS,
+    STATE_LIBRARY,
+    SYNC_SCRIPT,
+    YOUTUBE_LIBRARY,
+)
+from .text import home_relative, plural
+from .tags import scan_tracks, walk_following_links
+from .youtube import fetch_command, fetched_sources, is_downloadable_url
+from .model import Track, local_playlist_tracks, read_local_playlist_tracks
+
+
+class QueueMixin:
+    # ----------------------------------------------------------- accounting
+
+    def _pending_track(self, path):
+        path = str(path)
+        track = self._pending_track_index.get(path)
+        if track is not None:
+            return track
+        record = dict(self.pending_records.get(path, {}))
+        try:
+            record["size"] = Path(path).stat().st_size
+        except OSError:
+            record["size"] = 0
+        record.setdefault("title", Path(path).stem)
+        return Track(path, record, STATE_LIBRARY)
+
+    @staticmethod
+    def _record_for_track(track):
+        return {
+            "title": track.title,
+            "artist": track.artist,
+            "album": track.album,
+            "genre": track.genre,
+            "duration": track.duration,
+            "track": track.track_no,
+            "art": track.art,
+            "size": track.size,
+        }
+
+    def _pending_accounting(self):
+        tracks = []
+        queued_bytes = 0
+        for path in self.pending:
+            if Path(path).suffix.lower() not in AUDIO_EXTENSIONS:
+                continue
+            track = self._pending_track_index.get(path)
+            if track is None:
+                track = self._pending_track(path)
+            if not track.on_ipod:
+                tracks.append(track)
+                queued_bytes += track.size
+        playlist_changes = sum(
+            Path(source).suffix.lower() in PLAYLIST_EXTENSIONS
+            for source in self.pending_sources
+        )
+        return tracks, len(tracks) + playlist_changes, queued_bytes
+
+    def _pending_copy_tracks(self):
+        return self._pending_accounting()[0]
+
+    def _pending_change_count(self):
+        return self._pending_accounting()[1]
+
+    # ------------------------------------------------------------- queueing
+
+    def _queue_sources(
+        self,
+        sources,
+        show_toast=True,
+        metadata_complete=False,
+    ):
+        sources = {str(source): list(tracks) for source, tracks in sources.items()}
+        pending_only = {
+            track.path
+            for tracks in sources.values()
+            for track in tracks
+            if Path(track.path).suffix.lower() in AUDIO_EXTENSIONS
+            and track.path not in self._library_by_path
+        }
+        if pending_only and not metadata_complete:
+            self.source_generation += 1
+            generation = self.source_generation
+            device_identity = self.device_identity
+            self.discovering_sources = True
+            self._update_device_controls()
+
+            def worker():
+                enriched, complete = self._scan_pending_tracks(
+                    pending_only, generation
+                )
+                GLib.idle_add(
+                    self._finish_pending_enrichment,
+                    generation,
+                    device_identity,
+                    sources,
+                    enriched,
+                    complete,
+                    show_toast,
+                )
+
+            threading.Thread(target=worker, daemon=True).start()
+            return None
+        return self._commit_queue_sources(sources, show_toast=show_toast)
+
+    def _scan_pending_tracks(self, paths, generation):
+        paths = set(str(path) for path in paths)
+        enriched = {}
+        records, complete = scan_tracks(
+            files=paths,
+            cancelled=lambda: generation != self.source_generation,
+        )
+        if not complete:
+            return {}, False
+        for record in records:
+            path = record["path"]
+            enriched[path] = Track(path, record, STATE_LIBRARY)
+        for path in paths:
+            enriched.setdefault(path, self._pending_track(path))
+        return enriched, True
+
+    def _finish_pending_enrichment(
+        self,
+        generation,
+        device_identity,
+        sources,
+        enriched,
+        complete,
+        show_toast,
+    ):
+        if generation != self.source_generation:
+            return False
+        self.discovering_sources = False
+        self._update_device_controls()
+        if device_identity != self.device_identity or not self.mount_point:
+            self._toast("The connected iPod changed, so nothing was queued")
+            return False
+        if not complete:
+            self._toast("Could not finish reading those tracks; nothing was queued")
+            return False
+        resolved = {
+            source: [enriched.get(track.path, track) for track in tracks]
+            for source, tracks in sources.items()
+        }
+        self._commit_queue_sources(resolved, show_toast=show_toast)
+        return False
+
+    def _commit_queue_sources(
+        self,
+        sources,
+        show_toast=True,
+        replace=False,
+    ):
+        if not self.mount_point:
+            self._toast("Connect an iPod to queue tracks")
+            return 0
+        if self.device_identity is None:
+            self._toast("Could not identify this iPod, so nothing was queued")
+            return 0
+        before = self._pending_change_count()
+        if replace:
+            self.pending.clear()
+            self.pending_sources.clear()
+            self.pending_records.clear()
+        if not self.pending_sources:
+            self.pending_device_identity = self.device_identity
+        elif self.pending_device_identity != self.device_identity:
+            self.pending.clear()
+            self.pending_sources.clear()
+            self.pending_records.clear()
+            self.pending_device_identity = self.device_identity
+
+        for source, tracks in sources.items():
+            source = str(source)
+            members = set()
+            for track in tracks:
+                members.add(track.path)
+                self.pending.add(track.path)
+                self.pending_records[track.path] = self._record_for_track(track)
+            if members:
+                self.pending_sources[source] = members
+            else:
+                self.pending_sources.pop(source, None)
+        owned = (
+            set().union(*self.pending_sources.values())
+            if self.pending_sources
+            else set()
+        )
+        self.pending.intersection_update(owned)
+        self.pending_records = {
+            path: record
+            for path, record in self.pending_records.items()
+            if path in self.pending
+        }
+        if not self.pending_sources:
+            self.pending_device_identity = None
+        self._merge_states()
+        self._populate_device_summary()
+        self._refresh_current_view()
+        added = max(0, self._pending_change_count() - before)
+        if show_toast:
+            self._toast(
+                f"{plural(added, 'change')} queued" if added else "Already queued"
+            )
+        return added
+
+    def _queue_paths(self, paths, show_toast=True):
+        sources = {}
+        expanded = []
+        for path in dict.fromkeys(str(path) for path in paths):
+            expanded.extend(self._audio_files(path) if Path(path).is_dir() else [path])
+        for path in dict.fromkeys(expanded):
+            if Path(path).is_file():
+                sources[path] = [self._pending_track(path)]
+        return self._queue_sources(sources, show_toast=show_toast)
+
+    def _queue_tracks(self, tracks):
+        return self._queue_sources(
+            {track.path: [track] for track in tracks}, show_toast=True
+        )
+
+    def _queue_playlist(self, path):
+        tracks = [self._pending_track(item) for item in local_playlist_tracks(path)]
+        tracks.append(self._pending_track(path))
+        return self._queue_sources({str(path): tracks}, show_toast=True)
+
+    def _unqueue_track(self, track):
+        key = track.path
+        affected = [
+            source
+            for source, members in self.pending_sources.items()
+            if key in members
+        ]
+        removed_directory = False
+        for source in affected:
+            members = self.pending_sources.pop(source)
+            removed_directory = removed_directory or source not in members
+        owned = (
+            set().union(*self.pending_sources.values())
+            if self.pending_sources
+            else set()
+        )
+        self.pending.intersection_update(owned)
+        self.pending_records = {
+            path: record
+            for path, record in self.pending_records.items()
+            if path in self.pending
+        }
+        if not self.pending_sources:
+            self.pending_device_identity = None
+        self._merge_states()
+        self._populate_device_summary()
+        self._refresh_current_view()
+        if removed_directory:
+            self._toast("The whole folder was removed from the queue")
+
+    # ------------------------------------------------------ the sync itself
+
+    def on_sync_pending(self, _button):
+        if not self.pending_sources or not self.mount_point:
+            return
+        if self.pending_device_identity != self.device_identity:
+            self._toast("Queued changes belong to a different iPod")
+            return
+        if not self._confirmed_device(self.pending_device_identity):
+            return
+        self.source_generation += 1
+        generation = self.source_generation
+        device_identity = self.device_identity
+        paths = sorted(self.pending_sources)
+        self.discovering_sources = True
+        self._set_busy(True, "Checking queued sources")
+
+        def worker():
+            sources, complete = self._scan_queued_sources(paths, generation)
+            GLib.idle_add(
+                self._finish_pending_source_scan,
+                generation,
+                device_identity,
+                sources,
+                complete,
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _scan_queued_sources(self, sources, generation):
+        refreshed = {}
+        for source in sources:
+            path = Path(source)
+            if path.is_dir():
+                records, complete = scan_tracks(
+                    path,
+                    cancelled=lambda: generation != self.source_generation,
+                )
+                tracks = [
+                    Track(path / record["path"], record, STATE_LIBRARY)
+                    for record in records
+                ]
+            elif path.suffix.lower() in PLAYLIST_EXTENSIONS:
+                members, complete = read_local_playlist_tracks(path)
+                if complete:
+                    records, complete = scan_tracks(
+                        files=members,
+                        cancelled=lambda: generation != self.source_generation,
+                    )
+                tracks = (
+                    [
+                        Track(record["path"], record, STATE_LIBRARY)
+                        for record in records
+                    ]
+                    if complete
+                    else []
+                )
+                if complete:
+                    try:
+                        size = path.stat().st_size
+                    except OSError:
+                        complete = False
+                    else:
+                        tracks.append(
+                            Track(
+                                path,
+                                {"title": path.stem, "size": size},
+                                STATE_LIBRARY,
+                            )
+                        )
+            elif path.suffix.lower() in AUDIO_EXTENSIONS:
+                records, complete = scan_tracks(
+                    files=[path],
+                    cancelled=lambda: generation != self.source_generation,
+                )
+                tracks = [
+                    Track(record["path"], record, STATE_LIBRARY)
+                    for record in records
+                ]
+            else:
+                tracks, complete = [], False
+            if not complete:
+                return {}, False
+            if tracks:
+                refreshed[source] = tracks
+        return refreshed, True
+
+    def _finish_pending_source_scan(
+        self,
+        generation,
+        device_identity,
+        sources,
+        complete,
+    ):
+        if generation != self.source_generation:
+            self._set_busy(False)
+            return False
+        self.discovering_sources = False
+        if not complete:
+            self._set_busy(False)
+            self._toast("Could not re-read queued sources, so sync was cancelled")
+            return False
+        if not self._confirmed_device(device_identity):
+            self._set_busy(False)
+            return False
+        self._commit_queue_sources(sources, show_toast=False, replace=True)
+        if not self.pending_sources:
+            self._set_busy(False)
+            self._toast("Nothing remains in the queued sources")
+            return False
+        self._set_busy(False)
+        self._launch_pending_sync()
+        return False
+
+    def _launch_pending_sync(self):
+        paths = sorted(self.pending_sources)
+        copy_tracks, changes, _queued_bytes = self._pending_accounting()
+        self.sync_total = len(copy_tracks)
+        self._run(
+            [
+                str(SYNC_SCRIPT),
+                "--ipod",
+                self.mount_point,
+                *self._sync_options(),
+                # A track title can start with a dash, and the shell script
+                # would read that as a flag rather than a path.
+                "--",
+                *paths,
+            ],
+            "Copying to iPod",
+            f"{plural(changes, 'change')} synced",
+            then=self._clear_pending,
+        )
+
+    def _clear_pending(self):
+        self.pending.clear()
+        self.pending_sources.clear()
+        self.pending_records.clear()
+        self._pending_track_index = dict(self._library_by_path)
+        self.pending_device_identity = None
+        return "Sync complete"
+
+    # ---------------------------------------------------------- new sources
+
+    def on_add_music(self, _button):
+        dialog = Gtk.FileDialog(title="Choose a music folder")
+
+        def chosen(dlg, result):
+            try:
+                folder = dlg.select_folder_finish(result)
+            except GLib.Error:
+                return
+            path = folder.get_path()
+            if not path:
+                self._toast("That location is not a local folder")
+                return
+            self._discover_music_folder(path)
+
+        dialog.select_folder(self, None, chosen)
+
+    def _discover_music_folder(self, path):
+        self.source_generation += 1
+        generation = self.source_generation
+        device_identity = self.device_identity
+        self.discovering_sources = True
+        self._update_device_controls()
+
+        def worker():
+            tracks, complete = self._scan_source_tracks(path, generation)
+            GLib.idle_add(
+                self._finish_music_folder_discovery,
+                generation,
+                device_identity,
+                path,
+                tracks,
+                complete,
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _scan_source_tracks(self, path, generation):
+        records, complete = scan_tracks(
+            path,
+            cancelled=lambda: generation != self.source_generation,
+        )
+        tracks = [
+            Track(Path(path, record["path"]), record, STATE_LIBRARY)
+            for record in records
+        ]
+        return tracks, complete
+
+    def _finish_music_folder_discovery(
+        self,
+        generation,
+        device_identity,
+        path,
+        tracks,
+        complete,
+    ):
+        if generation != self.source_generation:
+            return False
+        self.discovering_sources = False
+        self._update_device_controls()
+        if device_identity != self.device_identity or not self.mount_point:
+            self._toast("The connected iPod changed, so the folder was not queued")
+            return False
+        if not complete:
+            self._toast("Could not finish reading that folder; nothing was queued")
+            return False
+        if not tracks:
+            self._toast("No supported audio found in that folder")
+            return False
+        self._queue_sources({str(path): tracks}, metadata_complete=True)
+        return False
+
+    def on_add_youtube(self, _button):
+        url_entry = Adw.EntryRow(title="YouTube link")
+        url_entry.set_activates_default(True)
+        whole_playlist = Adw.SwitchRow(
+            title="Whole playlist",
+            subtitle="Off downloads only the linked video",
+        )
+
+        fields = Adw.PreferencesGroup()
+        fields.add(url_entry)
+        fields.add(whole_playlist)
+
+        dialog = Adw.AlertDialog(
+            heading="Add from YouTube",
+            body=(
+                "The audio is converted to MP3, tagged with its artist and "
+                f"title, kept in {home_relative(YOUTUBE_LIBRARY)}, and queued "
+                "for the next sync."
+            ),
+        )
+        dialog.set_extra_child(fields)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("download", "Download")
+        dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("download")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_youtube_response, url_entry, whole_playlist)
+        dialog.present(self)
+
+        # Pasting a link is the entire interaction, so offer the one already on
+        # the clipboard rather than making the user paste it by hand.
+        display = Gdk.Display.get_default()
+        if display is not None:
+            display.get_clipboard().read_text_async(
+                None, self._offer_clipboard_url, url_entry
+            )
+
+    @staticmethod
+    def _offer_clipboard_url(clipboard, result, url_entry):
+        try:
+            text = clipboard.read_text_finish(result)
+        except GLib.Error:
+            return
+        if is_downloadable_url(text) and not url_entry.get_text():
+            url_entry.set_text(text.strip())
+
+    def _on_youtube_response(self, _dialog, response, url_entry, whole_playlist):
+        if response != "download":
+            return
+
+        url = url_entry.get_text().strip()
+        if not is_downloadable_url(url):
+            self._toast("Enter a link starting with http:// or https://")
+            return
+        self._start_youtube_download(
+            url,
+            single=not whole_playlist.get_active(),
+            busy_message="Downloading from YouTube",
+        )
+
+    def _start_youtube_download(self, url, single, busy_message, on_failure=None):
+        """Fetch one link and queue whatever that run produced.
+
+        Shared by the dialog and by a search result so both queue exactly the
+        tracks the download reported rather than the folder it wrote into.
+        """
+        # Written by the download and read when it completes, so only what this
+        # run actually fetched enters the queue. Without it the whole library
+        # would be queued every time.
+        handle, new_tracks = tempfile.mkstemp(prefix="ipod-fetch-", suffix=".list")
+        os.close(handle)
+
+        fetch = fetch_command(url, YOUTUBE_LIBRARY, new_tracks, single)
+
+        def failed():
+            try:
+                os.unlink(new_tracks)
+            except OSError:
+                pass
+            if on_failure is not None:
+                on_failure()
+
+        if not self._run(
+            fetch,
+            busy_message,
+            "Downloaded",
+            then=lambda: self._sync_downloaded(new_tracks),
+            on_failure=failed,
+        ):
+            # Refused before anything ran, so the list file it would have read
+            # is left behind unless it is cleaned up here.
+            failed()
+        return fetch
+
+    def _sync_downloaded(self, new_tracks):
+        """Queue what the download produced, or say why there is nothing to."""
+        sources = fetched_sources(new_tracks, YOUTUBE_LIBRARY)
+        try:
+            os.unlink(new_tracks)
+        except OSError:
+            pass
+
+        if not sources:
+            return "Already downloaded - nothing new to add"
+        queued = self._queue_paths(sources, show_toast=False)
+        if queued is None:
+            return "Downloaded; reading track details before queueing"
+        return (
+            f"{plural(queued, 'track')} queued for sync"
+            if queued
+            else "Downloaded, but nothing was queued"
+        )
+
+    @staticmethod
+    def _audio_files(path):
+        found = []
+        for root, files in walk_following_links(path):
+            for name in files:
+                candidate = Path(root, name)
+                if candidate.suffix.lower() in AUDIO_EXTENSIONS:
+                    found.append(str(candidate))
+        return found

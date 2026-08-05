@@ -1,0 +1,528 @@
+"""Running the shell scripts, and the bar that reports what they are doing.
+
+Every device-changing action goes through `_run`, which holds the device write
+lock, re-checks that the iPod under the mount point is still the one the action
+was aimed at, and streams the script's output into the log. Owns the sync bar
+and its details pane, the busy state that makes the window refuse to race
+itself, and the destructive and D-Bus actions: rebuild, wipe, remove, eject and
+mount.
+
+Borrows from the window: `mount_point` and `device_identity` to aim a command,
+`_toast`, `_children`, `refresh`, `_rescan_library`, `_sync_options`,
+`_merge_states`, `_populate_device_summary`, `_populate_cache_card` and
+`_update_device_controls`.
+"""
+
+import os
+import subprocess
+import threading
+from pathlib import Path
+
+from gi.repository import Adw, Gdk, GLib, GObject, Gtk
+
+from .config import REMOVE_SCRIPT, SYNC_SCRIPT, WIPE_SCRIPT
+from .text import COPIED_LINE, strip_ansi
+from .device import (
+    DEVICE_IO_LOCK,
+    resolve_device,
+    udisks_filesystem_call,
+    unmounted_vfat_devices,
+)
+from .widgets import ELLIPSIZE_END, label
+
+
+class CommandsMixin:
+    # ------------------------------------------------------------- sync bar
+
+    def _build_sync_bar(self):
+        self.sync_revealer = Gtk.Revealer(
+            transition_type=Gtk.RevealerTransitionType.SLIDE_UP
+        )
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        outer.add_css_class("sf-sync-bar")
+        self.sync_revealer.set_child(outer)
+
+        row = Gtk.Box(spacing=14)
+        row.set_size_request(-1, 52)
+        row.set_margin_start(18)
+        row.set_margin_end(18)
+
+        self.sync_spinner = Gtk.Spinner()
+        self.sync_spinner.set_valign(Gtk.Align.CENTER)
+        row.append(self.sync_spinner)
+
+        self.sync_title = label("Working", "sf-row-title", valign=Gtk.Align.CENTER)
+        self.sync_title.set_size_request(150, -1)
+        row.append(self.sync_title)
+
+        self.progress = Gtk.ProgressBar(valign=Gtk.Align.CENTER, hexpand=True)
+        self.progress.set_size_request(-1, 5)
+        row.append(self.progress)
+
+        self.sync_count = label("", "sf-caption", "sf-mono", valign=Gtk.Align.CENTER)
+        row.append(self.sync_count)
+
+        self.sync_current = label(
+            "", "sf-body", hexpand=True, ellipsize=ELLIPSIZE_END, valign=Gtk.Align.CENTER
+        )
+        row.append(self.sync_current)
+
+        self.details_toggle = Gtk.ToggleButton(label="Details")
+        self.details_toggle.add_css_class("sf-button")
+        self.details_toggle.set_valign(Gtk.Align.CENTER)
+        self.details_toggle.connect(
+            "toggled", lambda b: self.details_revealer.set_reveal_child(b.get_active())
+        )
+        row.append(self.details_toggle)
+        outer.append(row)
+
+        self.details_revealer = Gtk.Revealer(
+            transition_type=Gtk.RevealerTransitionType.SLIDE_UP
+        )
+        details = Gtk.Box(spacing=0)
+        details.set_size_request(-1, 250)
+        details.append(Gtk.Separator())
+
+        file_scroll = Gtk.ScrolledWindow(hexpand=True)
+        file_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.sync_file_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        self.sync_file_list.set_margin_start(18)
+        self.sync_file_list.set_margin_end(18)
+        self.sync_file_list.set_margin_top(10)
+        self.sync_file_list.set_margin_bottom(10)
+        file_scroll.set_child(self.sync_file_list)
+        details.append(file_scroll)
+
+        details.append(Gtk.Separator())
+        log_side = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        log_side.set_size_request(340, -1)
+        log_head = Gtk.Box(spacing=9)
+        log_head.set_margin_start(14)
+        log_head.set_margin_end(14)
+        log_head.set_margin_top(9)
+        log_head.set_margin_bottom(9)
+        log_head.append(label("SCRIPT OUTPUT", "sf-section-label", hexpand=True))
+        copy = Gtk.Button(label="Copy")
+        copy.add_css_class("flat")
+        copy.add_css_class("sf-caption")
+        copy.connect("clicked", self.on_copy_log)
+        log_head.append(copy)
+        log_side.append(log_head)
+        log_side.append(Gtk.Separator())
+
+        self.log_view = Gtk.TextView(
+            editable=False,
+            monospace=True,
+            cursor_visible=False,
+            # The lines carry mount points and library paths, which are long
+            # enough that without wrapping the interesting half of the message
+            # sits off the right edge behind a scrollbar nobody drags.
+            wrap_mode=Gtk.WrapMode.WORD_CHAR,
+            left_margin=14,
+            right_margin=14,
+            top_margin=10,
+            bottom_margin=10,
+        )
+        self.log_view.add_css_class("sf-log")
+        log_scroll = Gtk.ScrolledWindow(vexpand=True)
+        log_scroll.set_child(self.log_view)
+        log_side.append(log_scroll)
+        details.append(log_side)
+
+        self.details_revealer.set_child(details)
+        outer.append(self.details_revealer)
+        return self.sync_revealer
+
+    # -------------------------------------------------------- busy plumbing
+
+    def _set_busy(self, busy, message=""):
+        if busy:
+            self.probe_generation += 1
+            self.tag_generation += 1
+        self.busy = busy
+        for widget in self._busy_widgets:
+            widget.set_sensitive(not busy)
+        # Not in _busy_widgets, because whether it is sensitive depends on
+        # there being something to clear as well as on nothing running.
+        self._populate_cache_card()
+        if not busy:
+            self._update_device_controls()
+
+        self.sync_revealer.set_reveal_child(busy)
+        self.progress.set_visible(busy)
+        if busy:
+            self.sync_title.set_text(message)
+            self.sync_spinner.start()
+            self.progress.set_fraction(0)
+            self.sync_count.set_text("")
+            self.sync_current.set_text("")
+        else:
+            self.sync_spinner.stop()
+
+    def _log(self, text):
+        text = strip_ansi(text)
+        buf = self.log_view.get_buffer()
+        buf.insert(buf.get_end_iter(), text)
+        # Follow the output as it arrives. A pane that stays at the first line
+        # of a copy shows the least useful part of a running operation.
+        end = buf.create_mark(None, buf.get_end_iter(), False)
+        self.log_view.scroll_to_mark(end, 0, False, 0, 0)
+        buf.delete_mark(end)
+        self._note_progress(text)
+        return False
+
+    def _note_progress(self, text):
+        match = COPIED_LINE.match(text.rstrip("\n"))
+        if match is None:
+            return
+        name = match.group("name")
+        self.sync_current.set_text(name)
+        row = Gtk.Box(spacing=11)
+        row.append(label("✓", "sf-caption", width_chars=2, xalign=0.5))
+        row.append(label(name, "sf-body", hexpand=True, ellipsize=ELLIPSIZE_END))
+        row.append(label("Copied", "sf-caption"))
+        self.sync_file_list.append(row)
+
+        done = len(list(self._children(self.sync_file_list)))
+        if self.sync_total:
+            self.progress.set_fraction(min(1.0, done / self.sync_total))
+            self.sync_count.set_text(f"{done} of {self.sync_total}")
+        else:
+            self.sync_count.set_text(f"{done} copied")
+
+    def _clear_log(self):
+        self.log_view.get_buffer().set_text("")
+        child = self.sync_file_list.get_first_child()
+        while child is not None:
+            nxt = child.get_next_sibling()
+            self.sync_file_list.remove(child)
+            child = nxt
+
+    def on_copy_log(self, _button):
+        buf = self.log_view.get_buffer()
+        text = buf.get_text(buf.get_start_iter(), buf.get_end_iter(), False)
+        display = Gdk.Display.get_default()
+        if display is not None:
+            display.get_clipboard().set_content(
+                Gdk.ContentProvider.new_for_value(GObject.Value(str, text))
+            )
+            self._toast("Output copied")
+
+    # ----------------------------------------------------- running a script
+
+    def _device_command_is_current(self, argv):
+        if "--ipod" not in argv:
+            return True
+        index = argv.index("--ipod") + 1
+        if index >= len(argv) or argv[index] is None:
+            self._toast("Connect an iPod before running this action")
+            return False
+        mount_point = str(argv[index])
+        if (
+            mount_point != self.mount_point
+            or resolve_device(mount_point, self.device_identity) is None
+        ):
+            self._toast("The connected iPod changed, so the action was cancelled")
+            return False
+        return True
+
+    def _run(
+        self,
+        argv,
+        busy_message,
+        done_message,
+        then=None,
+        clear=True,
+        on_failure=None,
+    ):
+        """Run a script in a worker thread, streaming output into the log.
+
+        then, when given, is called on success and returns either the next
+        command as (argv, busy_message, done_message) or a string to report as
+        the outcome when there is nothing further to do. The YouTube flow uses
+        this callback to queue only the tracks that a successful download says
+        it produced.
+
+        on_failure is its opposite, for a caller that has somewhere better to
+        report the failure than the toast: a search result reports it inline in
+        the section where the user pressed Add, which remains on screen.
+        """
+        if any(part is None for part in argv):
+            self._toast("Connect an iPod before running this action")
+            return False
+        if not self._device_command_is_current(argv):
+            return False
+        device_command = "--ipod" in argv
+        expected_identity = self.device_identity if device_command else None
+        if clear:
+            self._clear_log()
+        self._set_busy(True, busy_message)
+
+        def worker():
+            code = -1
+
+            def run_process():
+                nonlocal code
+                try:
+                    proc = subprocess.Popen(
+                        argv,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                    )
+                    if proc.stdout is not None:
+                        for line in proc.stdout:
+                            GLib.idle_add(self._log, line)
+                    code = proc.wait()
+                except (OSError, TypeError, ValueError) as exc:
+                    GLib.idle_add(self._log, f"failed to run: {exc}\n")
+
+            if device_command:
+                with DEVICE_IO_LOCK.write():
+                    mount_index = argv.index("--ipod") + 1
+                    mount_point = str(argv[mount_index])
+                    if (
+                        mount_point != self.mount_point
+                        or resolve_device(mount_point, expected_identity) is None
+                    ):
+                        GLib.idle_add(self._cancel_device_command)
+                        return
+                    run_process()
+            else:
+                run_process()
+            GLib.idle_add(
+                self._finish, code, done_message, then, device_command, on_failure
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True
+
+    def _cancel_device_command(self):
+        self._set_busy(False)
+        self._toast("The connected iPod changed, so the action was cancelled")
+        return False
+
+    def _invalidate_device_snapshot(self):
+        # The track count and free space are deliberately left alone. Every
+        # caller of this is followed by a refresh, so they are replaced within
+        # a few hundred milliseconds; clearing them would put "0 tracks" on
+        # screen the moment a sync that added tracks finished, which is a
+        # worse thing to say than the figure from just before it ran.
+        self.tag_generation += 1
+        self._device_scan_active = bool(self.mount_point)
+        self._device_snapshot_ready = False
+        self._device_scan_tracks = {}
+        self.device_tracks = []
+        self.track_names = {}
+        self._merge_states()
+        self._populate_device_summary()
+        self._update_device_controls()
+
+    def _finish(
+        self,
+        code,
+        done_message,
+        then=None,
+        device_command=False,
+        on_failure=None,
+    ):
+        if code == 0 and device_command:
+            self._invalidate_device_snapshot()
+        if code == 0 and then is not None:
+            outcome = then()
+            if isinstance(outcome, tuple):
+                # Straight into the next command, staying busy, so the two
+                # read as one action rather than appearing to finish twice.
+                self._run(*outcome, clear=False)
+                return False
+            done_message = outcome
+
+        self._set_busy(False)
+        if code == 0:
+            self._toast(done_message)
+        else:
+            if on_failure is None:
+                self._toast(f"Failed (exit {code}) - see Details")
+            self.details_toggle.set_active(True)
+            self.sync_revealer.set_reveal_child(True)
+            if on_failure is not None:
+                on_failure()
+        self.sync_total = 0
+        self.refresh()
+        self._rescan_library()
+        return False
+
+    # ------------------------------------------------------- device actions
+
+    def on_remove_track(self, _button, relpath):
+        if not self.mount_point or self.device_identity is None:
+            self._toast("Connect an iPod before removing tracks")
+            return
+        name = self.track_names.get(relpath, Path(relpath).name)
+        dialog = Adw.AlertDialog(
+            heading="Remove this track?",
+            body=(
+                f"{name}\n\n"
+                "It is deleted from the iPod and the database is rebuilt. "
+                "Any copy in your own music folder is left alone."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Remove")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect(
+            "response", self._on_remove_response, relpath, self.device_identity
+        )
+        dialog.present(self)
+
+    def _on_remove_response(self, _dialog, response, relpath, device_identity):
+        if response != "remove":
+            return
+        if not self._confirmed_device(device_identity):
+            return
+        self._run(
+            [
+                str(REMOVE_SCRIPT),
+                "--ipod",
+                self.mount_point,
+                "--yes",
+                # Track names are whatever the tags said, dashes included.
+                "--",
+                relpath,
+            ],
+            "Removing track",
+            "Track removed",
+        )
+
+    def on_rebuild(self, _button):
+        # --rebuild-only rather than passing the Music directory as a source,
+        # which would copy the iPod's own library into a subfolder of itself.
+        self._run(
+            [
+                str(SYNC_SCRIPT),
+                "--ipod",
+                self.mount_point,
+                "--rebuild-only",
+                *self._sync_options(),
+            ],
+            "Rebuilding database",
+            "Database rebuilt",
+        )
+
+    def on_wipe(self, _button):
+        if not self.mount_point or self.device_identity is None:
+            self._toast("Connect an iPod before wiping it")
+            return
+        # The count the window is already showing, rather than a fresh walk of
+        # the device: a click that has to wait on USB before its dialog opens
+        # reads as the button having missed.
+        total = self.device_track_count
+        dialog = Adw.AlertDialog(
+            heading="Wipe this iPod?",
+            body=(
+                f"All {total} track(s) will be removed from the device.\n\n"
+                "Backing up first is strongly recommended: iPod filenames are "
+                "scrambled codes, and the database that maps them back to real "
+                "song titles is deleted too."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("wipe", "Wipe Without Backup")
+        dialog.add_response("backup", "Back Up and Wipe")
+        dialog.set_response_appearance("wipe", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_response_appearance("backup", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("backup")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_wipe_response, self.device_identity)
+        dialog.present(self)
+
+    def _confirmed_device(self, device_identity):
+        if resolve_device(self.mount_point, device_identity) is None:
+            self._toast("The connected iPod changed, so the action was cancelled")
+            return False
+        return True
+
+    def _on_wipe_response(self, _dialog, response, device_identity):
+        if response == "cancel":
+            return
+        if not self._confirmed_device(device_identity):
+            return
+        argv = [str(WIPE_SCRIPT), "--ipod", self.mount_point, "--yes"]
+        if response == "backup":
+            target = Path(os.path.expanduser("~"), "ipod-backup")
+            argv += ["--backup", str(target)]
+        self._run(argv, "Wiping", "iPod wiped")
+
+    def on_eject(self, _button):
+        expected_identity = self.device_identity
+        device = resolve_device(
+            self.mount_point, expected_identity, require_block=True
+        )
+        if device is None:
+            self._toast("Could not determine the device to unmount")
+            return
+
+        self._set_busy(True, "Ejecting")
+
+        def worker():
+            with DEVICE_IO_LOCK.write():
+                current = resolve_device(
+                    self.mount_point, expected_identity, require_block=True
+                )
+                if current is not None:
+                    ok, message = udisks_filesystem_call(
+                        current.block_device, "Unmount"
+                    )
+            if current is None:
+                GLib.idle_add(
+                    self._finish_dbus,
+                    False,
+                    "",
+                    "the connected iPod changed; eject was cancelled",
+                )
+                return
+            GLib.idle_add(
+                self._finish_dbus, ok, "Safe to unplug", message, True
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_dbus(
+        self, ok, success_message, error_message, invalidate_snapshot=False
+    ):
+        self._set_busy(False)
+        self._toast(success_message if ok else f"Failed: {error_message}")
+        if ok and invalidate_snapshot:
+            self._invalidate_device_snapshot()
+        self.refresh()
+        return False
+
+    def on_mount_clicked(self, _button):
+        """Mount an iPod that is plugged in but not mounted."""
+        candidates = unmounted_vfat_devices()
+        if not candidates:
+            self._toast("No unmounted iPod found")
+            return
+
+        self._set_busy(True, "Mounting")
+
+        def worker():
+            with DEVICE_IO_LOCK.write():
+                for device in candidates:
+                    ok, message = udisks_filesystem_call(device, "Mount")
+                    if not ok:
+                        continue
+                    if Path(message, "iPod_Control").is_dir():
+                        GLib.idle_add(self._finish_dbus, True, "iPod mounted", "")
+                        return
+                    # Something else on the bus. Put it back as it was rather
+                    # than leaving an unrelated volume mounted.
+                    udisks_filesystem_call(device, "Unmount")
+            GLib.idle_add(
+                self._finish_dbus, False, "", "no iPod among the connected volumes"
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
