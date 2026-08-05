@@ -636,7 +636,10 @@ The GUI is a package, `ipod_gui/`, launched by `ipod-gui.py` and split by what e
 | `theme.py` | The design's token sheet, as the one stylesheet the window loads |
 | `widgets.py` | The widgets more than one view builds, so they look the same in each |
 | `player.py` | GStreamer, and the pipeline behind the now-playing bar |
-| `window.py` | The window: every view, and the work behind each of them |
+| `library_view.py`, `search_view.py`, `playlist_view.py`, `playback_view.py`, `device_view.py` | The five view mixins: their widgets, repaints, and view-specific work |
+| `queue.py` | The mixin that stages tracks and playlists for the next sync |
+| `commands.py` | The mixin that runs device-changing scripts and reports their progress |
+| `window.py` | The window chrome, shared state, and assembly order for the mixins |
 | `app.py` | The `Adw.Application` the launcher starts |
 
 `ipod_gui/__init__.py` lists them innermost first, and every module imports only from ones earlier in that list.
@@ -678,7 +681,7 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 
-The GUI checks call its methods unbound against a stand-in, so they exercise the real logic without needing a display.
+Most GUI checks call its methods unbound against a stand-in, so they exercise the real logic without needing a display.
 PyGObject still has to be importable, because the package imports it at load time.
 They reach the code through `tests/harness.py` rather than importing `ipod_gui` themselves, because replacing a helper with a stand-in has to reach every module that imported it: patching one binding of a name and leaving the rest would quietly run the check against the real implementation, which passes and proves nothing.
 The harness writes a replacement to every module holding that name, and refuses to write one no module holds, so a helper that moves or is renamed breaks the check that depended on it instead.
@@ -690,7 +693,10 @@ Thumbnail fetching is checked against a local HTTP server rather than YouTube, s
 Symlinked sources are checked on both sides of the same folder, because the script and the GUI walk it separately and the count the GUI produces is what drives the sync progress bar: `tests/gui-scan-paths.py` prints what the scan finds, and the suite holds it against what the sync actually copied.
 That folder carries every case the walk has to survive - a linked track, a linked folder, a link out of the tree, a dangling link, and a folder that links back to its own parent - since `os.walk` has no loop detection of its own and would otherwise recurse through the last one forever.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, and a Python syntax and import check on every push and pull request.
+`tests/gui-window-build.py` is the display-backed exception: it constructs the real window so a missing builder call, bad widget parent, or incomplete view stack cannot pass behind the stand-ins. Run it under a desktop session or with `xvfb-run -a`; it fails instead of skipping when no display is available.
+`tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
+
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, a Python syntax and import check, and the real-window check under xvfb on every push and pull request.
 
 ## Credits
 

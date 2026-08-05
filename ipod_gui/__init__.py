@@ -15,6 +15,11 @@ This was one module until it outgrew being readable as one. The split follows
 what each part talks to: the shell scripts, the device over USB, YouTube, the
 tag reader in the other interpreter, the design's tokens, the widgets shared
 between views, and the window that assembles them.
+
+The window itself then outgrew being one module too. It stays one
+Adw.ApplicationWindow, because its views share a stack, a toast overlay and a
+set of bottom bars, so it is split into mixins instead: one per view, one for
+what is staged for the next sync, and one for the scripts that carry it out.
 """
 
 import gi
@@ -28,11 +33,18 @@ gi.require_version("Adw", "1")
 # submodule directly gets that pinning through this file either way.
 from . import (  # noqa: E402
     app,
+    commands,
     config,
     device,
+    device_view,
+    library_view,
     model,
+    playback_view,
     player,
+    playlist_view,
     previews,
+    queue,
+    search_view,
     shell,
     tags,
     text,
@@ -58,6 +70,15 @@ __all__ = [
     "theme",
     "widgets",
     "player",
+    # The window's mixins. None of them imports another, so their order among
+    # themselves is only the order the window reads in.
+    "library_view",
+    "search_view",
+    "playlist_view",
+    "playback_view",
+    "device_view",
+    "queue",
+    "commands",
     "window",
     "app",
 ]

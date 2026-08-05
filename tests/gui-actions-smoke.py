@@ -560,6 +560,10 @@ class VisibleView:
 
 class RefreshWindow:
     _resolve_current_album = gui.IpodWindow._resolve_current_album
+    # The real accessor, not a stand-in for it: which view is on screen is what
+    # decides whether a repaint reopens album detail, so a fake that answered
+    # differently would be checking itself.
+    current_view = gui.IpodWindow.current_view
 
     def __init__(self, visible):
         old_track = gui.Track("old.mp3", {"album": "Album"}, gui.STATE_LIBRARY)
@@ -1641,6 +1645,8 @@ class SearchEntry:
 class SearchWindow:
     """Enough of the window to drive the search without a display."""
 
+    current_view = gui.IpodWindow.current_view
+
     def __init__(self, unavailable=None):
         self.search_entry = SearchEntry()
         self.search_query = ""
@@ -1760,7 +1766,6 @@ assert navigating.search_query == "" and navigating.search_results == []
 # runs has to name every queued path and nothing else. Copying the whole
 # library instead would fill a 2GB device from a single click.
 queue_window = FakeWindow()
-queue_window.sync_files = []
 queue_window.sync_total = 0
 sync_source = Path(tempfile.mkdtemp()) / "Music"
 sync_source.mkdir()
@@ -2168,7 +2173,6 @@ assert finish_window.sync_total == 0
 idle_window = FakeWindow()
 idle_window.pending = set()
 idle_window.pending_sources = {}
-idle_window.sync_files = []
 idle_window.sync_total = 0
 gui.IpodWindow.on_sync_pending(idle_window, None)
 assert idle_window.commands == [], idle_window.commands
