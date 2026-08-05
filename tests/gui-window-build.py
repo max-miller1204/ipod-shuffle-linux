@@ -35,12 +35,19 @@ from harness import gui  # noqa: E402
 import gi  # noqa: E402
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("Gdk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
-if not Gtk.init_check():
+# Gtk.init_check() answers True with no display at all - it reports that GTK
+# itself started, not that it found a windowing system - so the display is
+# asked for directly. Without this the first symptom is four Gtk-CRITICAL
+# lines and a RuntimeError from deep inside a constructor, which reads as the
+# window being broken rather than as the machine having no screen.
+Gtk.init_check()
+if Gdk.Display.get_default() is None:
     raise SystemExit(
-        "no display: run this under xvfb-run, or on a desktop session"
+        "no display: run this under `xvfb-run -a`, or on a desktop session"
     )
 
 # Detection is gui-detection-smoke's subject; here it only has to be quick and
