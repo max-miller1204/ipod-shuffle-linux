@@ -31,6 +31,7 @@ from .previews import cached_preview_path
 from .model import local_search_matches
 from .widgets import (
     ELLIPSIZE_END,
+    clear_children,
     fill_tracks,
     label,
     make_cover,
@@ -320,11 +321,7 @@ class SearchViewMixin:
         quietly erase it.
         """
         self.search_add_buttons = []
-        child = self.search_youtube_rows.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.search_youtube_rows.remove(child)
-            child = nxt
+        clear_children(self.search_youtube_rows)
 
         if self.search_loading:
             for _ in range(YOUTUBE_SEARCH_RESULTS):

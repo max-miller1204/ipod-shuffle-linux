@@ -31,6 +31,20 @@ PLAYLIST_ROW_COVER = 32
 TRACK_PAGE_WIDTH = 900
 
 
+def clear_children(container):
+    """Empty a container, one child at a time.
+
+    The next child is held before this one is removed: a widget's sibling links
+    go with it when it leaves, so the loop that reads get_next_sibling
+    afterwards clears the first child and stops.
+    """
+    child = container.get_first_child()
+    while child is not None:
+        nxt = child.get_next_sibling()
+        container.remove(child)
+        child = nxt
+
+
 def cover_pixel_size(width, height, size):
     """How large to draw artwork so it fills a square of this size.
 
@@ -338,11 +352,7 @@ def track_list_view(window, on_reorder):
 
     def bind(_factory, item):
         row = item.get_child()
-        child = row.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            row.remove(child)
-            child = nxt
+        clear_children(row)
         entry = item.get_item()
         # Which playlist is on screen is read at bind time rather than captured
         # when the view was built, because one view shows every playlist in

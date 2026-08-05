@@ -33,6 +33,7 @@ from .widgets import (
     ALBUM_COVER,
     ELLIPSIZE_END,
     TRACK_PAGE_WIDTH,
+    clear_children,
     fill_tracks,
     label,
     make_cover,
@@ -440,11 +441,7 @@ class LibraryViewMixin:
     def _populate_albums(self):
         if not self._library_ready:
             return
-        child = self.album_flow.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.album_flow.remove(child)
-            child = nxt
+        clear_children(self.album_flow)
 
         by_artist = self.group_mode.get_selected() == 1
         collections = self.library.collections(by_artist)
@@ -543,11 +540,7 @@ class LibraryViewMixin:
 
     def _show_album(self, album):
         self.current_album = album
-        child = self.album_art_holder.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.album_art_holder.remove(child)
-            child = nxt
+        clear_children(self.album_art_holder)
         self.album_art_holder.append(
             make_cover(album.art, 180, f"{album.artist}/{album.title}")
         )
@@ -562,11 +555,7 @@ class LibraryViewMixin:
             f"{album.on_ipod_count} of {len(tracks)} on iPod"
         )
 
-        child = self.album_actions.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.album_actions.remove(child)
-            child = nxt
+        clear_children(self.album_actions)
         missing = [t for t in tracks if not t.on_ipod]
         if missing and self.mount_point:
             add_all = Gtk.Button(label=f"Queue {plural(len(missing), 'track')}")

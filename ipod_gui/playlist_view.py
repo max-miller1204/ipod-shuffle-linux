@@ -60,6 +60,7 @@ from .widgets import (
     PLAYLIST_ROW_COVER,
     PLAYLIST_TILE_COVER,
     TRACK_PAGE_WIDTH,
+    clear_children,
     fill_tracks,
     label,
     make_cover,
@@ -251,11 +252,7 @@ class PlaylistViewMixin:
     def _populate_playlist_rail(self):
         self._load_local_playlists()
         for container in (self.playlist_rail, self.playlist_list):
-            child = container.get_first_child()
-            while child is not None:
-                nxt = child.get_next_sibling()
-                container.remove(child)
-                child = nxt
+            clear_children(container)
 
         shown = self._shown_playlists()
         for playlist in shown:
@@ -300,11 +297,7 @@ class PlaylistViewMixin:
         return button
 
     def _populate_playlist_shelf(self):
-        child = self.playlist_shelf.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.playlist_shelf.remove(child)
-            child = nxt
+        clear_children(self.playlist_shelf)
 
         for playlist in self._shown_playlists()[:5]:
             tile = Gtk.Button()
@@ -384,11 +377,7 @@ class PlaylistViewMixin:
             )
 
     def _fill_playlist_note(self, playlist):
-        child = self.playlist_voice_note.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.playlist_voice_note.remove(child)
-            child = nxt
+        clear_children(self.playlist_voice_note)
 
         state = self._playlist_state(playlist)
         self.playlist_voice_note.append(state_dot(state))
@@ -419,11 +408,7 @@ class PlaylistViewMixin:
         the two you reach for least, and the ⋯ is where this window already
         keeps what a row can do.
         """
-        child = self.playlist_actions.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.playlist_actions.remove(child)
-            child = nxt
+        clear_children(self.playlist_actions)
 
         def action(text, handler, *classes, tooltip=None, sensitive=True):
             button = Gtk.Button(label=text)
@@ -502,11 +487,7 @@ class PlaylistViewMixin:
 
     def _clear_playlist_detail(self):
         self.playlist_heading.set_text("No playlists")
-        child = self.playlist_voice_note.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.playlist_voice_note.remove(child)
-            child = nxt
+        clear_children(self.playlist_voice_note)
         self.playlist_voice_note.append(
             label(
                 f"Playlists you make are kept in {home_relative(PLAYLIST_LIBRARY)}, "
@@ -516,11 +497,7 @@ class PlaylistViewMixin:
                 wrap=True,
             )
         )
-        child = self.playlist_actions.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.playlist_actions.remove(child)
-            child = nxt
+        clear_children(self.playlist_actions)
         fill_tracks(self.playlist_tracks, [])
         self.playlist_body.set_visible_child_name("empty")
         self.playlist_empty.set_text("Press ＋ New to make one.")
@@ -653,16 +630,28 @@ class PlaylistViewMixin:
         return popover
 
     def _device_only_track(self, track):
-        """Whether this track exists on the iPod and nowhere on this computer.
+        """Whether this track names nothing on this computer to list.
 
-        Its path is then a file under the mount point, and writing that into a
-        playlist would ask the next sync to copy the device's own files back
-        onto itself under scrambled names.
+        Two shapes of the same thing. Its path is a file under the mount point,
+        and writing that into a playlist would ask the next sync to copy the
+        device's own files back onto itself under scrambled names. Or it is not
+        a path on this computer at all: a device playlist stores its entries
+        relative to the iPod's music folder, and a row for one the device scan
+        has not resolved - a stale line, or every line until the scan finishes
+        - carries that bare relative name and nothing else. Written into a
+        playlist here it would be resolved against the playlist folder, find
+        nothing, and be dropped by the next sync without a word.
         """
+        try:
+            path = Path(track.path)
+        except TypeError:
+            return False
+        if not path.is_absolute():
+            return True
         if not self.mount_point:
             return False
         try:
-            return Path(track.path).is_relative_to(Path(self.mount_point))
+            return path.is_relative_to(Path(self.mount_point))
         except (TypeError, ValueError):
             return False
 
@@ -698,12 +687,19 @@ class PlaylistViewMixin:
             if track.state == STATE_PREVIEW and not self._keep_preview(track):
                 continue
             paths.append(track.path)
+        # An album holds what is only on the device beside what is here, and
+        # Add to playlist takes the whole record, so a partial refusal is the
+        # ordinary case rather than the corner one: counting only what landed
+        # would report adding an album that arrived three tracks short.
+        refused = (
+            f" · {plural(device_only, 'track')} only on the iPod, with no copy "
+            "here to add"
+            if device_only
+            else ""
+        )
         if not paths:
             if device_only:
-                self._toast(
-                    f"{plural(device_only, 'track')} only on the iPod, with no "
-                    f"copy here to add to {name}"
-                )
+                self._toast(f"Nothing added to {name}{refused}")
             return
 
         added = add_entries(playlist.path, paths)
@@ -711,10 +707,10 @@ class PlaylistViewMixin:
             self._toast(f"Could not write {name}")
             return
         if not added:
-            self._toast(f"Already in {name}")
+            self._toast(f"Already in {name}{refused}")
             return
         self._after_playlist_change(
-            name, f"{plural(added, 'track')} added to {name}"
+            name, f"{plural(added, 'track')} added to {name}{refused}"
         )
 
     def _remove_track_from_playlist(self, name, track):

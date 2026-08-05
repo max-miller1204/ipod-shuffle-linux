@@ -23,7 +23,7 @@ from .text import home_relative, human_size, plural
 from .tags import scan_tracks
 from .device import DEVICE_IO_LOCK, probe_device
 from .model import Track
-from .widgets import ELLIPSIZE_END, StorageMeter, label
+from .widgets import ELLIPSIZE_END, StorageMeter, clear_children, label
 
 
 class DeviceViewMixin:
@@ -530,11 +530,7 @@ class DeviceViewMixin:
             meter.set_fractions(0, 0, False)
         self._set_settings_figures(None, 0, 0, False)
 
-        child = self.device_banner.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.device_banner.remove(child)
-            child = nxt
+        clear_children(self.device_banner)
         warning = label(message, "sf-caption", wrap=True, hexpand=True)
         warning.set_margin_start(11)
         warning.set_margin_top(10)
@@ -655,11 +651,7 @@ class DeviceViewMixin:
         )
 
     def _set_settings_figures(self, usage, queued_bytes, total_tracks, over):
-        child = self.settings_figures.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.settings_figures.remove(child)
-            child = nxt
+        clear_children(self.settings_figures)
 
         def figure(value, suffix, *classes):
             box = Gtk.Box(spacing=5)
@@ -828,11 +820,7 @@ class DeviceViewMixin:
     # -------------------------------------------------------- music folders
 
     def _populate_folders(self):
-        child = self.folder_list.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.folder_list.remove(child)
-            child = nxt
+        clear_children(self.folder_list)
 
         counts = {}
         for track in self.library.tracks:

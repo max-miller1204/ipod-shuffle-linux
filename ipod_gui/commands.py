@@ -28,7 +28,7 @@ from .device import (
     udisks_filesystem_call,
     unmounted_vfat_devices,
 )
-from .widgets import ELLIPSIZE_END, label
+from .widgets import ELLIPSIZE_END, clear_children, label
 
 
 class CommandsMixin:
@@ -192,11 +192,7 @@ class CommandsMixin:
 
     def _clear_log(self):
         self.log_view.get_buffer().set_text("")
-        child = self.sync_file_list.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.sync_file_list.remove(child)
-            child = nxt
+        clear_children(self.sync_file_list)
 
     def on_copy_log(self, _button):
         buf = self.log_view.get_buffer()

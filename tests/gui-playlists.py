@@ -478,6 +478,19 @@ assert window._device_only_track(device_track), "a device file was offered"
 assert not window._device_only_track(track_for(first))
 assert not FakeWindow(mount_point=None)._device_only_track(device_track)
 
+# A device playlist stores its entries relative to the iPod's music folder, so
+# a row for one the device scan has not resolved carries that bare name and
+# nothing else. It is no more addable than a resolved device track: written
+# into a playlist here it would be resolved against the playlist folder, find
+# nothing, and be dropped by the next sync without a word.
+unresolved = gui.Track(
+    "F00/CCCC.mp3", {"title": "CCCC"}, gui.STATE_IPOD, relpath="F00/CCCC.mp3"
+)
+assert window._device_only_track(unresolved), "a relative device entry was offered"
+assert FakeWindow(mount_point=None)._device_only_track(unresolved), (
+    "unplugging the iPod made a relative entry addable"
+)
+
 # The album page adds a whole record at once and a search result arrives from
 # somewhere else again, so the guard is at the one door they all come through
 # rather than beside the menu that happened to have it first.
@@ -492,6 +505,45 @@ album_window._add_tracks_to_playlist("Record", [device_track])
 assert gui.read_playlist_entries(PLAYLISTS / "Record.m3u") == [str(first)]
 assert "only on the iPod" in album_window.toasts[-1], album_window.toasts
 gui.delete_local_playlist(PLAYLISTS / "Record.m3u")
+
+# The rows a device playlist produces are what the ⋯ on one offers, so they go
+# through the same door - both the entry the device scan resolved and the one
+# it has not.
+device_rows_window = FakeWindow()
+device_rows_window.library_tracks([first])
+new_playlist(device_rows_window, "Mine")
+device_rows_window.playlists = [("Genres", ["F00/AAAA.mp3", "F00/CCCC.mp3"])]
+device_rows_window.device_tracks = [device_track]
+offered = device_rows_window._playlist_tracks(
+    device_rows_window._shown_playlists()[-1]
+)
+assert [row.path for row in offered] == [device_track.path, "F00/CCCC.mp3"], offered
+device_rows_window._add_tracks_to_playlist("Mine", offered)
+assert gui.read_playlist_entries(PLAYLISTS / "Mine.m3u") == [], (
+    gui.read_playlist_entries(PLAYLISTS / "Mine.m3u")
+)
+assert "only on the iPod" in device_rows_window.toasts[-1], (
+    device_rows_window.toasts
+)
+gui.delete_local_playlist(PLAYLISTS / "Mine.m3u")
+
+# An album holds what is only on the device beside what is here, so a refusal
+# of part of it has to be said either way: a toast counting only what landed
+# reports adding a record that arrived short.
+partial = FakeWindow()
+partial.library_tracks([first, second])
+new_playlist(partial, "Mixed")
+partial._add_tracks_to_playlist(
+    "Mixed", [track_for(first), device_track, track_for(second)]
+)
+assert gui.read_playlist_entries(PLAYLISTS / "Mixed.m3u") == [
+    str(first),
+    str(second),
+], gui.read_playlist_entries(PLAYLISTS / "Mixed.m3u")
+assert partial.toasts[-1].startswith(
+    "2 tracks added to Mixed · 1 track only on the iPod"
+), partial.toasts
+gui.delete_local_playlist(PLAYLISTS / "Mixed.m3u")
 
 # Renaming moves the file and, because the name is what the device says out
 # loud, removes the copy the iPod knows under the old one.
