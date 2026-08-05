@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 61,
+  "revision": 72,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -143,10 +143,40 @@
     {
       "id": "wipe-the-ipod-and-redownload-everything",
       "title": "wipe the ipod and redownload everything",
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-04T20:00:44.881Z",
-      "updatedAt": "2026-08-05T04:01:15.192Z",
-      "group": "Sync"
+      "updatedAt": "2026-08-05T16:35:46.838Z",
+      "group": "Sync",
+      "completedAt": "2026-08-05T16:35:46.838Z"
+    },
+    {
+      "id": "add-queued-filter-and-symbol-on-library",
+      "title": "add queued filter and symbol on library page",
+      "status": "open",
+      "createdAt": "2026-08-05T16:04:11.221Z",
+      "updatedAt": "2026-08-05T16:04:11.221Z"
+    },
+    {
+      "id": "add-covers-to-playlists",
+      "title": "Add covers to playlists",
+      "status": "open",
+      "createdAt": "2026-08-05T16:06:26.195Z",
+      "updatedAt": "2026-08-05T16:06:26.195Z"
+    },
+    {
+      "id": "fix-unknown-album-on-every-song-import",
+      "title": "fix \"unknown album\" on every song import",
+      "status": "open",
+      "createdAt": "2026-08-05T16:10:59.459Z",
+      "updatedAt": "2026-08-05T16:35:25.763Z",
+      "description": "Why does every song imported get put into an album?\n\nAlso why do the sync options not apply when i add a song from youtube? they keep resetting.\n\nFor example,\n\nI try to set playlist grouping and it always goes back to none"
+    },
+    {
+      "id": "delete-from-library-button",
+      "title": "delete from library button",
+      "status": "open",
+      "createdAt": "2026-08-05T16:38:43.375Z",
+      "updatedAt": "2026-08-05T16:38:43.375Z"
     }
   ],
   "retiredIds": [
