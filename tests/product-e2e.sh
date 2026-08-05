@@ -1437,6 +1437,74 @@ test -s "$PLAYLIST_IPOD/iPod_Control/Music/Neil Young/Heart of Gold.mp3"
 grep -Fq 'the songs they listed stay' "$EVIDENCE_DIR/playlist-byname-delete.txt"
 grep -Fq 'Rebuilding iTunesSD database' "$EVIDENCE_DIR/playlist-byname-delete.txt"
 
+# A playlist made in the GUI is a file the GUI writes and the sync reads, so
+# the two halves are checked against each other rather than each against its
+# own idea of the format. tests/gui-playlists.py covers making and editing one;
+# this takes a list built by that same code onto a device.
+GUI_PLAYLISTS="$TEST_ROOT/gui-playlists"
+mkdir -p "$GUI_PLAYLISTS"
+/usr/bin/python3 - "$GUI_PLAYLISTS" "$PLAYLIST_LIB" <<PY > "$EVIDENCE_DIR/gui-playlist-build.txt"
+import sys
+sys.path.insert(0, "$ROOT")
+from ipod_gui.playlists import (
+    add_entries, create_local_playlist, move_entry, read_playlist_entries,
+)
+
+store, library = sys.argv[1], sys.argv[2]
+surfin = library + "/Beach Boys/Surfin.mp3"
+gold = library + "/Neil Young/Heart of Gold.mp3"
+path = create_local_playlist(store, "Gym Mix")
+print("added", add_entries(path, [surfin, gold]))
+# Dragged into a different order, which is the one thing about a playlist the
+# user arranged by hand.
+print("moved", move_entry(path, 1, 0))
+print("entries", read_playlist_entries(path))
+add_entries(create_local_playlist(store, "Emptied"), [surfin])
+PY
+
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --playlist-voiceover \
+    "$GUI_PLAYLISTS/Gym Mix.m3u" > "$EVIDENCE_DIR/gui-playlist-sync.txt" 2>&1
+
+# The order the file was left in is the order on the device: the sync copies
+# the entries as listed, so a drag in the window survives all the way onto a
+# player with no screen to reorder it from.
+diff -u <(printf '%s\n' \
+    '#EXTM3U' \
+    'iPod_Control/Music/Neil Young/Heart of Gold.mp3' \
+    'iPod_Control/Music/Beach Boys/Surfin.mp3') \
+    "$PLAYLIST_IPOD/Gym Mix.m3u"
+test -s "$PLAYLIST_IPOD/iPod_Control/Music/Beach Boys/Surfin.mp3"
+test -s "$PLAYLIST_IPOD/iPod_Control/Music/Neil Young/Heart of Gold.mp3"
+
+# Taking every song out of a playlist and syncing removes it from the device,
+# which is what the window's per-row Remove finally does once Sync is pressed.
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --playlist-voiceover \
+    "$GUI_PLAYLISTS/Emptied.m3u" > "$EVIDENCE_DIR/gui-playlist-emptied.txt" 2>&1
+test -f "$PLAYLIST_IPOD/Emptied.m3u"
+/usr/bin/python3 - "$GUI_PLAYLISTS" "$PLAYLIST_LIB" <<PY
+import sys
+sys.path.insert(0, "$ROOT")
+from ipod_gui.playlists import remove_entry
+
+store, library = sys.argv[1], sys.argv[2]
+remove_entry(store + "/Emptied.m3u", library + "/Beach Boys/Surfin.mp3")
+PY
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --playlist-voiceover \
+    "$GUI_PLAYLISTS/Emptied.m3u" >> "$EVIDENCE_DIR/gui-playlist-emptied.txt" 2>&1
+test ! -e "$PLAYLIST_IPOD/Emptied.m3u"
+grep -Fq 'removed from the device' "$EVIDENCE_DIR/gui-playlist-emptied.txt"
+# The songs it listed stay: emptying a playlist is not deleting the music.
+test -s "$PLAYLIST_IPOD/iPod_Control/Music/Beach Boys/Surfin.mp3"
+
+/usr/bin/python3 "$ROOT/tests/gui-playlists.py" \
+    2> "$EVIDENCE_DIR/gui-playlists.txt"
+
 /usr/bin/python3 "$ROOT/tests/gui-actions-smoke.py" \
     > "$EVIDENCE_DIR/gui-actions.json"
 
@@ -1756,7 +1824,10 @@ printf '%s\n' \
     "PASS: uppercase playlist extensions were listed, pruned, backed up, and cleared" \
     "PASS: a playlist was deleted by name, keeping every song it listed" \
     "PASS: double-dot, extension-like M3U, and root PLS names deleted safely" \
-    "PASS: GUI add-playlist named the device, options and file, and switched spoken names on" \
+    "PASS: a playlist the GUI store wrote synced in the order it was dragged into" \
+    "PASS: emptying a GUI playlist removed it from the device and kept its songs" \
+    "PASS: GUI playlists were made, named, edited, moved between and deleted" \
+    "PASS: GUI playlist queueing staged the list itself alongside its tracks" \
     "PASS: GUI playlist rows parsed the device lists and removal mapped to the script" \
     "PASS: GUI removal and YouTube commands named the device, options and paths" \
     "PASS: fetch requested playable MP3 with tags and vfat-safe filenames" \

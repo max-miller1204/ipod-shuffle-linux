@@ -289,11 +289,13 @@ class DeviceViewMixin:
         self.add_button.connect("clicked", self.on_add_music)
         actions.append(self.add_button)
 
-        self.playlist_button = Gtk.Button(label="Add playlist file…")
+        self.playlist_button = Gtk.Button(label="Import playlist file…")
         self.playlist_button.add_css_class("sf-button")
-        self.playlist_button.connect("clicked", self.on_add_playlist)
-        if self.playlist_unavailable:
-            self.playlist_button.set_tooltip_text(self.playlist_unavailable)
+        self.playlist_button.set_tooltip_text(
+            "Adopt an M3U or PLS another program wrote. Making one needs "
+            "nothing but a name: use ＋ New under Playlists."
+        )
+        self.playlist_button.connect("clicked", self.on_import_playlist)
         actions.append(self.playlist_button)
 
         self.youtube_button = Gtk.Button(label="Add from YouTube…")
@@ -619,9 +621,11 @@ class DeviceViewMixin:
             and not self.discovering_sources
         )
         self.add_button.set_sensitive(queue_enabled)
-        self.playlist_button.set_sensitive(
-            queue_enabled and self.speech_engine_available
-        )
+        # Making and importing a playlist writes a file in a folder of your
+        # own, so neither waits for an iPod or for a speech engine. What those
+        # are needed for is putting one on the device, which the playlist's own
+        # page says in place of disabling the way you make it.
+        self.playlist_button.set_sensitive(not self.busy)
         self.youtube_button.set_sensitive(
             queue_enabled and not self.youtube_unavailable
         )
@@ -633,9 +637,7 @@ class DeviceViewMixin:
         for button in self.search_add_buttons:
             button.set_sensitive(downloadable)
             button.set_tooltip_text(self._youtube_download_tooltip())
-        self.new_playlist_button.set_sensitive(
-            queue_enabled and self.speech_engine_available
-        )
+        self.new_playlist_button.set_sensitive(not self.busy)
         self.rebuild_button.set_sensitive(enabled)
         self.wipe_button.set_sensitive(enabled)
         self.eject_button.set_sensitive(enabled)

@@ -707,6 +707,12 @@ assert identity_window.pending_sources == {}, identity_window.pending_sources
 assert identity_window.toasts and "different iPod" in identity_window.toasts[-1]
 
 # ----------------------------------------------------------------- playlist
+#
+# What a playlist costs the queue: one source holding the list itself and every
+# track it names. The file is a member too, so an emptied playlist is still a
+# queued change - the sync is what removes the device's copy of it.
+# tests/gui-playlists.py covers making and editing the list; this is the seam
+# between a playlist and the sync.
 
 playlist_window = FakeWindow()
 playlist_root = Path(tempfile.mkdtemp())
@@ -722,7 +728,7 @@ playlist_window.library.tracks = [
     )
 ]
 playlist_window._merge_states()
-gui.IpodWindow._add_playlist(playlist_window, playlist_path)
+playlist_window._queue_playlist(playlist_path, show_toast=False)
 
 assert playlist_window.commands == [], playlist_window.commands
 assert playlist_window.pending_sources == {
@@ -732,16 +738,21 @@ assert playlist_window.pending == {
     str(playlist_path),
     str(playlist_track),
 }, playlist_window.pending
-# A playlist that cannot speak its name cannot be found again on a screenless
-# device, so adding one switches the spoken names on rather than warning later.
-assert playlist_window.playlist_voiceover.active, "adding a playlist left voiceover off"
+# One change to copy and one list to write, rather than two tracks: the m3u is
+# not audio, so it counts as the playlist change and not as a file to play.
+assert playlist_window._pending_change_count() == 2, (
+    playlist_window._pending_change_count()
+)
+assert [t.path for t in playlist_window._pending_copy_tracks()] == [
+    str(playlist_track)
+]
 
-silent_window = FakeWindow()
-silent_window.speech_engine_available = False
-gui.IpodWindow._add_playlist(silent_window, playlist_path)
-assert not silent_window.playlist_voiceover.active, "voiceover flipped without an engine"
-assert not silent_window.commands, "a playlist was synced without spoken names"
-assert silent_window.toasts == ["No speech engine installed"], silent_window.toasts
+emptied = playlist_root / "Emptied.m3u"
+emptied.write_text("#EXTM3U\n", encoding="utf-8")
+playlist_window._queue_playlist(emptied, show_toast=False)
+assert playlist_window.pending_sources[str(emptied)] == {str(emptied)}, (
+    "an emptied playlist left nothing for the sync to rewrite"
+)
 
 folder_window = FakeWindow()
 folder_members = [
@@ -863,7 +874,12 @@ finally:
     gui.scan_tracks = original_scan_tracks
 
 gui.IpodWindow._set_busy(busy_window, False)
-assert not busy_window.playlist_button.sensitive, "busy reset enabled Add Playlist"
+# Making and importing a playlist writes a file in a folder of the user's own,
+# so neither waits for a speech engine - this window has none. What an engine
+# is needed for is putting a playlist on the device, which is refused when the
+# playlist is staged rather than when it is made.
+assert busy_window.playlist_button.sensitive, "importing needed a speech engine"
+assert busy_window.new_playlist_button.sensitive, "New needed a speech engine"
 assert busy_window.youtube_button.sensitive, "busy reset left YouTube disabled"
 # Nothing is queued, so there is nothing for Sync to do.
 assert not busy_window.sync_button.sensitive, "Sync offered with an empty queue"
@@ -930,50 +946,6 @@ assert not queued_window.sync_button.sensitive
 queued_window._device_snapshot_ready = True
 queued_window._update_device_controls()
 assert queued_window.sync_button.sensitive
-
-# -------------------------------------------------------- playlist removal
-
-playlist_removal = FakeWindow()
-original_volume_identity = gui.volume_identity
-gui.volume_identity = lambda _mount: playlist_removal.device_identity
-try:
-    gui.IpodWindow._on_playlist_remove_response(
-        playlist_removal,
-        None,
-        "remove",
-        "twizzy",
-        playlist_removal.device_identity,
-    )
-finally:
-    gui.volume_identity = original_volume_identity
-
-playlist_rm = playlist_removal.commands[0]
-assert playlist_rm[0].endswith("ipod-remove.sh"), playlist_rm
-assert playlist_rm[1:3] == ["--ipod", playlist_removal.mount_point], playlist_rm
-assert "--yes" in playlist_rm, playlist_rm
-assert "--playlist" in playlist_rm, playlist_rm
-assert playlist_rm[-2:] == ["--", "twizzy"], playlist_rm
-
-for answer in ("cancel", "close"):
-    quiet = FakeWindow()
-    gui.IpodWindow._on_playlist_remove_response(
-        quiet, None, answer, "twizzy", quiet.device_identity
-    )
-    assert quiet.commands == [], (answer, quiet.commands)
-
-disconnected_playlist_removal = FakeWindow()
-removed_device = disconnected_playlist_removal.device_identity
-disconnected_playlist_removal.mount_point = None
-disconnected_playlist_removal.device_identity = None
-gui.IpodWindow._on_playlist_remove_response(
-    disconnected_playlist_removal,
-    None,
-    "remove",
-    "twizzy",
-    removed_device,
-)
-assert disconnected_playlist_removal.commands == []
-assert "changed" in disconnected_playlist_removal.toasts[-1]
 
 # The rows the window shows come from the m3u files at the volume root, with
 # entries under the music folder rewritten to match the track list's keys so
@@ -2939,6 +2911,7 @@ class PreviewWindow:
     _populate_cache_card = gui.IpodWindow._populate_cache_card
     on_clear_cache = gui.IpodWindow.on_clear_cache
     _promote_preview = gui.IpodWindow._promote_preview
+    _keep_preview = gui.IpodWindow._keep_preview
     _prune_preview_cache = gui.IpodWindow._prune_preview_cache
     _forget_empty_preview_folders = staticmethod(
         gui.IpodWindow._forget_empty_preview_folders
@@ -3141,7 +3114,6 @@ print(
             "staged_sync_command": staged,
             "remove_command": removal,
             "playlist_queue_sources": sorted(playlist_window.pending_sources),
-            "playlist_remove_command": playlist_rm,
             "parsed_playlists": parsed,
             "fetch_command": fetch,
             "queued_after_fetch": sorted(window.pending_sources),

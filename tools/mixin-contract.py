@@ -55,7 +55,10 @@ SHARED_STATE = {
         "device_view", "playlist_view", "queue", "search_view",
     ),
     # The two models. Read widely and rebuilt in one place each.
-    "library": ("device_view", "library_view", "playback_view", "search_view"),
+    "library": (
+        "device_view", "library_view", "playback_view", "playlist_view",
+        "search_view",
+    ),
     "player": ("playback_view", "search_view"),
     # What the machine cannot do, worked out once at startup.
     "youtube_unavailable": ("device_view", "playback_view", "search_view"),

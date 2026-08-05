@@ -22,6 +22,13 @@ FETCH_SCRIPT = SCRIPT_DIR / "ipod-fetch.sh"
 # queues newly downloaded tracks from that folder once the download finishes.
 YOUTUBE_LIBRARY = Path.home() / "Music" / "youtube"
 
+# Playlists made in the app, one M3U each. Beside the music rather than in a
+# cache or a config directory, because these are the user's own lists: they
+# outlive this app, other music players read them, and a folder nobody can find
+# is a folder whose contents nobody can back up. Nothing scans it for audio, so
+# a playlist folder inside a music root costs the library scan nothing.
+PLAYLIST_LIBRARY = Path.home() / "Music" / "Playlists"
+
 CACHE_DIR = Path(
     os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache"
 ) / "ipod-shuffle-linux"

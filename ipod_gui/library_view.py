@@ -216,7 +216,7 @@ class LibraryViewMixin:
         box.append(header)
 
         self.album_tracks = track_column_view(
-            self, columns=("number", "title", "state", "duration", "action")
+            self, columns=("number", "title", "state", "duration", "action", "menu")
         )
         box.append(self.album_tracks)
         return scroller
@@ -574,6 +574,20 @@ class LibraryViewMixin:
             add_all.add_css_class("accent")
             add_all.connect("clicked", lambda _b, ts=missing: self._queue_tracks(ts))
             self.album_actions.append(add_all)
+        # The whole record at once, which is the one place a track-by-track ⋯
+        # menu would be tedious: an album is exactly the kind of thing a
+        # playlist is built out of.
+        to_playlist = Gtk.MenuButton(label="Add to playlist")
+        to_playlist.add_css_class("sf-button")
+        to_playlist.set_create_popup_func(
+            lambda menu, ts=tracks: menu.set_popover(
+                self._playlist_menu(
+                    "Add to playlist",
+                    lambda name: self._add_tracks_to_playlist(name, ts),
+                )
+            )
+        )
+        self.album_actions.append(to_playlist)
 
         fill_tracks(self.album_tracks, tracks)
         self.show_view("album")

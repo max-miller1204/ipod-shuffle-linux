@@ -78,6 +78,7 @@ EXPECTED = {
     "playlist_view": [
         "playlist_rail", "playlist_list", "playlist_shelf", "shelf_section",
         "playlist_tracks", "playlist_heading", "playlist_voice_note",
+        "playlist_actions", "playlist_body", "playlist_empty",
         "playlists_view", "new_playlist_button",
     ],
     "playback_view": [
@@ -146,6 +147,40 @@ def inspect(window):
             repaint()
         except Exception:  # noqa: BLE001 - any of them failing is the finding
             failures.append(f"{repaint.__name__} raised:\n{traceback.format_exc()}")
+
+    # A playlist made the way the app makes one, painted the way the app
+    # paints it. The rail, the detail and the menus are the only widgets built
+    # from data rather than at construction, so nothing else here would notice
+    # a row or a popover that cannot be built at all.
+    gui.create_local_playlist(gui.PLAYLIST_LIBRARY, "Built")
+    window._populate_playlist_rail()
+    if window.current_playlist != "Built":
+        failures.append(
+            f"a new playlist was not selected: {window.current_playlist!r}"
+        )
+    if window.playlist_heading.get_text() != "Built":
+        failures.append(
+            f"the detail shows {window.playlist_heading.get_text()!r}"
+        )
+    if window.playlist_body.get_visible_child_name() != "empty":
+        failures.append("an empty playlist did not show its empty state")
+
+    # Every popover is built as it opens rather than with the row it hangs off,
+    # so a broken one would first show up under the user's pointer.
+    track = gui.Track("/music/Artist/Song.mp3", {"title": "Song"}, gui.STATE_LIBRARY)
+    result = gui.SearchResult("Result", "Uploader", 0, "https://x.invalid/v", "v")
+    for name, build in (
+        ("track_menu", lambda: window.track_menu(track)),
+        ("track_menu in a playlist", lambda: window.track_menu(track, "Built")),
+        ("result_menu", lambda: window.result_menu(result)),
+    ):
+        try:
+            popover = build()
+        except Exception:  # noqa: BLE001 - any of them failing is the finding
+            failures.append(f"{name} raised:\n{traceback.format_exc()}")
+            continue
+        if not isinstance(popover, Gtk.Popover):
+            failures.append(f"{name} returned {popover!r}")
 
     # Closing stops the player and disowns any download; it is a mixin's job
     # now, so a split that lost the wiring would leave audio playing.

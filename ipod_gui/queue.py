@@ -83,6 +83,25 @@ class QueueMixin:
     def _pending_copy_tracks(self):
         return self._pending_accounting()[0]
 
+    def is_queued(self, source):
+        """Whether this source is already staged for the next sync.
+
+        A verb rather than letting the playlist view read the queue's own
+        bookkeeping: what is staged is this module's to know, and a playlist
+        page only needs the answer.
+        """
+        return str(source) in self.pending_sources
+
+    def unqueue_source(self, source):
+        """Drop a source from the queue, members and all.
+
+        For a playlist that has just been deleted or renamed: the file it named
+        is gone, and a sync that still held it would copy nothing under a name
+        nothing here uses any more.
+        """
+        if str(source) in self.pending_sources:
+            self._commit_queue_sources({str(source): []}, show_toast=False)
+
     def _pending_change_count(self):
         return self._pending_accounting()[1]
 
@@ -243,10 +262,16 @@ class QueueMixin:
             {track.path: [track] for track in tracks}, show_toast=True
         )
 
-    def _queue_playlist(self, path):
+    def _queue_playlist(self, path, show_toast=True):
+        """Stage a playlist file and the tracks it lists as one source.
+
+        The file itself is a member, so an emptied playlist is still a queued
+        change: the sync is what removes its copy from the device, and a queue
+        holding nothing would leave the old list there.
+        """
         tracks = [self._pending_track(item) for item in local_playlist_tracks(path)]
         tracks.append(self._pending_track(path))
-        return self._queue_sources({str(path): tracks}, show_toast=True)
+        return self._queue_sources({str(path): tracks}, show_toast=show_toast)
 
     def _unqueue_track(self, track):
         key = track.path
@@ -553,11 +578,22 @@ class QueueMixin:
             busy_message="Downloading from YouTube",
         )
 
-    def _start_youtube_download(self, url, single, busy_message, on_failure=None):
+    def _start_youtube_download(
+        self,
+        url,
+        single,
+        busy_message,
+        on_failure=None,
+        playlist=None,
+        video_id="",
+    ):
         """Fetch one link and queue whatever that run produced.
 
         Shared by the dialog and by a search result so both queue exactly the
         tracks the download reported rather than the folder it wrote into.
+        `playlist` names the playlist a result was added to, which is the one
+        case where the download is a step towards something else rather than
+        the whole of what was asked for.
         """
         # Written by the download and read when it completes, so only what this
         # run actually fetched enters the queue. Without it the whole library
@@ -579,7 +615,7 @@ class QueueMixin:
             fetch,
             busy_message,
             "Downloaded",
-            then=lambda: self._sync_downloaded(new_tracks),
+            then=lambda: self._sync_downloaded(new_tracks, playlist, video_id),
             on_failure=failed,
         ):
             # Refused before anything ran, so the list file it would have read
@@ -587,7 +623,7 @@ class QueueMixin:
             failed()
         return fetch
 
-    def _sync_downloaded(self, new_tracks):
+    def _sync_downloaded(self, new_tracks, playlist=None, video_id=""):
         """Queue what the download produced, or say why there is nothing to."""
         sources = fetched_sources(new_tracks, YOUTUBE_LIBRARY)
         try:
@@ -595,6 +631,11 @@ class QueueMixin:
         except OSError:
             pass
 
+        if playlist is not None:
+            # Adding to a playlist is what was asked for, and the playlist is
+            # what stages its own tracks, so this download does not queue
+            # anything of its own on top of that.
+            return self._add_download_to_playlist(playlist, video_id, sources)
         if not sources:
             return "Already downloaded - nothing new to add"
         queued = self._queue_paths(sources, show_toast=False)
