@@ -32,20 +32,17 @@ jobs:
       - name: Shell lint
         run: shellcheck -x ./*.sh tests/product-e2e.sh
 
+      # Architecture tooling gated at lint time, not a behavioural check.
+      - name: Mixin contract
+        run: python3 tools/mixin-contract.py
+
       # Compiling catches a syntax error in any file, and the import catches
       # what compiling cannot now that the GUI is a package: a name that moved
       # to another module and left an import behind pointing at nothing.
       - name: Python syntax
         run: |
-          python3 -m py_compile ipod-gui.py ipod_gui/*.py tests/*.py
+          python3 -m py_compile ipod-gui.py ipod_gui/*.py tests/*.py tools/*.py
           python3 -c 'import ipod_gui'
-
-      # The window is one class assembled from mixins over one self, so what
-      # they share is written down and checked rather than left to review.
-      # Needs no iPod and no display, so it gates before the suite rather than
-      # inside it.
-      - name: GUI mixin contract
-        run: python3 tests/gui-mixin-contract.py
 
       # The only check that constructs the window. Every other GUI check runs
       # methods unbound against a stand-in, so none of them would notice a

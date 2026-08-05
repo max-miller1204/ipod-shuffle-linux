@@ -3,9 +3,10 @@
 IpodWindow has to stay one Adw.ApplicationWindow - the views share a stack, a
 toast overlay and a set of bottom bars, and GTK gives a widget one parent - so
 the split is by mixin rather than by object. What each mixin owns and what it
-borrows is stated in its own docstring; tests/gui-mixin-contract.py holds them
-to it, so a method that drifts into another's state fails rather than quietly
-turning the package back into one namespace with seven filenames.
+borrows is stated in its own docstring; tools/mixin-contract.py is architecture
+tooling that holds them to it, so a method that drifts into another's state
+fails rather than quietly turning the package back into one namespace with
+seven filenames.
 
 What is left here is the part no mixin can own: the widgets every view sits
 inside, the state they all read, and the assembly order between them.
@@ -36,7 +37,7 @@ class IpodWindow(
     # Ordered as the window reads: the views first, then the queue they stage
     # into, then the commands that carry it out. No two mixins define the same
     # method, so this order documents the design rather than resolving a
-    # conflict - and tests/gui-mixin-contract.py keeps it that way.
+    # conflict - and tools/mixin-contract.py keeps it that way as tooling.
     LibraryViewMixin,
     SearchViewMixin,
     PlaylistViewMixin,

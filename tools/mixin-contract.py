@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Holds the window's mixins to the split they were made for.
+"""Architecture tool that holds the window's mixins to their intended split.
 
 IpodWindow stays one Adw.ApplicationWindow, so its parts are mixins over one
 `self` rather than objects with their own state. That is the arrangement's one
@@ -15,15 +15,20 @@ fails too, so the table cannot quietly describe a split the code has left.
 Adding to it is allowed. Doing it on purpose is the point - the table is what
 makes "these two parts share this" a decision rather than an accident.
 
-No window is created, because that would need a display; the modules are read
-as source, which is also the only way to see which module a method was written
-in rather than which one the MRO resolves it from.
+This repo tool runs at lint time rather than as a check in the test suite. No
+window is created, because that would need a display; the modules are read as
+source, which is also the only way to see which module a method was written in
+rather than which one the MRO resolves it from.
 """
 
 import ast
 import sys
+from pathlib import Path
 
-from harness import REPO, gui
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
+import ipod_gui  # noqa: E402
 
 # attribute -> the modules allowed to touch it. Ordered by how far each one
 # reaches, because that ordering is the argument for the split: three quarters
@@ -100,7 +105,7 @@ def check(condition, message):
 # the bases would otherwise be checked and never used.
 bases = [
     base.__module__.rsplit(".", 1)[1]
-    for base in gui.IpodWindow.__mro__[1:]
+    for base in ipod_gui.window.IpodWindow.__mro__[1:]
     if base.__module__.startswith("ipod_gui.")
 ]
 modules = [*bases, "window"]
@@ -185,7 +190,7 @@ for attr in sorted(set(shared) | set(SHARED_STATE)):
 # A name read but never assigned is a typo or a leftover from a move: the mixin
 # would raise the first time that line ran, which for an error path can be long
 # after the change that caused it.
-inherited = set(dir(gui.IpodWindow)) - set(home)
+inherited = set(dir(ipod_gui.window.IpodWindow)) - set(home)
 for attr, readers in sorted(reads.items()):
     check(
         attr in writes or attr in home or attr in inherited,
