@@ -20,7 +20,7 @@ Borrows from the window: `playlists` and `spoken` as the probe left them,
 `device_tracks` and `library` to resolve an entry into a track, `mount_point`,
 `device_identity`, `busy` and `speech_engine_available` to know what can reach
 the device, and `show_view`, `_run`, `_toast`, `_confirmed_device`,
-`_sync_options`, `_queue_playlist`, `is_queued`, `unqueue_source`,
+`_sync_options`, `_queue_playlists`, `is_queued`, `unqueue_source`,
 `focus_search` and `_keep_preview` to act on what an edit changed.
 """
 
@@ -680,15 +680,30 @@ class PlaylistViewMixin:
         if playlist is None:
             self._toast(f"There is no playlist called {name}")
             return
-        # A previewed file lives in a cache that gets pruned, so a playlist
-        # entry pointing into it would stop resolving without anything having
-        # been deleted on purpose. Keeping it first is what Add does elsewhere.
         paths = []
+        device_only = 0
         for track in tracks:
+            # A track that is only on the iPod has no local file to list, and
+            # its device path in a playlist would ask the next sync to copy the
+            # device's own files back onto it under scrambled names. Checked
+            # here rather than beside each menu, because a row, an album and a
+            # search result all arrive through this one door.
+            if self._device_only_track(track):
+                device_only += 1
+                continue
+            # A previewed file lives in a cache that gets pruned, so a playlist
+            # entry pointing into it would stop resolving without anything
+            # having been deleted on purpose. Keeping it first is what Add does
+            # elsewhere.
             if track.state == STATE_PREVIEW and not self._keep_preview(track):
                 continue
             paths.append(track.path)
         if not paths:
+            if device_only:
+                self._toast(
+                    f"{plural(device_only, 'track')} only on the iPod, with no "
+                    f"copy here to add to {name}"
+                )
             return
 
         added = add_entries(playlist.path, paths)
@@ -738,30 +753,47 @@ class PlaylistViewMixin:
     def _after_playlist_change(self, name, message, also=None):
         """Re-read, re-queue and repaint after an edit, then say what happened."""
         self._load_local_playlists()
-        note = self._stage_playlist(name)
-        if also is not None and also != name:
-            self._stage_playlist(also)
+        names = [name] if also is None or also == name else [name, also]
+        note = self._stage_playlists(names)
         self._populate_playlist_rail()
         self._toast(message + note)
 
     def _stage_playlist(self, name):
-        """Queue a playlist and its tracks for the next sync, if it can be.
+        return self._stage_playlists([name])
+
+    def _stage_playlists(self, names):
+        """Queue playlists and their tracks for the next sync, if they can be.
 
         Returns what to add to the toast about the edit, so one sentence says
         both what changed here and whether the device will hear about it.
         Editing with no iPod attached is not a failure: the list is kept on
         this computer either way, and syncing it is a separate, explicit act.
+
+        Both ends of a move go in one call rather than one each: staging can
+        have to read tags first, and the second reading supersedes the first,
+        so a playlist staged and then left behind would be reported as queued
+        while the queue never heard of it.
         """
-        playlist = self._local_playlist(name)
-        if playlist is None:
+        playlists = [
+            playlist
+            for playlist in (self._local_playlist(name) for name in names)
+            if playlist is not None
+        ]
+        if not playlists:
             return ""
         if not self.mount_point or self.device_identity is None:
             return ""
         # An emptied playlist still has to reach the sync, which is what
         # removes its copy from the device; one that was never there has
-        # nothing to say.
-        if not playlist.entries and not self._playlist_on_device(name):
-            self.unqueue_source(playlist.path)
+        # nothing to say, and what is already staged names a list the sync
+        # would now find nothing in.
+        wanted = []
+        for playlist in playlists:
+            if not playlist.entries and not self._playlist_on_device(playlist.name):
+                self.unqueue_source(playlist.path)
+            else:
+                wanted.append(playlist)
+        if not wanted:
             return ""
         if self.playlist_unavailable:
             return f" · not queued: {self.playlist_unavailable.lower()}"
@@ -769,7 +801,9 @@ class PlaylistViewMixin:
         # choosing a grouping under Sync options does: with no screen, the
         # spoken name is the only way to find the playlist again.
         self.playlist_voiceover.set_active(True)
-        queued = self._queue_playlist(playlist.path, show_toast=False)
+        queued = self._queue_playlists(
+            [playlist.path for playlist in wanted], show_toast=False
+        )
         if queued is None:
             return " · reading track details before queueing"
         return " · queued for sync"
@@ -956,7 +990,7 @@ class PlaylistViewMixin:
         # The queue names the file, and the file is about to be called
         # something else, so what is staged has to go with the old name.
         self.unqueue_source(playlist.path)
-        if rename_local_playlist(PLAYLIST_LIBRARY, old_name, new_name) is None:
+        if rename_local_playlist(playlist.path, new_name) is None:
             self._toast(f"Could not rename {old_name}")
             return
         self._load_local_playlists()
@@ -1002,11 +1036,9 @@ class PlaylistViewMixin:
 
     def _import_playlist(self, source):
         taken = [playlist.name for playlist in self._shown_playlists()]
-        path, tracks = import_playlist_file(PLAYLIST_LIBRARY, source, taken)
+        path, tracks, problem = import_playlist_file(PLAYLIST_LIBRARY, source, taken)
         if path is None:
-            self._toast(
-                "Nothing in that playlist could be found on this computer"
-            )
+            self._toast(problem)
             return
         self._load_local_playlists()
         note = self._stage_playlist(path.stem)
@@ -1062,7 +1094,7 @@ class PlaylistViewMixin:
         on_device = self._playlist_on_device(name)
         if playlist is not None:
             self.unqueue_source(playlist.path)
-            if not delete_local_playlist(PLAYLIST_LIBRARY, name):
+            if not delete_local_playlist(playlist.path):
                 self._toast(f"Could not delete {name}")
                 return
             self._load_local_playlists()

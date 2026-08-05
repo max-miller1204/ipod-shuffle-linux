@@ -98,9 +98,37 @@ class QueueMixin:
         For a playlist that has just been deleted or renamed: the file it named
         is gone, and a sync that still held it would copy nothing under a name
         nothing here uses any more.
+
+        Taken out directly rather than staged as a source holding nothing: the
+        queue outlives an unplug and a playlist can be deleted with no iPod
+        attached, so asking to queue would refuse for want of a device and
+        leave a file that is already gone staged for the next sync to fail on.
         """
-        if str(source) in self.pending_sources:
-            self._commit_queue_sources({str(source): []}, show_toast=False)
+        if self.pending_sources.pop(str(source), None) is not None:
+            self._prune_pending()
+
+    def _prune_pending(self):
+        """Forget whatever no source claims any more, and repaint.
+
+        The queue is its sources: a track is staged because something staged
+        it, so dropping the last source that named one drops the track with it.
+        """
+        owned = (
+            set().union(*self.pending_sources.values())
+            if self.pending_sources
+            else set()
+        )
+        self.pending.intersection_update(owned)
+        self.pending_records = {
+            path: record
+            for path, record in self.pending_records.items()
+            if path in self.pending
+        }
+        if not self.pending_sources:
+            self.pending_device_identity = None
+        self._merge_states()
+        self._populate_device_summary()
+        self._refresh_current_view()
 
     def _pending_change_count(self):
         return self._pending_accounting()[1]
@@ -224,22 +252,7 @@ class QueueMixin:
                 self.pending_sources[source] = members
             else:
                 self.pending_sources.pop(source, None)
-        owned = (
-            set().union(*self.pending_sources.values())
-            if self.pending_sources
-            else set()
-        )
-        self.pending.intersection_update(owned)
-        self.pending_records = {
-            path: record
-            for path, record in self.pending_records.items()
-            if path in self.pending
-        }
-        if not self.pending_sources:
-            self.pending_device_identity = None
-        self._merge_states()
-        self._populate_device_summary()
-        self._refresh_current_view()
+        self._prune_pending()
         added = max(0, self._pending_change_count() - before)
         if show_toast:
             self._toast(
@@ -262,16 +275,26 @@ class QueueMixin:
             {track.path: [track] for track in tracks}, show_toast=True
         )
 
-    def _queue_playlist(self, path, show_toast=True):
-        """Stage a playlist file and the tracks it lists as one source.
+    def _queue_playlists(self, paths, show_toast=True):
+        """Stage playlist files and the tracks they list, one source each.
 
         The file itself is a member, so an emptied playlist is still a queued
         change: the sync is what removes its copy from the device, and a queue
         holding nothing would leave the old list there.
+
+        Plural because an edit can touch two lists at once, and a queueing that
+        has to read tags supersedes the one before it: staging them one after
+        the other would cancel the first and leave it out of the queue it was
+        told it had joined.
         """
-        tracks = [self._pending_track(item) for item in local_playlist_tracks(path)]
-        tracks.append(self._pending_track(path))
-        return self._queue_sources({str(path): tracks}, show_toast=show_toast)
+        sources = {}
+        for path in paths:
+            tracks = [
+                self._pending_track(item) for item in local_playlist_tracks(path)
+            ]
+            tracks.append(self._pending_track(path))
+            sources[str(path)] = tracks
+        return self._queue_sources(sources, show_toast=show_toast)
 
     def _unqueue_track(self, track):
         key = track.path
@@ -284,22 +307,7 @@ class QueueMixin:
         for source in affected:
             members = self.pending_sources.pop(source)
             removed_directory = removed_directory or source not in members
-        owned = (
-            set().union(*self.pending_sources.values())
-            if self.pending_sources
-            else set()
-        )
-        self.pending.intersection_update(owned)
-        self.pending_records = {
-            path: record
-            for path, record in self.pending_records.items()
-            if path in self.pending
-        }
-        if not self.pending_sources:
-            self.pending_device_identity = None
-        self._merge_states()
-        self._populate_device_summary()
-        self._refresh_current_view()
+        self._prune_pending()
         if removed_directory:
             self._toast("The whole folder was removed from the queue")
 

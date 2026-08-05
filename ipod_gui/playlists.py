@@ -197,9 +197,16 @@ def create_local_playlist(root, name):
     return path if write_playlist_entries(path, []) else None
 
 
-def delete_local_playlist(root, name):
+def delete_local_playlist(path):
+    """Delete a playlist's file. True when it is gone afterwards.
+
+    Given the file rather than the name it is listed under, because a name does
+    not name a file: a Gym.M3U dropped into the folder by another program is
+    read as "Gym", and rebuilding "Gym.m3u" from that would report deleting a
+    playlist that is still sitting there.
+    """
     try:
-        local_playlist_file(root, name).unlink()
+        Path(path).unlink()
     except FileNotFoundError:
         return True
     except OSError:
@@ -207,14 +214,15 @@ def delete_local_playlist(root, name):
     return True
 
 
-def rename_local_playlist(root, old_name, new_name):
+def rename_local_playlist(path, new_name):
     """Move a playlist to a new name, returning its file or None.
 
     Refuses to land on an existing playlist, so a rename can never silently
-    swallow the list that was already called that.
+    swallow the list that was already called that. The new file is written with
+    the suffix this app owns, whatever the old one happened to be spelled.
     """
-    source = local_playlist_file(root, old_name)
-    destination = local_playlist_file(root, new_name)
+    source = Path(path)
+    destination = local_playlist_file(source.parent, new_name)
     if destination.exists() and destination != source:
         return None
     try:
@@ -225,24 +233,30 @@ def rename_local_playlist(root, old_name, new_name):
 
 
 def import_playlist_file(root, source, taken=()):
-    """Copy an M3U or PLS from elsewhere into the folder, as (path, tracks).
+    """Copy an M3U or PLS from elsewhere into the folder.
 
     The entries are resolved to absolute paths on the way in: a file:// URI, a
     Windows separator, or a path relative to wherever the list came from all
     stop meaning anything once the file has been copied somewhere else. An
     entry naming nothing on this computer is dropped rather than carried,
     because the sync would skip it anyway and every later edit would rewrite
-    it. Returns (None, 0) when there was nothing to import or nothing could be
-    written, which the caller reports rather than leaving an empty list behind.
+    it.
+
+    Returns (path, tracks, None), or (None, 0, problem) naming which of the
+    three ways this fails happened. An unreadable file and a folder that cannot
+    be written are not "nothing was found": reported as one, they send the user
+    looking through a playlist that was never the trouble.
     """
     source = Path(source)
     tracks, complete = read_local_playlist_tracks(source)
-    if not complete or not tracks:
-        return None, 0
+    if not complete:
+        return None, 0, "That playlist file could not be read"
+    if not tracks:
+        return None, 0, "Nothing in that playlist could be found on this computer"
     path = local_playlist_file(root, unique_name(source.stem, taken))
     if not write_playlist_entries(path, tracks):
-        return None, 0
-    return path, len(tracks)
+        return None, 0, f"Could not write into {path.parent}"
+    return path, len(tracks), None
 
 
 def add_entries(path, entries):

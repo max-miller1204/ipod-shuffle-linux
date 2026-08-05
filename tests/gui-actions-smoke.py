@@ -200,8 +200,9 @@ class FakeWindow:
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
     _queue_sources = gui.IpodWindow._queue_sources
     _queue_paths = gui.IpodWindow._queue_paths
-    _queue_playlist = gui.IpodWindow._queue_playlist
+    _queue_playlists = gui.IpodWindow._queue_playlists
     _unqueue_track = gui.IpodWindow._unqueue_track
+    _prune_pending = gui.IpodWindow._prune_pending
     _scan_queued_sources = gui.IpodWindow._scan_queued_sources
     _finish_pending_source_scan = gui.IpodWindow._finish_pending_source_scan
     _launch_pending_sync = gui.IpodWindow._launch_pending_sync
@@ -728,7 +729,7 @@ playlist_window.library.tracks = [
     )
 ]
 playlist_window._merge_states()
-playlist_window._queue_playlist(playlist_path, show_toast=False)
+playlist_window._queue_playlists([playlist_path], show_toast=False)
 
 assert playlist_window.commands == [], playlist_window.commands
 assert playlist_window.pending_sources == {
@@ -749,7 +750,7 @@ assert [t.path for t in playlist_window._pending_copy_tracks()] == [
 
 emptied = playlist_root / "Emptied.m3u"
 emptied.write_text("#EXTM3U\n", encoding="utf-8")
-playlist_window._queue_playlist(emptied, show_toast=False)
+playlist_window._queue_playlists([emptied], show_toast=False)
 assert playlist_window.pending_sources[str(emptied)] == {str(emptied)}, (
     "an emptied playlist left nothing for the sync to rewrite"
 )
@@ -2930,6 +2931,7 @@ class PreviewWindow:
     _merge_states = gui.IpodWindow._merge_states
     _queue_sources = gui.IpodWindow._queue_sources
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
+    _prune_pending = gui.IpodWindow._prune_pending
     _pending_accounting = gui.IpodWindow._pending_accounting
     _pending_change_count = gui.IpodWindow._pending_change_count
     _pending_track = gui.IpodWindow._pending_track

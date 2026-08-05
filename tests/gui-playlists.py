@@ -15,6 +15,7 @@ is the approach the other GUI checks use.
 
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 from harness import gui
@@ -91,17 +92,31 @@ assert gui.remove_entry(created, second)
 assert gui.read_playlist_entries(created) == [str(first)]
 assert not gui.remove_entry(created, second), "removing nothing reported a change"
 
-renamed = gui.rename_local_playlist(PLAYLISTS, "Gym", "Gym Two")
+renamed = gui.rename_local_playlist(PLAYLISTS / "Gym.m3u", "Gym Two")
 assert renamed == PLAYLISTS / "Gym Two.m3u", renamed
 assert not (PLAYLISTS / "Gym.m3u").exists()
 gui.create_local_playlist(PLAYLISTS, "Blocker")
-assert gui.rename_local_playlist(PLAYLISTS, "Gym Two", "Blocker") is None, (
+assert gui.rename_local_playlist(PLAYLISTS / "Gym Two.m3u", "Blocker") is None, (
     "a rename swallowed an existing playlist"
 )
-assert gui.delete_local_playlist(PLAYLISTS, "Blocker")
-assert gui.delete_local_playlist(PLAYLISTS, "Never existed"), (
+assert gui.delete_local_playlist(PLAYLISTS / "Blocker.m3u")
+assert gui.delete_local_playlist(PLAYLISTS / "Never existed.m3u"), (
     "deleting a playlist that is already gone was reported as a failure"
 )
+
+# A file another program dropped in the folder is adopted whatever case it
+# spelled its suffix in, so both edits act on the file that is there rather
+# than on one rebuilt from the name it is listed under: rebuilding it would
+# report deleting a playlist still sitting in the folder, and refuse to rename
+# one that is plainly there.
+shouted = PLAYLISTS / "Shouted.M3U"
+gui.write_playlist_entries(shouted, [str(first)])
+shout = {p.name: p for p in gui.local_playlists(PLAYLISTS)}["Shouted"]
+quietened = gui.rename_local_playlist(shout.path, "Quiet")
+assert quietened == PLAYLISTS / "Quiet.m3u", quietened
+assert not shouted.exists(), "the rename left the old file behind"
+assert gui.delete_local_playlist(quietened)
+assert not quietened.exists(), "a delete reported success and removed nothing"
 
 # An entry whose file has gone is kept rather than quietly dropped by the next
 # edit: an unplugged drive must not empty a playlist that mentions it.
@@ -113,7 +128,7 @@ assert gui.read_playlist_entries(survivor) == [
     "/elsewhere/unplugged.mp3",
     str(second),
 ], gui.read_playlist_entries(survivor)
-assert gui.delete_local_playlist(PLAYLISTS, "Survivor")
+assert gui.delete_local_playlist(survivor)
 
 # Importing resolves what another program wrote against wherever it wrote it,
 # because those paths stop meaning anything once the file has been copied.
@@ -130,26 +145,41 @@ foreign.write_text(
     "https://example.invalid/stream.mp3\n",
     encoding="utf-8",
 )
-imported, kept = gui.import_playlist_file(PLAYLISTS, foreign)
+imported, kept, trouble = gui.import_playlist_file(PLAYLISTS, foreign)
 assert imported == PLAYLISTS / "Road Trip.m3u", imported
 assert kept == 2, kept
+assert trouble is None, trouble
 assert gui.read_playlist_entries(imported) == [str(foreign_track), str(first)], (
     gui.read_playlist_entries(imported)
 )
 # A second import of the same file is a second playlist rather than a silent
 # overwrite of the one already there.
-again, _kept = gui.import_playlist_file(
+again, _kept, _trouble = gui.import_playlist_file(
     PLAYLISTS, foreign, [p.name for p in gui.local_playlists(PLAYLISTS)]
 )
 assert again == PLAYLISTS / "Road Trip 2.m3u", again
 empty_export = foreign_dir / "Nothing Here.m3u"
 empty_export.write_text("/gone/one.mp3\n/gone/two.mp3\n", encoding="utf-8")
-assert gui.import_playlist_file(PLAYLISTS, empty_export) == (None, 0)
+assert gui.import_playlist_file(PLAYLISTS, empty_export) == (
+    None,
+    0,
+    "Nothing in that playlist could be found on this computer",
+), gui.import_playlist_file(PLAYLISTS, empty_export)
 assert not (PLAYLISTS / "Nothing Here.m3u").exists(), (
     "an import that found nothing still left a playlist behind"
 )
-for stem in ("Road Trip", "Road Trip 2", "Gym Two"):
-    gui.delete_local_playlist(PLAYLISTS, stem)
+# The three ways an import fails are three different things to go and fix, so
+# each says which one happened rather than all of them blaming the library.
+_none, _zero, unreadable = gui.import_playlist_file(
+    PLAYLISTS, foreign_dir / "Not There.m3u"
+)
+assert "could not be read" in unreadable, unreadable
+blocked = foreign_dir / "not-a-folder"
+blocked.write_bytes(b"in the way")
+_none, _zero, unwritable = gui.import_playlist_file(blocked, foreign)
+assert "Could not write into" in unwritable, unwritable
+for playlist in gui.local_playlists(PLAYLISTS):
+    gui.delete_local_playlist(playlist.path)
 
 # The two halves of the Playlists view are matched by name, the way FAT
 # matches them: a local "Gym" and a device "gym" are one playlist.
@@ -161,8 +191,8 @@ merged = gui.merge_with_device(listed, [("gym", ["F00/AAAA.mp3"]), ("Genres", []
 assert [p.name for p in merged] == ["aardvark", "Gym", "Genres"], merged
 assert merged[1].editable, "a local playlist was not editable"
 assert not merged[2].editable, "a device playlist was offered for editing"
-for stem in ("Gym", "aardvark"):
-    gui.delete_local_playlist(PLAYLISTS, stem)
+for playlist in listed:
+    gui.delete_local_playlist(playlist.path)
 
 
 # -------------------------------------------------------------- the window
@@ -274,6 +304,7 @@ class FakeWindow:
     _move_track_between = gui.IpodWindow._move_track_between
     _after_playlist_change = gui.IpodWindow._after_playlist_change
     _stage_playlist = gui.IpodWindow._stage_playlist
+    _stage_playlists = gui.IpodWindow._stage_playlists
     _send_playlist_to_ipod = gui.IpodWindow._send_playlist_to_ipod
     _add_download_to_playlist = gui.IpodWindow._add_download_to_playlist
     _on_new_playlist_response = gui.IpodWindow._on_new_playlist_response
@@ -285,9 +316,12 @@ class FakeWindow:
     _confirmed_device = gui.IpodWindow._confirmed_device
     is_queued = gui.IpodWindow.is_queued
     unqueue_source = gui.IpodWindow.unqueue_source
-    _queue_playlist = gui.IpodWindow._queue_playlist
+    _prune_pending = gui.IpodWindow._prune_pending
+    _queue_playlists = gui.IpodWindow._queue_playlists
     _queue_sources = gui.IpodWindow._queue_sources
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
+    _scan_pending_tracks = gui.IpodWindow._scan_pending_tracks
+    _finish_pending_enrichment = gui.IpodWindow._finish_pending_enrichment
     _merge_states = gui.IpodWindow._merge_states
     _pending_track = gui.IpodWindow._pending_track
     _pending_accounting = gui.IpodWindow._pending_accounting
@@ -444,6 +478,21 @@ assert window._device_only_track(device_track), "a device file was offered"
 assert not window._device_only_track(track_for(first))
 assert not FakeWindow(mount_point=None)._device_only_track(device_track)
 
+# The album page adds a whole record at once and a search result arrives from
+# somewhere else again, so the guard is at the one door they all come through
+# rather than beside the menu that happened to have it first.
+album_window = FakeWindow()
+album_window.library_tracks([first])
+new_playlist(album_window, "Record")
+album_window._add_tracks_to_playlist("Record", [track_for(first), device_track])
+assert gui.read_playlist_entries(PLAYLISTS / "Record.m3u") == [str(first)], (
+    gui.read_playlist_entries(PLAYLISTS / "Record.m3u")
+)
+album_window._add_tracks_to_playlist("Record", [device_track])
+assert gui.read_playlist_entries(PLAYLISTS / "Record.m3u") == [str(first)]
+assert "only on the iPod" in album_window.toasts[-1], album_window.toasts
+gui.delete_local_playlist(PLAYLISTS / "Record.m3u")
+
 # Renaming moves the file and, because the name is what the device says out
 # loud, removes the copy the iPod knows under the old one.
 window.playlists = [("Gym", [])]
@@ -504,6 +553,97 @@ finally:
 assert swapped.commands == [], swapped.commands
 assert "changed" in swapped.toasts[-1], swapped.toasts
 
+# A queue survives the iPod being unplugged, and a playlist can be deleted with
+# nothing attached, so unstaging cannot be a thing that needs a device: a sync
+# still naming a file that has been deleted is cancelled outright, every time
+# it is pressed, until something else happens to take that file out.
+unplugged = FakeWindow()
+unplugged.library_tracks([first])
+new_playlist(unplugged, "Gone")
+gui.write_playlist_entries(PLAYLISTS / "Gone.m3u", [str(first)])
+unplugged._load_local_playlists()
+unplugged._send_playlist_to_ipod("Gone")
+assert unplugged.is_queued(PLAYLISTS / "Gone.m3u"), unplugged.pending_sources
+unplugged.mount_point = None
+unplugged.device_identity = None
+unplugged._on_playlist_remove_response(None, "remove", "Gone", "uuid:test-ipod")
+assert not (PLAYLISTS / "Gone.m3u").exists(), "the playlist file survived"
+assert unplugged.pending_sources == {}, unplugged.pending_sources
+assert unplugged.pending == set(), unplugged.pending
+assert unplugged.toasts[-1] == "Gone deleted", unplugged.toasts
+
+# The same for a rename, which leaves the queue naming a file that is about to
+# be called something else.
+renamer = FakeWindow()
+renamer.library_tracks([first])
+new_playlist(renamer, "Before")
+gui.write_playlist_entries(PLAYLISTS / "Before.m3u", [str(first)])
+renamer._load_local_playlists()
+renamer._send_playlist_to_ipod("Before")
+staged_before = str(PLAYLISTS / "Before.m3u")
+assert staged_before in renamer.pending_sources, renamer.pending_sources
+renamer.mount_point = None
+renamer.device_identity = None
+renamer._on_rename_response(None, "rename", "Before", Entry("After"))
+assert (PLAYLISTS / "After.m3u").is_file(), "the rename wrote no file"
+assert staged_before not in renamer.pending_sources, renamer.pending_sources
+gui.delete_local_playlist(PLAYLISTS / "After.m3u")
+
+# A track the library scan has not indexed yet - a download that has just
+# landed - makes staging read its tags in the background first. Moving one
+# stages two playlists, and each reading supersedes the one before it, so both
+# ends have to go into a single reading: otherwise the target is reported as
+# queued while the queue never hears of it.
+fresh_one, fresh_two = song("Just Landed"), song("Also New")
+moving = FakeWindow()
+moving.library_tracks([first])
+new_playlist(moving, "From")
+new_playlist(moving, "To")
+gui.write_playlist_entries(PLAYLISTS / "From.m3u", [str(fresh_one), str(fresh_two)])
+gui.write_playlist_entries(PLAYLISTS / "To.m3u", [str(first)])
+moving._load_local_playlists()
+
+
+def enrich(paths, _generation):
+    return {
+        path: gui.Track(
+            path, {"title": Path(path).stem, "size": 8}, gui.STATE_LIBRARY
+        )
+        for path in paths
+    }, True
+
+
+moving._scan_pending_tracks = enrich
+scheduled = []
+arrived = threading.Event()
+original_glib = gui.GLib
+
+
+def record_idle(callback, *args):
+    scheduled.append((callback, args))
+    arrived.set()
+    return 1
+
+
+gui.GLib = type("ImmediateGLib", (), {"idle_add": staticmethod(record_idle)})
+try:
+    moving._move_track_between("From", "To", track_for(fresh_one))
+    assert arrived.wait(2), "staging an unindexed track never reached GLib"
+finally:
+    gui.GLib = original_glib
+assert len(scheduled) == 1, (
+    f"one edit started {len(scheduled)} readings, and the last cancels the rest"
+)
+enrichment, enrichment_args = scheduled[0]
+enrichment(*enrichment_args)
+assert set(moving.pending_sources) == {
+    str(PLAYLISTS / "From.m3u"),
+    str(PLAYLISTS / "To.m3u"),
+}, moving.pending_sources
+assert str(fresh_one) in moving.pending_sources[str(PLAYLISTS / "To.m3u")]
+assert str(fresh_one) not in moving.pending_sources[str(PLAYLISTS / "From.m3u")]
+assert str(fresh_two) in moving.pending_sources[str(PLAYLISTS / "From.m3u")]
+
 # Importing adopts the file rather than pointing at where it sat, so from then
 # on it is an ordinary playlist that can be edited here.
 import_window = FakeWindow()
@@ -514,7 +654,11 @@ assert adopted.is_file(), "the import wrote no playlist"
 assert import_window.current_playlist == "Road Trip"
 assert "Imported Road Trip · 2 tracks" in import_window.toasts[-1]
 assert str(adopted) in import_window.pending_sources
-gui.delete_local_playlist(PLAYLISTS, "Road Trip")
+# An import that could not read the file says so, rather than sending the user
+# looking through a library that was never the trouble.
+import_window._import_playlist(foreign_dir / "Not There.m3u")
+assert "could not be read" in import_window.toasts[-1], import_window.toasts
+gui.delete_local_playlist(adopted)
 
 # What a YouTube result adds is found by video id: the same press has to work
 # for a video the music folder already holds, whose download reports nothing
