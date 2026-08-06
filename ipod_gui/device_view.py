@@ -892,13 +892,7 @@ class DeviceViewMixin:
             args.append("--id3-playlists={genre}")
         if self.track_voiceover.get_active():
             args.append("--voiceover")
-        # A playlist being synced implies wanting its name read aloud: on a
-        # device with no screen that name is the only way to find it again.
-        # Decided from what is being synced rather than from the switch, which
-        # the last probe may have set back to whatever the iPod had saved.
-        if self.playlist_voiceover.get_active() or (
-            self.speech_engine_available and self.is_playlist_queued()
-        ):
+        if self.playlist_voiceover.get_active():
             args.append("--playlist-voiceover")
         return args or ["--forget-options"]
 

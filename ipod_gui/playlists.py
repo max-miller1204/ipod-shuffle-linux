@@ -261,9 +261,15 @@ def import_playlist_file(root, source, taken=()):
     it.
 
     Returns (path, tracks, None), or (None, 0, problem) naming which of the
-    three ways this fails happened. An unreadable file and a folder that cannot
+    four ways this fails happened. An unreadable file and a folder that cannot
     be written are not "nothing was found": reported as one, they send the user
     looking through a playlist that was never the trouble.
+
+    The name it lands on is checked against the folder and not only against the
+    names the caller knew about, which is the same rule create_local_playlist
+    and rename_local_playlist hold. The caller's list is stale by construction:
+    a file dialog stands open for as long as the user browses, and a playlist
+    another program wrote in the meantime would be swallowed by this write.
     """
     source = Path(source)
     tracks, complete = read_local_playlist_tracks(source)
@@ -272,6 +278,8 @@ def import_playlist_file(root, source, taken=()):
     if not tracks:
         return None, 0, "Nothing in that playlist could be found on this computer"
     path = local_playlist_file(root, unique_name(source.stem, taken))
+    if path.exists():
+        return None, 0, f"There is already a playlist called {path.stem}"
     if not write_playlist_entries(path, tracks):
         return None, 0, f"Could not write into {path.parent}"
     return path, len(tracks), None

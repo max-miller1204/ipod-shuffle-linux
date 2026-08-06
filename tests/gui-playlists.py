@@ -214,6 +214,21 @@ assert not (PLAYLISTS / "Nothing Here.m3u").exists(), (
 )
 # The three ways an import fails are three different things to go and fix, so
 # each says which one happened rather than all of them blaming the library.
+# A name that is free as far as the caller knows can have been taken since:
+# the file dialog stands open for as long as the user browses, and another
+# program can write into the folder in that time. The write is refused rather
+# than swallowing what is there, which is the rule the rest of the store keeps.
+squatter = PLAYLISTS / "Road Trip 3.m3u"
+gui.write_playlist_entries(squatter, [str(first)])
+_none, _zero, taken_already = gui.import_playlist_file(
+    PLAYLISTS, foreign, ["Road Trip", "Road Trip 2"]
+)
+assert "already a playlist" in (taken_already or ""), taken_already
+assert gui.read_playlist_entries(squatter) == [str(first)], (
+    "an import overwrote a playlist that was already there"
+)
+gui.delete_local_playlist(squatter)
+
 _none, _zero, unreadable = gui.import_playlist_file(
     PLAYLISTS, foreign_dir / "Not There.m3u"
 )
@@ -390,12 +405,15 @@ class FakeWindow:
     _scan_queued_sources = gui.IpodWindow._scan_queued_sources
     is_playlist_queued = gui.IpodWindow.is_playlist_queued
     _sync_options = gui.IpodWindow._sync_options
+    _launch_pending_sync = gui.IpodWindow._launch_pending_sync
+    _clear_pending = gui.IpodWindow._clear_pending
     _edit_step = staticmethod(gui.IpodWindow._edit_step)
     _report_download_failure = gui.IpodWindow._report_download_failure
     _queue_sources = gui.IpodWindow._queue_sources
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
     _scan_pending_tracks = gui.IpodWindow._scan_pending_tracks
     _finish_pending_enrichment = gui.IpodWindow._finish_pending_enrichment
+    _source_gone = staticmethod(gui.IpodWindow._source_gone)
     _merge_states = gui.IpodWindow._merge_states
     _pending_track = gui.IpodWindow._pending_track
     _pending_accounting = gui.IpodWindow._pending_accounting
@@ -441,10 +459,12 @@ assert window.pending_sources == {
 }, window.pending_sources
 assert window.toasts[-1] == "1 track added to Gym · queued for sync", window.toasts
 # A playlist implies wanting its name read aloud, since a screenless device
-# has no other way to tell one from another - decided when the sync runs, so
-# an edit does not rewrite the setting for every sync after it.
-assert "--playlist-voiceover" in window._sync_options(), window._sync_options()
+# has no other way to tell one from another - decided by the sync it is queued
+# for, so an edit does not rewrite the setting for every sync after it.
+window._launch_pending_sync()
+assert "--playlist-voiceover" in window.commands[-1], window.commands[-1]
 assert not window.playlist_voiceover.active, "an edit rewrote a sync option"
+window.commands = []
 
 window._add_tracks_to_playlist("Gym", [track_for(first)])
 assert window.toasts[-1] == "Already in Gym", window.toasts
@@ -598,7 +618,6 @@ new_playlist(silent, "Silent")
 silent._add_tracks_to_playlist("Silent", [track_for(first)])
 assert silent.pending_sources == {}, silent.pending_sources
 assert "no speech engine installed" in silent.toasts[-1], silent.toasts
-assert "--playlist-voiceover" not in silent._sync_options()
 
 # A track that exists only on the iPod has no local file to list, and writing
 # its device path into a playlist would ask the next sync to copy the device's
@@ -959,6 +978,36 @@ assert vanishing.pending == set(), vanishing.pending
 # The window is not left waiting on the reading it dropped.
 assert not vanishing.discovering_sources, "the window stayed in its reading state"
 
+# A playlist symlinked onto a drive that unmounts during that same reading is
+# not gone, though: the file is still in the folder and reads again once the
+# drive is back, so the staging it asked for stands. Both boundaries answer
+# that the same way, or the two halves disagree about one file.
+linked = FakeWindow()
+linked.library_tracks([first])
+new_playlist(linked, "On A Stick")
+linked_path = PLAYLISTS / "On A Stick.m3u"
+gui.write_playlist_entries(linked_path, [str(fresh_two)])
+linked._load_local_playlists()
+linked._scan_pending_tracks = enrich
+scheduled.clear()
+arrived.clear()
+gui.GLib = type("ImmediateGLib", (), {"idle_add": staticmethod(record_idle)})
+try:
+    linked._send_playlist_to_ipod("On A Stick")
+    assert arrived.wait(2), "staging an unindexed track never reached GLib"
+finally:
+    gui.GLib = original_glib
+linked_path.unlink()
+linked_path.symlink_to("/nowhere/mounted/On A Stick.m3u")
+try:
+    landed, landed_args = scheduled[-1]
+    landed(*landed_args)
+    assert linked.is_queued(linked_path), (
+        "a link whose drive unmounted was unstaged as though it had gone"
+    )
+finally:
+    linked_path.unlink()
+
 # The folder is one other programs read and write, so a queued playlist can be
 # deleted or moved from outside the app between staging it and pressing Sync.
 # That one is dropped from the queue rather than failing the re-read of every
@@ -1172,25 +1221,43 @@ assert send_window.toasts[-1] == "Later · queued for sync", send_window.toasts
 
 # The spoken name is the only way to find a playlist again on a device with no
 # screen, so a queued playlist means spoken names on when Sync runs. Decided
-# there rather than by flipping the switch: a probe reads the options back off
-# the iPod and re-assigns it, and a probe follows every plug, unplug and
-# finished command - including the one that files a download into a playlist.
-assert "--playlist-voiceover" in send_window._sync_options()
+# in the sync it launches rather than by flipping the switch: a probe reads the
+# options back off the iPod and re-assigns it, and a probe follows every plug,
+# unplug and finished command - including the one that files a download into a
+# playlist.
 send_window.playlist_voiceover.set_active(False)
-assert "--playlist-voiceover" in send_window._sync_options(), (
+send_window._launch_pending_sync()
+assert "--playlist-voiceover" in send_window.commands[-1], (
     "a probe setting the switch back left the playlist with no spoken name"
+)
+
+# Only that sync, though. The rebuild and the device-playlist reorder share
+# _sync_options, and what the sync is given is written back onto the iPod, so
+# putting it there would turn a setting the user switched off back on from a
+# run that copies no playlist at all.
+assert "--playlist-voiceover" not in send_window._sync_options(), (
+    send_window._sync_options()
 )
 
 # A queue of nothing but tracks leaves the switch the only say.
 tracks_only = FakeWindow()
 tracks_only.pending_sources = {str(first): {str(first)}}
-assert "--playlist-voiceover" not in tracks_only._sync_options()
+tracks_only._launch_pending_sync()
+assert "--playlist-voiceover" not in tracks_only.commands[-1]
 
 # And with no speech engine there is nothing to speak the name with, so the
 # flag is not passed to a sync that could only fail on it.
 speechless = FakeWindow(speech=False)
 speechless.pending_sources = {str(PLAYLISTS / "Later.m3u"): {str(first)}}
-assert "--playlist-voiceover" not in speechless._sync_options()
+speechless._launch_pending_sync()
+assert "--playlist-voiceover" not in speechless.commands[-1]
+
+# The switch is still the user's to set, and a sync carries what it says.
+by_hand = FakeWindow()
+by_hand.playlist_voiceover.set_active(True)
+by_hand.pending_sources = {str(first): {str(first)}}
+by_hand._launch_pending_sync()
+assert "--playlist-voiceover" in by_hand.commands[-1]
 
 # A download that fails after the window has moved on says so somewhere. Add
 # to a new playlist takes the user to the Playlists view while the download is

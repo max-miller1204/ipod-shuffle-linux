@@ -8,9 +8,11 @@ sync launch, and the YouTube download whose result is queued rather than the
 folder it wrote into.
 
 Borrows from the window: `mount_point` and `device_identity`, which the queue
-is only ever valid against, `library` for tracks it already knows, and `_run`,
-`_set_busy`, `_toast`, `_merge_states`, `_populate_device_summary`,
-`_update_device_controls` and `_refresh_current_view`.
+is only ever valid against, `library` for tracks it already knows,
+`speech_engine_available` and `_sync_options` to say what the sync it launches
+is asked for, and `_run`, `_set_busy`, `_toast`, `_merge_states`,
+`_populate_device_summary`, `_update_device_controls` and
+`_refresh_current_view`.
 """
 
 import os
@@ -95,6 +97,20 @@ class QueueMixin:
             Path(source).suffix.lower() in PLAYLIST_EXTENSIONS
             for source in self.pending_sources
         )
+
+    @staticmethod
+    def _source_gone(source):
+        """Whether a queued source has gone, rather than become unreadable.
+
+        One rule for both boundaries that ask, because they disagreed once and
+        the same file took opposite paths through them. A link whose target is
+        not mounted is not gone: the file is still in the folder and reads
+        again once the drive is back, which is what the editing side already
+        says about it. exists() follows the link and answers False for a
+        deleted file and that one alike, so it cannot be asked on its own.
+        """
+        path = Path(source)
+        return not path.exists() and not path.is_symlink()
 
     def is_queued(self, source):
         """Whether this source is already staged for the next sync.
@@ -230,7 +246,7 @@ class QueueMixin:
         resolved = {
             source: [enriched.get(track.path, track) for track in tracks]
             for source, tracks in sources.items()
-            if Path(source).exists()
+            if not self._source_gone(source)
         }
         if not resolved:
             return False
@@ -377,16 +393,13 @@ class QueueMixin:
         dropped = []
         for source in sources:
             path = Path(source)
-            if not path.exists() and not path.is_symlink():
-                # Gone is not the same as unreadable, and both a playlist
-                # folder other programs write and a music folder on a stick
-                # invite a source disappearing between staging and Sync.
-                # Failing the whole scan over one would leave it staged and
-                # cancel every press after it, naming nothing to go and put
-                # right; dropped instead, the queue is rebuilt without it.
-                # A link whose target is not mounted is not that: the file is
-                # still in the folder and reads again once the drive is back,
-                # so it takes the unreadable path the editing side puts it on.
+            if self._source_gone(source):
+                # Both a playlist folder other programs write and a music
+                # folder on a stick invite a source disappearing between
+                # staging and Sync. Failing the whole scan over one would
+                # leave it staged and cancel every press after it, naming
+                # nothing to go and put right; dropped instead, the queue is
+                # rebuilt without it.
                 dropped.append(source)
                 continue
             if path.is_dir():
@@ -495,12 +508,26 @@ class QueueMixin:
         paths = sorted(self.pending_sources)
         copy_tracks, changes, _queued_bytes = self._pending_accounting()
         self.sync_total = len(copy_tracks)
+        options = self._sync_options()
+        # A playlist reaching the device implies wanting its name read aloud:
+        # on a player with no screen that name is the only way to find it
+        # again. Added to this run rather than to _sync_options, which the
+        # rebuild and the device-playlist reorder share: the sync saves what
+        # it was given back onto the iPod, so putting it there would turn a
+        # setting the user had switched off back on from a run that copies no
+        # playlist at all.
+        if (
+            self.speech_engine_available
+            and self.is_playlist_queued()
+            and "--playlist-voiceover" not in options
+        ):
+            options.append("--playlist-voiceover")
         self._run(
             [
                 str(SYNC_SCRIPT),
                 "--ipod",
                 self.mount_point,
-                *self._sync_options(),
+                *options,
                 # A track title can start with a dash, and the shell script
                 # would read that as a flag rather than a path.
                 "--",

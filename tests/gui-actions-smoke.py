@@ -199,6 +199,8 @@ class FakeWindow:
     _merge_states = gui.IpodWindow._merge_states
     _scan_pending_tracks = gui.IpodWindow._scan_pending_tracks
     _finish_pending_enrichment = gui.IpodWindow._finish_pending_enrichment
+    _source_gone = staticmethod(gui.IpodWindow._source_gone)
+    is_playlist_queued = gui.IpodWindow.is_playlist_queued
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
     _queue_sources = gui.IpodWindow._queue_sources
     _queue_paths = gui.IpodWindow._queue_paths
@@ -1863,35 +1865,36 @@ assert queue_window.pending_device_identity is None, "queue stayed device-bound"
 assert isinstance(cleared, str), cleared
 
 def sync_pending_with(window):
-    """Press Sync and wait for the source scan behind it to decide.
+    """Press Sync, then run the scan's answer on this thread.
 
-    Waited on the busy state rather than on a toast: every way it can end
-    clears that, while only some of them have anything to say.
+    The scan runs on a worker that posts its result back through GLib. Letting
+    that through inline would run the answer - the toast, the queue it rebuilds
+    and the command it launches - on the worker, while this thread is already
+    reading them. Recorded and called here instead, so nothing is asserted
+    while another thread is still writing it.
     """
-    ready = threading.Event()
-    was_busy = window._set_busy
+    landed = []
+    arrived = threading.Event()
 
-    def record(busy, message=""):
-        was_busy(busy, message)
-        if not busy:
-            ready.set()
+    def record_idle(callback, *args):
+        landed.append((callback, args))
+        arrived.set()
+        return 1
 
-    window._set_busy = record
     original_volume_identity = gui.volume_identity
     original_glib = gui.GLib
     gui.volume_identity = lambda _mount: window.device_identity
     gui.GLib = type(
-        "ImmediateGLib",
-        (),
-        {"idle_add": staticmethod(lambda callback, *args: callback(*args))},
+        "RecordingGLib", (), {"idle_add": staticmethod(record_idle)}
     )
     try:
         gui.IpodWindow.on_sync_pending(window, None)
-        assert ready.wait(5), "the source scan before a sync never reported"
+        assert arrived.wait(5), "the source scan before a sync never reported"
+        for callback, args in landed:
+            callback(*args)
     finally:
         gui.volume_identity = original_volume_identity
         gui.GLib = original_glib
-        window._set_busy = was_busy
 
 
 # A queued source that has gone - a folder on a stick that was unplugged, a
