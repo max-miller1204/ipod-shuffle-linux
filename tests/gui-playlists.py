@@ -960,13 +960,16 @@ queued_paths = [
 gui.scan_tracks = scan_stub
 try:
     gui.delete_local_playlist(PLAYLISTS / "Taken Away.m3u")
-    refreshed, complete = scanning._scan_queued_sources(
+    refreshed, dropped, complete = scanning._scan_queued_sources(
         queued_paths, scanning.source_generation
     )
 finally:
     gui.scan_tracks = original_scan_tracks
 assert complete, "one playlist that had gone failed the re-read of them all"
 assert set(refreshed) == {str(PLAYLISTS / "Still Here.m3u")}, refreshed
+# Named rather than quietly forgotten: what was dropped is the part of what
+# the user staged that will not happen, and the sync counts only the rest.
+assert dropped == [str(PLAYLISTS / "Taken Away.m3u")], dropped
 assert [track.path for track in refreshed[queued_paths[0]]] == [
     str(first),
     queued_paths[0],
@@ -982,7 +985,21 @@ try:
     )
 finally:
     gui.scan_tracks = original_scan_tracks
-assert unreadable_scan == ({}, False), unreadable_scan
+assert unreadable_scan == ({}, [], False), unreadable_scan
+
+# A playlist symlinked onto a drive that is not plugged in is unreadable, not
+# gone: the file is still in the folder and reads again once the drive is
+# back, so it takes the cancel path rather than being quietly unstaged - which
+# is how the editing half of the app classifies that same file.
+unplugged_source = PLAYLISTS / "On A Stick.m3u"
+unplugged_source.symlink_to("/nowhere/mounted/On A Stick.m3u")
+try:
+    stick_scan = scanning._scan_queued_sources(
+        [str(unplugged_source)], scanning.source_generation
+    )
+finally:
+    unplugged_source.unlink()
+assert stick_scan == ({}, [], False), stick_scan
 gui.delete_local_playlist(PLAYLISTS / "Still Here.m3u")
 
 # Importing adopts the file rather than pointing at where it sat, so from then
@@ -1168,6 +1185,11 @@ try:
     gone_drive._add_tracks_to_playlist("On A Drive", [track_for(second)])
     assert gone_drive.toasts[-1] == "Could not read On A Drive", gone_drive.toasts
     gone_drive._remove_track_from_playlist("On A Drive", track_for(first))
+    assert gone_drive.toasts[-1] == "Could not read On A Drive", gone_drive.toasts
+    # Dragging a row into a new position is an edit like any other, and says
+    # the same thing when the file underneath it cannot be read.
+    gone_drive.current_playlist = "On A Drive"
+    assert not gone_drive._reorder_playlist(1, 0)
     assert gone_drive.toasts[-1] == "Could not read On A Drive", gone_drive.toasts
 finally:
     (PLAYLISTS / "On A Drive.m3u").unlink()

@@ -137,6 +137,15 @@ def find_button(widget, text):
     return None
 
 
+def menu_text(widget):
+    """Everything a menu says, as one string."""
+    return " / ".join(
+        found.get_text()
+        for found in walk(widget)
+        if isinstance(found, Gtk.Label)
+    )
+
+
 def inspect(window):
     for name in ("library", "search", "album", "playlists", "settings"):
         if window.views.get_child_by_name(name) is None:
@@ -215,6 +224,20 @@ def inspect(window):
             continue
         if not isinstance(popover, Gtk.Popover):
             failures.append(f"{name} returned {popover!r}")
+
+    # The list a row is in is the one place it cannot be moved to, so with only
+    # that one made the move menu has nothing to offer - and must not say "no
+    # playlists yet" while the user is standing in one it names two lines down.
+    only_one = window.track_menu(track, "Built")
+    said = menu_text(only_one.get_child())
+    if "No other playlists" not in said:
+        failures.append(f"the move menu with one playlist reads: {said}")
+    if "No playlists yet" in said:
+        failures.append(f"the move menu called a playlist the user is in none: {said}")
+    # The add menu is a different question and keeps its own wording, with the
+    # one playlist there is on offer rather than a sentence about having none.
+    if "No" in menu_text(window.track_menu(track).get_child()):
+        failures.append("the add menu claimed there were no playlists")
 
     # A playlist another program wrote can list a track relative to the folder
     # it sits in. The sync resolves that, so the entry is real - but it names

@@ -563,6 +563,11 @@ class PlaylistViewMixin:
                         lambda: self._remove_track_from_playlist(inside.name, track),
                     )
                 ],
+                # The list this row is in is the one place it cannot move to,
+                # so it is filtered out - and with only that one made, "no
+                # playlists yet" is a sentence the user can see is false while
+                # standing in one the menu names two lines further down.
+                empty_note="No other playlists",
             )
         return self._playlist_menu(
             "Add to playlist",
@@ -585,7 +590,15 @@ class PlaylistViewMixin:
             max_width_chars=32,
         )
 
-    def _playlist_menu(self, heading, on_pick, holding=(), exclude=None, extra=()):
+    def _playlist_menu(
+        self,
+        heading,
+        on_pick,
+        holding=(),
+        exclude=None,
+        extra=(),
+        empty_note="No playlists yet",
+    ):
         popover = Gtk.Popover()
         rows = []
         for playlist in self.local_playlists:
@@ -601,9 +614,7 @@ class PlaylistViewMixin:
             )
         if not rows:
             rows.append(
-                label(
-                    "No playlists yet", "sf-caption", "sf-dim", margin_start=6
-                )
+                label(empty_note, "sf-caption", "sf-dim", margin_start=6)
             )
         rows.append(
             self._menu_row(popover, "＋  New playlist…", lambda: on_pick(None))
@@ -1209,7 +1220,9 @@ class PlaylistViewMixin:
         playlist = self._local_playlist(self.current_playlist)
         if playlist is not None:
             if not move_entry(playlist.path, source, target):
-                self._toast("Could not rewrite the playlist")
+                self._toast(
+                    f"Could not {self._edit_step(playlist)} {playlist.name}"
+                )
                 return False
             self._after_playlist_change(playlist.name, "Playlist reordered")
             return True

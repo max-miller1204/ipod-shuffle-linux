@@ -138,6 +138,7 @@ class FakeWindow:
         self._library_by_path = {}
         self.commands = []
         self.busy_messages = []
+        self.done_messages = []
         self.on_failure = None
         self.toasts = []
         self.track_names = {}
@@ -166,6 +167,7 @@ class FakeWindow:
         self.then = then
         self.on_failure = on_failure
         self.busy_messages.append(busy_message)
+        self.done_messages.append(done_message)
         return True
 
     def _toast(self, message):
@@ -1861,15 +1863,20 @@ assert queue_window.pending_device_identity is None, "queue stayed device-bound"
 assert isinstance(cleared, str), cleared
 
 def sync_pending_with(window):
-    """Press Sync and wait for whatever it decided to say."""
+    """Press Sync and wait for the source scan behind it to decide.
+
+    Waited on the busy state rather than on a toast: every way it can end
+    clears that, while only some of them have anything to say.
+    """
     ready = threading.Event()
-    said = window._toast
+    was_busy = window._set_busy
 
-    def record(message):
-        said(message)
-        ready.set()
+    def record(busy, message=""):
+        was_busy(busy, message)
+        if not busy:
+            ready.set()
 
-    window._toast = record
+    window._set_busy = record
     original_volume_identity = gui.volume_identity
     original_glib = gui.GLib
     gui.volume_identity = lambda _mount: window.device_identity
@@ -1884,7 +1891,7 @@ def sync_pending_with(window):
     finally:
         gui.volume_identity = original_volume_identity
         gui.GLib = original_glib
-        window._toast = said
+        window._set_busy = was_busy
 
 
 # A queued source that has gone - a folder on a stick that was unplugged, a
@@ -1902,6 +1909,31 @@ assert failed_sync.commands == [], failed_sync.commands
 assert not failed_sync.busy
 assert failed_sync.pending_sources == {}, failed_sync.pending_sources
 assert "Nothing remains" in failed_sync.toasts[-1], failed_sync.toasts
+# Dropped is said, not merely done: what went is the part of what the user
+# staged that will not happen.
+assert "1 queued source no longer there" in failed_sync.toasts[-1], (
+    failed_sync.toasts
+)
+
+# A sync that loses one source and keeps another still runs, and still says
+# what it lost: a count of what survived, on its own, reads as a clean success
+# for a folder of tracks that was never copied.
+partial_sync = FakeWindow()
+kept_source = Path(tempfile.mkdtemp(prefix="kept-source-")) / "Kept.mp3"
+kept_source.write_bytes(b"kept")
+partial_sync.pending = {str(kept_source), failed_member}
+partial_sync.pending_sources = {
+    str(kept_source): {str(kept_source)},
+    "/missing/source": {failed_member},
+}
+partial_sync.pending_device_identity = partial_sync.device_identity
+sync_pending_with(partial_sync)
+assert partial_sync.commands, "a sync with one source left never ran"
+assert str(kept_source) in partial_sync.commands[-1], partial_sync.commands[-1]
+assert "/missing/source" not in partial_sync.commands[-1], partial_sync.commands[-1]
+assert "1 queued source no longer there" in partial_sync.done_messages[-1], (
+    partial_sync.done_messages
+)
 
 # One that is there but cannot be read is the other thing entirely, and still
 # cancels: syncing around it would copy a queue the user never approved.

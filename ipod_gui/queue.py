@@ -350,28 +350,44 @@ class QueueMixin:
         self._set_busy(True, "Checking queued sources")
 
         def worker():
-            sources, complete = self._scan_queued_sources(paths, generation)
+            sources, dropped, complete = self._scan_queued_sources(
+                paths, generation
+            )
             GLib.idle_add(
                 self._finish_pending_source_scan,
                 generation,
                 device_identity,
                 sources,
+                dropped,
                 complete,
             )
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _scan_queued_sources(self, sources, generation):
+        """Re-read every queued source: what they hold now, and what has gone.
+
+        Returns (sources, dropped, complete). What was dropped is handed back
+        rather than only skipped, because the caller has to say it out loud:
+        the sync that follows counts what survived, and a run reported as a
+        clean success while a folder of staged tracks was quietly forgotten is
+        worse than the cancellation this replaced.
+        """
         refreshed = {}
+        dropped = []
         for source in sources:
             path = Path(source)
-            if not path.exists():
+            if not path.exists() and not path.is_symlink():
                 # Gone is not the same as unreadable, and both a playlist
                 # folder other programs write and a music folder on a stick
                 # invite a source disappearing between staging and Sync.
                 # Failing the whole scan over one would leave it staged and
                 # cancel every press after it, naming nothing to go and put
                 # right; dropped instead, the queue is rebuilt without it.
+                # A link whose target is not mounted is not that: the file is
+                # still in the folder and reads again once the drive is back,
+                # so it takes the unreadable path the editing side puts it on.
+                dropped.append(source)
                 continue
             if path.is_dir():
                 records, complete = scan_tracks(
@@ -422,16 +438,17 @@ class QueueMixin:
             else:
                 tracks, complete = [], False
             if not complete:
-                return {}, False
+                return {}, [], False
             if tracks:
                 refreshed[source] = tracks
-        return refreshed, True
+        return refreshed, dropped, True
 
     def _finish_pending_source_scan(
         self,
         generation,
         device_identity,
         sources,
+        dropped,
         complete,
     ):
         if generation != self.source_generation:
@@ -446,15 +463,24 @@ class QueueMixin:
             self._set_busy(False)
             return False
         self._commit_queue_sources(sources, show_toast=False, replace=True)
+        # Carried into what the sync itself reports rather than said before it
+        # starts, because this sentence has to still be on screen when the
+        # copying has finished: what was dropped is the part of what the user
+        # staged that did not happen, and a count of the rest reads as success.
+        gone = (
+            f" · {plural(len(dropped), 'queued source')} no longer there"
+            if dropped
+            else ""
+        )
         if not self.pending_sources:
             self._set_busy(False)
-            self._toast("Nothing remains in the queued sources")
+            self._toast(f"Nothing remains in the queued sources{gone}")
             return False
         self._set_busy(False)
-        self._launch_pending_sync()
+        self._launch_pending_sync(gone)
         return False
 
-    def _launch_pending_sync(self):
+    def _launch_pending_sync(self, note=""):
         paths = sorted(self.pending_sources)
         copy_tracks, changes, _queued_bytes = self._pending_accounting()
         self.sync_total = len(copy_tracks)
@@ -470,7 +496,7 @@ class QueueMixin:
                 *paths,
             ],
             "Copying to iPod",
-            f"{plural(changes, 'change')} synced",
+            f"{plural(changes, 'change')} synced{note}",
             then=self._clear_pending,
         )
 
