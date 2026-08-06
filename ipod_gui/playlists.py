@@ -357,12 +357,32 @@ def remove_entry(path, entry):
     return removed if write_playlist_entries(path, remaining) else None
 
 
-# What move_entry answers when it is the row that was dropped on that the
-# file no longer has. A drag names two rows, and only one of them is the
-# track: when the other one is the stale one, the dragged track is still
-# listed, so "that track is no longer here" would be a sentence about a row
-# that never went anywhere.
-TARGET_GONE = "target gone"
+class _TargetGone:
+    """What move_entry answers when the row dropped on is the stale one.
+
+    A drag names two rows, and only one of them is the track: when the other
+    one is the row the file has lost, the dragged track is still listed, so
+    "that track is no longer here" would be a sentence about a row that never
+    went anywhere. It needs an answer of its own.
+
+    False rather than a truthy value of its own, because every other way to
+    fail in this module is falsy - `move_entry` three lines below returns
+    False for the stale source, and add_entries and remove_entry answer None.
+    A caller writing the obvious `if move_entry(...)` reads this as the
+    failure it is instead of toasting a reorder over a playlist it never
+    rewrote.
+    """
+
+    __slots__ = ()
+
+    def __bool__(self):
+        return False
+
+    def __repr__(self):
+        return "TARGET_GONE"
+
+
+TARGET_GONE = _TargetGone()
 
 
 def move_entry(path, source_index, target_index):

@@ -147,6 +147,20 @@ def menu_text(widget):
 
 
 def inspect(window):
+    # Where the window says it is the moment it opens, read before anything
+    # below calls show_view and answers the question for it. The stack shows
+    # the library because that is what was added first, so the sidebar has to
+    # agree: a window whose rows are all unmarked has no current location on
+    # screen until the user clicks one.
+    if window.current_view() != "library":
+        failures.append(
+            f"a freshly built window opened on {window.current_view()!r}"
+        )
+    if "selected" not in window.nav_buttons["library"].get_css_classes():
+        failures.append(
+            "a freshly built window shows the library with no sidebar row marked"
+        )
+
     for name in ("library", "search", "album", "playlists", "settings"):
         if window.views.get_child_by_name(name) is None:
             failures.append(f"view {name!r} never reached the view stack")

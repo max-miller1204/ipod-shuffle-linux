@@ -99,6 +99,13 @@ assert gui.move_entry(created, 5, 0) is False, "a move past the end was accepted
 assert gui.move_entry(created, 0, 5) == gui.TARGET_GONE, (
     "a drop past the end was accepted"
 )
+# Falsy as well as its own answer, because the obvious way to call this reads
+# the answer as a yes or a no and every other failure in the store is falsy:
+# a caller writing `if move_entry(...)` must not report a reorder it did not
+# make over a playlist that still reads the way it did.
+assert not gui.move_entry(created, 0, 5), (
+    "a drop onto a row that had gone read as a reorder that happened"
+)
 assert gui.read_playlist_entries(created) == [str(second), str(first)], (
     "a drop onto a row that had gone rewrote the playlist"
 )

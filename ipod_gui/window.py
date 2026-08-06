@@ -190,6 +190,13 @@ class IpodWindow(
         # could stop.
         self.connect("close-request", self._on_close_request)
 
+        # A window that has opened is already somewhere, and the sidebar is
+        # where it says so. The stack shows whatever was added first, which is
+        # the library, but the row saying so is only marked by show_view - so
+        # without this the app opens on a sidebar with nothing current until
+        # the first click, and every screenshot of a fresh launch shows that.
+        self.show_view("library")
+
         self._populate_cache_card()
         self.refresh()
         self._rescan_library()

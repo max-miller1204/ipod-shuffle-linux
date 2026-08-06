@@ -19,20 +19,25 @@ claims about itself.
 prints the command that launches the app against what it built.
 
 `docs/screenshot.png` is the only shot this reproduces. `docs/now-playing.png`
-is of a track that runs 3:34 with cover art of its own, and every track here
-is one second of silence behind a generated placeholder, so retaking that one
-from this fixture would give a visibly different bar.
+is of a track that runs 3:34, and every track here is one second of silence,
+so retaking that one from this fixture would give a visibly different bar.
 
-The album covers are not files. `make_cover` generates a placeholder from an
-"artist/title" seed when a track has no embedded art, so the colours in the
-screenshot follow from the names below and nothing else - which is why the
-same four albums always come out the same four colours.
+The covers are drawn here and embedded in the tracks, because the shot is
+under a sentence about the app reading embedded art off the files, and four
+albums falling through to the app's own placeholder would illustrate the
+opposite. They are drawn from the "artist/album" name and nothing else, so
+the same four albums always come out the same four covers on any machine.
 """
 
 import argparse
+import colorsys
+import hashlib
+import struct
 import shutil
 import subprocess
 import sys
+import tempfile
+import zlib
 from pathlib import Path
 
 
@@ -87,18 +92,97 @@ def run(command, **kwargs):
     return result
 
 
-def write_track(path, artist, album, title, number):
+def png(width, height, rows):
+    """Rows of RGB bytes, as a PNG file.
+
+    Written out by hand rather than with an imaging library, because the tool
+    otherwise needs nothing installed but ffmpeg and a cover is a few hundred
+    bytes of header around what zlib already does.
+    """
+    body = b"".join(b"\x00" + bytes(row) for row in rows)
+
+    def chunk(kind, payload):
+        block = kind + payload
+        return (
+            struct.pack(">I", len(payload))
+            + block
+            + struct.pack(">I", zlib.crc32(block) & 0xFFFFFFFF)
+        )
+
+    return b"".join((
+        b"\x89PNG\r\n\x1a\n",
+        # 8 bits a channel, colour type 2 (RGB), no interlacing.
+        chunk(b"IHDR", struct.pack(">2I5B", width, height, 8, 2, 0, 0, 0)),
+        chunk(b"IDAT", zlib.compress(body, 9)),
+        chunk(b"IEND", b""),
+    ))
+
+
+def shade(hue, saturation, value):
+    """One colour, as the three bytes a pixel is written as."""
+    return bytes(
+        round(channel * 255)
+        for channel in colorsys.hsv_to_rgb(hue % 1.0, saturation, value)
+    )
+
+
+def cover_art(seed, size=600):
+    """One album's cover, drawn from its name and nothing else.
+
+    A hash rather than a palette lookup so adding a fifth album needs no
+    decision, and a hash rather than anything random so the screenshot is the
+    same picture on any machine.
+
+    The shapes take their share of the digest rather than being the same
+    shapes in different colours, because two names can hash to neighbouring
+    hues and two covers that differ only by a few degrees of hue read as one
+    cover repeated at the size the album grid draws them.
+    """
+    digest = hashlib.sha1(seed.encode("utf-8")).digest()
+    hue = digest[0] / 256
+    field = shade(hue, 0.50, 0.34 + digest[1] % 32 / 250)
+    corner = shade(hue + 0.07, 0.42, 0.62)
+    disc = shade(hue + 0.5, 0.26 + digest[2] % 32 / 250, 0.80)
+
+    split_across = digest[3] % 2
+    radius = size * (3 + digest[4] % 3) / 20
+    centre_x = size * (4 + digest[5] % 5) / 12
+    centre_y = size * (4 + digest[6] % 5) / 12
+
+    rows = []
+    for y in range(size):
+        row = bytearray()
+        for x in range(size):
+            if (x - centre_x) ** 2 + (y - centre_y) ** 2 < radius**2:
+                row += disc
+            elif (x + y > size) if split_across else (x > y):
+                row += corner
+            else:
+                row += field
+        rows.append(row)
+    return png(size, size, rows)
+
+
+def write_track(path, artist, album, title, number, cover):
     """One second of silence, tagged the way a ripped file is tagged.
 
     Real audio rather than a file of zeroes: the app reads durations with
     mutagen and shows them, and the sync copies whatever it is handed, so a
-    track that is not decodable would be a demo of the wrong thing.
+    track that is not decodable would be a demo of the wrong thing. The cover
+    is attached the way a ripped file carries one, as an ID3 picture frame,
+    because reading art off the file is what the album grid is a picture of.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     run([
         "ffmpeg", "-loglevel", "error", "-y",
         "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+        "-i", str(cover),
+        "-map", "0:a", "-map", "1:v",
         "-t", "1", "-c:a", "libmp3lame", "-b:a", "128k",
+        "-c:v", "copy", "-disposition:v", "attached_pic",
+        "-id3v2_version", "3",
+        "-metadata:s:v", "title=Album cover",
+        "-metadata:s:v", "comment=Cover (front)",
         "-metadata", f"artist={artist}",
         "-metadata", f"album={album}",
         "-metadata", f"title={title}",
@@ -110,13 +194,19 @@ def write_track(path, artist, album, title, number):
 def build_library(music):
     """The four albums, as Artist/Album/NN - Title.mp3."""
     built = {}
-    for artist, album, titles in ALBUMS:
-        paths = []
-        for number, title in enumerate(titles, start=1):
-            path = music / artist / album / f"{number:02d} - {title}.mp3"
-            write_track(path, artist, album, title, number)
-            paths.append(path)
-        built[album] = paths
+    # The covers only have to exist long enough to be embedded: what the
+    # library holds afterwards is tracks carrying their own art, which is what
+    # the app reads.
+    with tempfile.TemporaryDirectory() as drawn:
+        for artist, album, titles in ALBUMS:
+            cover = Path(drawn) / f"{album}.png"
+            cover.write_bytes(cover_art(f"{artist}/{album}"))
+            paths = []
+            for number, title in enumerate(titles, start=1):
+                path = music / artist / album / f"{number:02d} - {title}.mp3"
+                write_track(path, artist, album, title, number, cover)
+                paths.append(path)
+            built[album] = paths
     return built
 
 
@@ -307,7 +397,12 @@ def main():
         "  # with four albums to a row, on any machine:\n"
         "  #   Xephyr :9 -screen 1300x860 -dpi 96 -br -noreset &\n"
         "  #   ...and add GDK_BACKEND=x11 GSK_RENDERER=cairo DISPLAY=:9\n"
-        "  # GSK_RENDERER because Xephyr offers no accelerated backend."
+        "  # GSK_RENDERER because Xephyr offers no accelerated backend.\n"
+        "  #\n"
+        "  # Park the pointer off the window before grabbing - the screen is\n"
+        "  # larger than the window for that - or whichever album card it\n"
+        "  # happens to rest on wears its hover state in the shot:\n"
+        "  #   DISPLAY=:9 xdotool mousemove 1290 850"
     )
     print()
     # Replacing HOME does not by itself keep the demo out of the developer's
