@@ -83,6 +83,19 @@ class QueueMixin:
     def _pending_copy_tracks(self):
         return self._pending_accounting()[0]
 
+    def is_playlist_queued(self):
+        """Whether what is staged includes a playlist file.
+
+        Asked at the moment the sync is launched rather than remembered in a
+        switch: a device probe re-reads the options saved on the iPod and
+        re-assigns that switch, so a decision left there does not survive the
+        next refresh, which is every plug, unplug and finished command.
+        """
+        return any(
+            Path(source).suffix.lower() in PLAYLIST_EXTENSIONS
+            for source in self.pending_sources
+        )
+
     def is_queued(self, source):
         """Whether this source is already staged for the next sync.
 
@@ -352,6 +365,14 @@ class QueueMixin:
         refreshed = {}
         for source in sources:
             path = Path(source)
+            if not path.exists():
+                # Gone is not the same as unreadable, and both a playlist
+                # folder other programs write and a music folder on a stick
+                # invite a source disappearing between staging and Sync.
+                # Failing the whole scan over one would leave it staged and
+                # cancel every press after it, naming nothing to go and put
+                # right; dropped instead, the queue is rebuilt without it.
+                continue
             if path.is_dir():
                 records, complete = scan_tracks(
                     path,
@@ -362,14 +383,6 @@ class QueueMixin:
                     for record in records
                 ]
             elif path.suffix.lower() in PLAYLIST_EXTENSIONS:
-                if not path.exists():
-                    # Gone is not the same as unreadable, and a playlist folder
-                    # other programs read and write invites a list being
-                    # deleted or moved from outside this app. Failing the whole
-                    # scan over one would leave it staged and cancel every
-                    # press of Sync after it, naming nothing to go and put
-                    # right; dropped instead, the queue is rebuilt without it.
-                    continue
                 members, complete = read_local_playlist_tracks(path)
                 if complete:
                     records, complete = scan_tracks(

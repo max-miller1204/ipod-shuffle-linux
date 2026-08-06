@@ -52,6 +52,7 @@ from .playlists import (
     merge_with_device,
     move_entry,
     name_problem,
+    playlist_contents,
     remove_entry,
     rename_local_playlist,
 )
@@ -527,17 +528,29 @@ class PlaylistViewMixin:
         """
         inside = self._local_playlist(playlist_name)
         if self._device_only_track(track):
+            # Nothing here can be written into another playlist: the entry
+            # names a file on the iPod, or a path only the folder this list
+            # sits in resolves. Taking it out of a list this app owns writes no
+            # path anywhere, though, so that stays on offer - otherwise a line
+            # another program left behind could never be removed at all.
+            if inside is None:
+                return self._menu_popover(
+                    "This track is only on the iPod",
+                    [self._unaddable_note()],
+                )
+            popover = Gtk.Popover()
             return self._menu_popover(
-                "This track is only on the iPod",
+                inside.name,
                 [
-                    label(
-                        "Playlists made here list files in your music folders, "
-                        "and this one has no copy on this computer.",
-                        "sf-body",
-                        wrap=True,
-                        max_width_chars=32,
-                    )
+                    self._unaddable_note(),
+                    Gtk.Separator(margin_top=4, margin_bottom=4),
+                    self._menu_row(
+                        popover,
+                        f"Remove from {inside.name}",
+                        lambda: self._remove_track_from_playlist(inside.name, track),
+                    ),
                 ],
+                popover,
             )
         if inside is not None:
             return self._playlist_menu(
@@ -559,6 +572,17 @@ class PlaylistViewMixin:
                 for playlist in self.local_playlists
                 if track.path in playlist.entries
             },
+        )
+
+    @staticmethod
+    def _unaddable_note():
+        return label(
+            "Playlists made here list files in your music folders, and this "
+            "entry names none: it is on the iPod, or under a name only its "
+            "own playlist resolves.",
+            "sf-body",
+            wrap=True,
+            max_width_chars=32,
         )
 
     def _playlist_menu(self, heading, on_pick, holding=(), exclude=None, extra=()):
@@ -657,6 +681,17 @@ class PlaylistViewMixin:
 
     # -------------------------------------------------------------- editing
 
+    @staticmethod
+    def _edit_step(playlist):
+        """Which half of an edit failed, as a verb: "read" or "write".
+
+        An edit is a read and a rewrite, and the two send the reader to two
+        different places: a list symlinked onto a drive that is not plugged in
+        is unreadable in a folder that is perfectly writable, and "could not
+        write" would have them checking the permissions on the wrong thing.
+        """
+        return "write" if playlist_contents(playlist.path)[1] else "read"
+
     def _add_tracks_to_playlist(self, name, tracks):
         """Put tracks in a playlist, making it first if the menu asked to."""
         if name is None:
@@ -704,7 +739,7 @@ class PlaylistViewMixin:
 
         added = add_entries(playlist.path, paths)
         if added is None:
-            self._toast(f"Could not write {name}")
+            self._toast(f"Could not {self._edit_step(playlist)} {name}")
             return
         if not added:
             self._toast(f"Already in {name}{refused}")
@@ -719,7 +754,7 @@ class PlaylistViewMixin:
             return
         removed = remove_entry(playlist.path, track.path)
         if removed is None:
-            self._toast(f"Could not write {name}")
+            self._toast(f"Could not {self._edit_step(playlist)} {name}")
             return
         if not removed:
             # The file no longer lists it, so nothing failed and there is
@@ -748,7 +783,7 @@ class PlaylistViewMixin:
             self._toast("That playlist is no longer there")
             return
         if add_entries(target.path, [track.path]) is None:
-            self._toast(f"Could not write {target_name}")
+            self._toast(f"Could not {self._edit_step(target)} {target_name}")
             return
         # Only after the track has landed in the target: the opposite order
         # loses it entirely if the second write fails.
@@ -878,7 +913,7 @@ class PlaylistViewMixin:
             return f"Downloaded, but could not tell which track to add to {name}"
         added = add_entries(playlist.path, [str(path)])
         if added is None:
-            return f"Downloaded, but could not write {name}"
+            return f"Downloaded, but could not {self._edit_step(playlist)} {name}"
         self._load_local_playlists()
         note = self._stage_playlist(name)
         self._populate_playlist_rail()

@@ -253,6 +253,16 @@ class FakeSwitch:
         return self.active
 
 
+class FakeChoice:
+    """Stands in for the Sync options playlist-grouping picker."""
+
+    def __init__(self, value=0):
+        self.value = value
+
+    def get_selected(self):
+        return self.value
+
+
 class Entry:
     def __init__(self, text):
         self.text = text
@@ -282,6 +292,11 @@ class FakeWindow:
         self.speech_engine_available = speech
         self.playlist_unavailable = None if speech else "No speech engine installed"
         self.playlist_voiceover = FakeSwitch()
+        self.track_voiceover = FakeSwitch()
+        self.playlist_mode = FakeChoice()
+        self.loaded_playlist_mode = 0
+        self.loaded_playlist_args = []
+        self.view = "playlists"
         self.local_playlists = []
         self.playlists = []
         self.spoken = set()
@@ -307,6 +322,9 @@ class FakeWindow:
 
     def _toast(self, message):
         self.toasts.append(message)
+
+    def current_view(self):
+        return self.view
 
     # What a YouTube result asks for is a download that lands in a playlist,
     # so what is recorded is the request: running it would need the network.
@@ -370,6 +388,10 @@ class FakeWindow:
     _prune_pending = gui.IpodWindow._prune_pending
     _queue_playlists = gui.IpodWindow._queue_playlists
     _scan_queued_sources = gui.IpodWindow._scan_queued_sources
+    is_playlist_queued = gui.IpodWindow.is_playlist_queued
+    _sync_options = gui.IpodWindow._sync_options
+    _edit_step = staticmethod(gui.IpodWindow._edit_step)
+    _report_download_failure = gui.IpodWindow._report_download_failure
     _queue_sources = gui.IpodWindow._queue_sources
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
     _scan_pending_tracks = gui.IpodWindow._scan_pending_tracks
@@ -1101,6 +1123,54 @@ assert not send_window.is_queued(PLAYLISTS / "Later.m3u")
 send_window._send_playlist_to_ipod("Later")
 assert send_window.is_queued(PLAYLISTS / "Later.m3u"), send_window.pending_sources
 assert send_window.toasts[-1] == "Later · queued for sync", send_window.toasts
+
+# The spoken name is the only way to find a playlist again on a device with no
+# screen, so a queued playlist means spoken names on when Sync runs. Decided
+# there rather than by flipping the switch: a probe reads the options back off
+# the iPod and re-assigns it, and a probe follows every plug, unplug and
+# finished command - including the one that files a download into a playlist.
+assert "--playlist-voiceover" in send_window._sync_options()
+send_window.playlist_voiceover.set_active(False)
+assert "--playlist-voiceover" in send_window._sync_options(), (
+    "a probe setting the switch back left the playlist with no spoken name"
+)
+
+# A queue of nothing but tracks leaves the switch the only say.
+tracks_only = FakeWindow()
+tracks_only.pending_sources = {str(first): {str(first)}}
+assert "--playlist-voiceover" not in tracks_only._sync_options()
+
+# And with no speech engine there is nothing to speak the name with, so the
+# flag is not passed to a sync that could only fail on it.
+speechless = FakeWindow(speech=False)
+speechless.pending_sources = {str(PLAYLISTS / "Later.m3u"): {str(first)}}
+assert "--playlist-voiceover" not in speechless._sync_options()
+
+# A download that fails after the window has moved on says so somewhere. Add
+# to a new playlist takes the user to the Playlists view while the download is
+# still running, and nothing else reports the failure.
+moved_on = FakeWindow()
+moved_on._report_download_failure(result)
+assert moved_on.toasts[-1] == "Could not finish downloading Bohemian Rhapsody", (
+    moved_on.toasts
+)
+
+# An edit that could not read the playlist says read, not write: the folder is
+# writable, and the file was listed before the drive it points onto went away.
+gone_drive = FakeWindow()
+gone_drive.library_tracks([first, second])
+new_playlist(gone_drive, "On A Drive")
+gui.write_playlist_entries(PLAYLISTS / "On A Drive.m3u", [str(first)])
+gone_drive._load_local_playlists()
+(PLAYLISTS / "On A Drive.m3u").unlink()
+(PLAYLISTS / "On A Drive.m3u").symlink_to("/nowhere/mounted/On A Drive.m3u")
+try:
+    gone_drive._add_tracks_to_playlist("On A Drive", [track_for(second)])
+    assert gone_drive.toasts[-1] == "Could not read On A Drive", gone_drive.toasts
+    gone_drive._remove_track_from_playlist("On A Drive", track_for(first))
+    assert gone_drive.toasts[-1] == "Could not read On A Drive", gone_drive.toasts
+finally:
+    (PLAYLISTS / "On A Drive.m3u").unlink()
 
 gui.volume_identity = original_volume_identity
 

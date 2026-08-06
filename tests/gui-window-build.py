@@ -103,20 +103,37 @@ EXPECTED = {
 }
 
 
+def walk(widget):
+    """Every widget in a tree, the one it was given included."""
+    if widget is None:
+        return
+    yield widget
+    child = widget.get_first_child()
+    while child is not None:
+        yield from walk(child)
+        child = child.get_next_sibling()
+
+
 def find_entry(widget):
     """The name field inside a dialog, wherever it was nested.
 
     Walked rather than reached for by path, so grouping the field differently
     is a change to the dialog's looks rather than a broken check.
     """
-    if widget is None or isinstance(widget, Adw.EntryRow):
-        return widget
-    child = widget.get_first_child()
-    while child is not None:
-        found = find_entry(child)
-        if found is not None:
+    for found in walk(widget):
+        if isinstance(found, Adw.EntryRow):
             return found
-        child = child.get_next_sibling()
+    return None
+
+
+def find_button(widget, text):
+    """The button in a menu whose row reads like this, or None."""
+    for found in walk(widget):
+        if isinstance(found, Gtk.Button) and any(
+            isinstance(inner, Gtk.Label) and inner.get_text() == text
+            for inner in walk(found)
+        ):
+            return found
     return None
 
 
@@ -198,6 +215,36 @@ def inspect(window):
             continue
         if not isinstance(popover, Gtk.Popover):
             failures.append(f"{name} returned {popover!r}")
+
+    # A playlist another program wrote can list a track relative to the folder
+    # it sits in. The sync resolves that, so the entry is real - but it names
+    # nothing this app can write into a different playlist. Taking it out of
+    # the list it is in writes no path anywhere, so that has to stay on offer,
+    # or a line like this could never be removed at all.
+    relative_list = gui.local_playlist_file(gui.PLAYLIST_LIBRARY, "Built")
+    gui.write_playlist_entries(relative_list, ["Somebody Else Wrote This.mp3"])
+    window._populate_playlist_rail()
+    borrowed = gui.Track(
+        "Somebody Else Wrote This.mp3",
+        {"title": "Somebody Else Wrote This"},
+        gui.STATE_LIBRARY,
+    )
+    inside = window.track_menu(borrowed, "Built")
+    removal = find_button(inside.get_child(), "Remove from Built")
+    if removal is None:
+        failures.append(
+            "a folder-relative entry offered no way out of the playlist it is in"
+        )
+    else:
+        removal.emit("clicked")
+        left = gui.read_playlist_entries(relative_list)
+        if left:
+            failures.append(f"Remove left the entry in the playlist: {left}")
+    # Putting it in a different playlist stays refused: resolved against that
+    # playlist's folder instead, the same line names nothing at all.
+    outside = window.track_menu(borrowed)
+    if find_button(outside.get_child(), "Built") is not None:
+        failures.append("a folder-relative entry was offered as one to add")
 
     # Naming a playlist and renaming one are one dialog assembled in one place,
     # so a break in it is a break in both, and neither is built until the user

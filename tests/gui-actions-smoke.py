@@ -1860,38 +1860,64 @@ assert queue_window.pending_sources == {}, "sync sources survived a successful s
 assert queue_window.pending_device_identity is None, "queue stayed device-bound"
 assert isinstance(cleared, str), cleared
 
+def sync_pending_with(window):
+    """Press Sync and wait for whatever it decided to say."""
+    ready = threading.Event()
+    said = window._toast
+
+    def record(message):
+        said(message)
+        ready.set()
+
+    window._toast = record
+    original_volume_identity = gui.volume_identity
+    original_glib = gui.GLib
+    gui.volume_identity = lambda _mount: window.device_identity
+    gui.GLib = type(
+        "ImmediateGLib",
+        (),
+        {"idle_add": staticmethod(lambda callback, *args: callback(*args))},
+    )
+    try:
+        gui.IpodWindow.on_sync_pending(window, None)
+        assert ready.wait(5), "the source scan before a sync never reported"
+    finally:
+        gui.volume_identity = original_volume_identity
+        gui.GLib = original_glib
+        window._toast = said
+
+
+# A queued source that has gone - a folder on a stick that was unplugged, a
+# playlist another program deleted - is dropped rather than failing the re-read
+# of every source. Failing it would leave the source staged and cancel every
+# press of Sync after it for the rest of the session, naming nothing the user
+# could go and put right.
 failed_sync = FakeWindow()
 failed_member = "/missing/source/song.mp3"
 failed_sync.pending = {failed_member}
 failed_sync.pending_sources = {"/missing/source": {failed_member}}
 failed_sync.pending_device_identity = failed_sync.device_identity
-failure_ready = threading.Event()
-original_toast = failed_sync._toast
-
-
-def record_failure(message):
-    original_toast(message)
-    failure_ready.set()
-
-
-failed_sync._toast = record_failure
-original_volume_identity = gui.volume_identity
-original_glib = gui.GLib
-gui.volume_identity = lambda _mount: failed_sync.device_identity
-gui.GLib = type(
-    "ImmediateGLib",
-    (),
-    {"idle_add": staticmethod(lambda callback, *args: callback(*args))},
-)
-try:
-    gui.IpodWindow.on_sync_pending(failed_sync, None)
-    assert failure_ready.wait(5), "failed source scan did not report its refusal"
-finally:
-    gui.volume_identity = original_volume_identity
-    gui.GLib = original_glib
+sync_pending_with(failed_sync)
 assert failed_sync.commands == [], failed_sync.commands
 assert not failed_sync.busy
-assert "cancelled" in failed_sync.toasts[-1]
+assert failed_sync.pending_sources == {}, failed_sync.pending_sources
+assert "Nothing remains" in failed_sync.toasts[-1], failed_sync.toasts
+
+# One that is there but cannot be read is the other thing entirely, and still
+# cancels: syncing around it would copy a queue the user never approved.
+unreadable_sync = FakeWindow()
+unreadable_source = Path(tempfile.mkdtemp(prefix="unreadable-")) / "notes.txt"
+unreadable_source.write_text("not a source this can read", encoding="utf-8")
+unreadable_sync.pending = {str(unreadable_source)}
+unreadable_sync.pending_sources = {str(unreadable_source): {str(unreadable_source)}}
+unreadable_sync.pending_device_identity = unreadable_sync.device_identity
+sync_pending_with(unreadable_sync)
+assert unreadable_sync.commands == [], unreadable_sync.commands
+assert not unreadable_sync.busy
+assert "cancelled" in unreadable_sync.toasts[-1], unreadable_sync.toasts
+assert str(unreadable_source) in unreadable_sync.pending_sources, (
+    "a source that is there but unreadable was dropped from the queue"
+)
 
 outside_window = FakeWindow()
 outside_track = gui.Track(

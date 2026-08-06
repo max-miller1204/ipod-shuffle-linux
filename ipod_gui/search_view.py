@@ -516,9 +516,13 @@ class SearchViewMixin:
         """Say in the section that this particular download did not finish.
 
         The toast is gone by the time the eye returns to the row that was being
-        added, and that row is what the user is looking at.
+        added, and that row is what the user is looking at - unless the press
+        was Add to a new playlist, which takes the window to the Playlists view
+        while the download runs. Nothing else reports this failure, so somewhere
+        it is not on screen the toast is the only word there would be.
         """
         if self.current_view() != "search":
+            self._toast(f"Could not finish downloading {result.title}")
             return
         self._set_search_note(
             f"Could not finish downloading {result.title}. Details has what "
