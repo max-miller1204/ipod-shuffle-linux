@@ -966,10 +966,15 @@ class PlaylistViewMixin:
             self._toast(f"Could not create {name}")
             return
         self._load_local_playlists()
+        self.current_playlist = name
+        # The playlist exists from here on, so the rail, the list and the shelf
+        # show it from here on too. What `then` goes on to do with it - start a
+        # download, refuse an album that is all on the iPod - is its own errand
+        # and none of them is under any obligation to paint a window.
+        self._populate_playlist_rail()
         if then is not None:
             then(name)
         else:
-            self._populate_playlist_rail()
             self._toast(f"{name} created")
         self._select_playlist(name)
 
@@ -1008,14 +1013,16 @@ class PlaylistViewMixin:
         playlist = self._local_playlist(old_name)
         if playlist is None:
             return
-        # The queue names the file, and the file is about to be called
-        # something else, so what is staged has to go with the old name.
-        self.unqueue_source(playlist.path)
         if rename_local_playlist(playlist.path, new_name) is None:
             self._toast(f"Could not rename {old_name}")
             return
         self._load_local_playlists()
         self.current_playlist = new_name
+        # The queue named the file, and the file is called something else now,
+        # so what was staged goes with the old name. After the move rather than
+        # before it: a rename that could not happen would otherwise cancel a
+        # sync the user was never told had stopped carrying this playlist.
+        self.unqueue_source(playlist.path)
         note = self._stage_playlist(new_name)
         self._populate_playlist_rail()
         self._toast(f"Renamed to {new_name}{note}")
@@ -1114,13 +1121,16 @@ class PlaylistViewMixin:
         playlist = self._local_playlist(name)
         on_device = self._playlist_on_device(name)
         if playlist is not None:
-            self.unqueue_source(playlist.path)
             if not delete_local_playlist(playlist.path):
                 self._toast(f"Could not delete {name}")
                 return
             self._load_local_playlists()
             if self.current_playlist == name:
                 self.current_playlist = None
+            # Only once the file has gone: a delete that failed would otherwise
+            # leave the playlist sitting there, staged for a sync it has
+            # quietly been taken out of.
+            self.unqueue_source(playlist.path)
             self._populate_playlist_rail()
             if not on_device:
                 self._toast(f"{name} deleted")

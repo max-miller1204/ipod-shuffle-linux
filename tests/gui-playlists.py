@@ -631,6 +631,24 @@ assert partial.toasts[-1].startswith(
 ), partial.toasts
 gui.delete_local_playlist(PLAYLISTS / "Mixed.m3u")
 
+# Making a playlist from a track's ⋯ paints it whatever the menu then does
+# with it: an album that is entirely on the iPod adds nothing at all, and a
+# playlist the window has switched to but left out of its own rail is a
+# playlist the user has been told twice does and does not exist.
+refused = FakeWindow()
+refused.library_tracks([first])
+painted = refused.repaints
+new_playlist(
+    refused,
+    "All On The iPod",
+    then=lambda name: refused._add_tracks_to_playlist(name, [device_track]),
+)
+assert (PLAYLISTS / "All On The iPod.m3u").is_file(), "the playlist was not made"
+assert "only on the iPod" in refused.toasts[-1], refused.toasts
+assert refused.repaints > painted, "the rail never heard of the new playlist"
+assert refused.current_playlist == "All On The iPod", refused.current_playlist
+gui.delete_local_playlist(PLAYLISTS / "All On The iPod.m3u")
+
 # Renaming moves the file and, because the name is what the device says out
 # loud, removes the copy the iPod knows under the old one.
 window.playlists = [("Gym", [])]
@@ -726,6 +744,54 @@ renamer._on_rename_response(None, "rename", "Before", Entry("After"))
 assert (PLAYLISTS / "After.m3u").is_file(), "the rename wrote no file"
 assert staged_before not in renamer.pending_sources, renamer.pending_sources
 gui.delete_local_playlist(PLAYLISTS / "After.m3u")
+
+# And neither unstages anything when the file did not budge. Being told a
+# rename or a delete failed, while the sync it was queued for has silently
+# stopped carrying it, leaves a playlist that is still there and a Sync that
+# will not mention it - with the page still showing an insensitive "Queued for
+# sync" there is nothing left to press to put it back.
+original_rename = gui.rename_local_playlist
+original_delete = gui.delete_local_playlist
+for operation, run, said in (
+    (
+        "rename_local_playlist",
+        lambda window: window._on_rename_response(
+            None, "rename", "Stays", Entry("Moved")
+        ),
+        "Could not rename Stays",
+    ),
+    (
+        "delete_local_playlist",
+        lambda window: window._on_playlist_remove_response(
+            None, "remove", "Stays", "uuid:test-ipod"
+        ),
+        "Could not delete Stays",
+    ),
+):
+    stubborn = FakeWindow()
+    stubborn.library_tracks([first])
+    new_playlist(stubborn, "Stays")
+    gui.write_playlist_entries(PLAYLISTS / "Stays.m3u", [str(first)])
+    stubborn._load_local_playlists()
+    stubborn._send_playlist_to_ipod("Stays")
+    assert stubborn.is_queued(PLAYLISTS / "Stays.m3u"), stubborn.pending_sources
+    # The failure the store reports when the file cannot be moved or unlinked:
+    # a read-only folder, a permission, a disk with nothing left.
+    setattr(gui, operation, lambda *_args: None)
+    try:
+        run(stubborn)
+    finally:
+        gui.rename_local_playlist = original_rename
+        gui.delete_local_playlist = original_delete
+    assert stubborn.toasts[-1] == said, (operation, stubborn.toasts)
+    assert (PLAYLISTS / "Stays.m3u").is_file(), operation
+    assert stubborn.is_queued(PLAYLISTS / "Stays.m3u"), (
+        f"a failed {operation} took the playlist out of the queue"
+    )
+    assert str(first) in stubborn.pending, (
+        f"a failed {operation} took the playlist's tracks with it"
+    )
+    gui.delete_local_playlist(PLAYLISTS / "Stays.m3u")
 
 # A track the library scan has not indexed yet - a download that has just
 # landed - makes staging read its tags in the background first. Moving one
@@ -857,6 +923,20 @@ assert download_window.toasts[-1] == "There is no playlist called Deleted", (
 assert len(download_window.downloads) == 1, (
     "a download started with nowhere to put it"
 )
+
+# The same from a result's ⋯ → New playlist…: the download runs for as long as
+# it runs, and the playlist it will land in is in the rail for all of it.
+result_new = FakeWindow()
+painted = result_new.repaints
+new_playlist(
+    result_new,
+    "For A Video",
+    then=lambda name: result_new._add_result_to_playlist(name, result),
+)
+assert (PLAYLISTS / "For A Video.m3u").is_file(), "the playlist was not made"
+assert result_new.downloads, "the download never started"
+assert result_new.repaints > painted, "the rail never heard of the new playlist"
+gui.delete_local_playlist(PLAYLISTS / "For A Video.m3u")
 
 # The Playlists view resolves each entry against what it knows, and an entry
 # nothing knows about still becomes a row rather than disappearing.
