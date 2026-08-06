@@ -141,8 +141,11 @@ def pin_rendering(home):
     a HiDPI session and 96 on the one the existing screenshots were taken on -
     the difference is a sidebar twice as wide and three albums to a row rather
     than four. XSETTINGS wins over GDK_DPI_SCALE, so the value is written into
-    the demo's own config rather than the developer's: the demo replaces HOME
-    anyway, and nothing here touches the real desktop.
+    the demo's own config rather than the developer's, and nothing here
+    touches the real desktop. GTK looks for this file wherever
+    XDG_CONFIG_HOME points, which the launch command below pins at this
+    directory: replacing HOME alone would leave a session that exports that
+    variable reading the desktop's settings instead of this one.
     """
     settings = home / ".config/gtk-4.0/settings.ini"
     settings.parent.mkdir(parents=True, exist_ok=True)
@@ -306,11 +309,20 @@ def main():
         "  # GSK_RENDERER because Xephyr offers no accelerated backend."
     )
     print()
+    # Replacing HOME does not by itself keep the demo out of the developer's
+    # own files. XDG_CONFIG_HOME and XDG_CACHE_HOME override it wherever a
+    # session exports them, and the app reads its config from the first: left
+    # inherited, the demo would scan the music folders configured for the real
+    # library, show those in the album grid, and write back into that config
+    # from a throwaway run.
+    #
     # IPOD_VENV_PYTHON because replacing HOME also hides install.sh's
     # virtualenv from the tag reader, and a library with no artist or album is
     # a library with no album grid - the thing the screenshot is of.
     print(
         f'  env HOME="{home}" \\\n'
+        f'      XDG_CONFIG_HOME="{home / ".config"}" \\\n'
+        f'      XDG_CACHE_HOME="{home / ".cache"}" \\\n'
         f'      FAKE_IPOD_MOUNT="{ipod}" \\\n'
         f'      IPOD_VENV_PYTHON="{Path.home() / "ipod-tools/venv/bin/python"}" \\\n'
         f'      PATH="{REPO / "tests" / "bin"}:$PATH" \\\n'
