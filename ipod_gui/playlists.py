@@ -147,6 +147,27 @@ def local_playlists(root):
     return playlists
 
 
+def playlist_names_here(root):
+    """Every name the folder has already spent, whatever it spent it on.
+
+    local_playlists answers with the playlists that can be shown, which is a
+    narrower question: it drops an entry that is not a regular file, because
+    there is nothing to read out of a directory or a socket. A name is gone
+    either way - `local_playlist_file` would land on that entry and the write
+    would fail - so choosing a name asks the folder for its names rather than
+    for its playlists, and picking one and refusing one agree about what is
+    there. Reading no playlist's contents to collect names is the point as
+    much as the answer is: this runs on the main thread.
+    """
+    try:
+        entries = list(Path(root).iterdir())
+    except OSError:
+        return []
+    return [
+        entry.stem for entry in entries if entry.suffix.lower() == PLAYLIST_SUFFIX
+    ]
+
+
 def name_problem(name, taken=()):
     """Why this name cannot be used, as a sentence, or None.
 
@@ -265,11 +286,17 @@ def import_playlist_file(root, source, taken=()):
     be written are not "nothing was found": reported as one, they send the user
     looking through a playlist that was never the trouble.
 
-    The name it lands on is checked against the folder and not only against the
-    names the caller knew about, which is the same rule create_local_playlist
-    and rename_local_playlist hold. The caller's list is stale by construction:
-    a file dialog stands open for as long as the user browses, and a playlist
-    another program wrote in the meantime would be swallowed by this write.
+    The name it lands on is resolved against the folder and not only against
+    the names the caller knew about. The caller's list is stale by
+    construction: a file dialog stands open for as long as the user browses,
+    and a playlist another program wrote in the meantime would be swallowed by
+    this write. Unlike create_local_playlist and rename_local_playlist, which
+    refuse, the name here is one this function chose rather than one the user
+    typed: refusing it would leave them pressing Import against an answer that
+    cannot change, because nothing in the asking picks the name. So a taken
+    name moves to the next free number instead. The write is still refused
+    outright if the file appears between that listing and the write, because a
+    playlist that is already there is never overwritten.
     """
     source = Path(source)
     tracks, complete = read_local_playlist_tracks(source)
@@ -277,7 +304,8 @@ def import_playlist_file(root, source, taken=()):
         return None, 0, "That playlist file could not be read"
     if not tracks:
         return None, 0, "Nothing in that playlist could be found on this computer"
-    path = local_playlist_file(root, unique_name(source.stem, taken))
+    here = playlist_names_here(root)
+    path = local_playlist_file(root, unique_name(source.stem, [*taken, *here]))
     if path.exists():
         return None, 0, f"There is already a playlist called {path.stem}"
     if not write_playlist_entries(path, tracks):
@@ -329,17 +357,56 @@ def remove_entry(path, entry):
     return removed if write_playlist_entries(path, remaining) else None
 
 
+class _TargetGone:
+    """What move_entry answers when the row dropped on is the stale one.
+
+    A drag names two rows, and only one of them is the track: when the other
+    one is the row the file has lost, the dragged track is still listed, so
+    "that track is no longer here" would be a sentence about a row that never
+    went anywhere. It needs an answer of its own.
+
+    False rather than a truthy value of its own, because every other way to
+    fail in this module is falsy - `move_entry` three lines below returns
+    False for the stale source, and add_entries and remove_entry answer None.
+    A caller writing the obvious `if move_entry(...)` reads this as the
+    failure it is instead of toasting a reorder over a playlist it never
+    rewrote.
+    """
+
+    __slots__ = ()
+
+    def __bool__(self):
+        return False
+
+    def __repr__(self):
+        return "TARGET_GONE"
+
+
+TARGET_GONE = _TargetGone()
+
+
 def move_entry(path, source_index, target_index):
     """Reorder one track within a playlist, by position.
 
     By position rather than by path, because the same file may legitimately be
     listed twice and dragging one of them must not move the other.
+
+    Returns True when the new order was written, False when the playlist no
+    longer has the row being dragged, TARGET_GONE when it no longer has the
+    row that was dropped on, or None if it could not be read or written -
+    remove_entry's three answers, with the vanished row answered as two
+    because a drag reads two of them off the same painted list. A row the file
+    has lost since the window painted it is a repaint, while a list that could
+    not be rewritten is a folder to go and look at, and a caller told only
+    "False" reports whichever of those it guessed at.
     """
     entries, complete = playlist_contents(path)
     if not complete:
+        return None
+    if not 0 <= source_index < len(entries):
         return False
-    if not 0 <= source_index < len(entries) or not 0 <= target_index < len(entries):
-        return False
+    if not 0 <= target_index < len(entries):
+        return TARGET_GONE
     moved = entries.pop(source_index)
     entries.insert(target_index, moved)
-    return write_playlist_entries(path, entries)
+    return True if write_playlist_entries(path, entries) else None

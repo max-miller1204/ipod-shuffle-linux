@@ -704,6 +704,8 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - A playlist rewritten in an order of its own, so a track dragged in the window arrived somewhere else on a player with no screen to reorder it from
 - Taking the last song out of a playlist leaving the list on the device, pointing at nothing
 - An edit that moved a track between playlists staging only the playlist it landed in, so the one it left synced with the track still listed
+- A playlist shortened by another program reporting the next drag as a write that failed, sending the user to check the permissions on a folder that was perfectly writable
+- An import refusing a name it had chosen itself rather than moving to the next free one, so pressing Import again produced the same rejected name for as long as the file holding it sat there
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 
@@ -721,8 +723,10 @@ That folder carries every case the walk has to survive - a linked track, a linke
 
 `tests/gui-window-build.py` is the display-backed exception: it constructs the real window so a missing builder call, bad widget parent, or incomplete view stack cannot pass behind the stand-ins. Run it under a desktop session or with `xvfb-run -a`; it fails instead of skipping when no display is available.
 `tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
+`tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the Xephyr recipe that brings the window up at exactly 1180x760 on any machine.
+`tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, a Python syntax and import check, and the real-window check under xvfb on every push and pull request.
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, and the real-window check under xvfb on every push and pull request.
 
 ## Credits
 

@@ -85,9 +85,30 @@ assert gui.read_playlist_entries(created) == [str(first), str(second)]
 assert created.read_text(encoding="utf-8").startswith("#EXTM3U\n")
 assert gui.add_entries(created, [first]) == 0, "a track was listed twice"
 
-assert gui.move_entry(created, 1, 0)
+assert gui.move_entry(created, 1, 0) is True
 assert gui.read_playlist_entries(created) == [str(second), str(first)]
-assert not gui.move_entry(created, 5, 0), "a move past the end was accepted"
+# A row the file no longer has is not a playlist that could not be written:
+# the drag came from a window painted before something else shortened the
+# list, and saying "could not write" sends the reader to a folder that is
+# perfectly writable. Answered apart the way remove_entry answers its two.
+assert gui.move_entry(created, 5, 0) is False, "a move past the end was accepted"
+# The stale row can be the one the drag landed on instead, and then the track
+# being dragged is still listed: what has gone is where it was going. Answered
+# apart from the row that vanished, because a caller told only "False" would
+# say a track that is still there has left the playlist.
+assert gui.move_entry(created, 0, 5) == gui.TARGET_GONE, (
+    "a drop past the end was accepted"
+)
+# Falsy as well as its own answer, because the obvious way to call this reads
+# the answer as a yes or a no and every other failure in the store is falsy:
+# a caller writing `if move_entry(...)` must not report a reorder it did not
+# make over a playlist that still reads the way it did.
+assert not gui.move_entry(created, 0, 5), (
+    "a drop onto a row that had gone read as a reorder that happened"
+)
+assert gui.read_playlist_entries(created) == [str(second), str(first)], (
+    "a drop onto a row that had gone rewrote the playlist"
+)
 
 # The two ways a removal changes nothing are two different things to go and
 # look at, so a count answers them apart the way add_entries does: a playlist
@@ -106,6 +127,9 @@ try:
         "a playlist that could not be rewritten reported nothing to remove"
     )
     assert gui.add_entries(created, [second]) is None
+    assert gui.move_entry(created, 0, 0) is None, (
+        "a reorder that could not be written reported a row that had gone"
+    )
 finally:
     blocked_scratch.rmdir()
 assert gui.read_playlist_entries(created) == [str(first)], (
@@ -124,7 +148,9 @@ assert gui.add_entries(unplugged_list, [str(first)]) is None, (
     "an unreadable playlist was rewritten from a read that did not happen"
 )
 assert gui.remove_entry(unplugged_list, first) is None
-assert not gui.move_entry(unplugged_list, 1, 0)
+assert gui.move_entry(unplugged_list, 1, 0) is None, (
+    "an unreadable playlist reported a row that had gone"
+)
 assert unplugged_list.is_symlink(), "the edit replaced the playlist"
 assert not unplugged_list.exists(), "the edit wrote where the drive should be"
 unplugged_list.unlink()
@@ -216,13 +242,58 @@ assert not (PLAYLISTS / "Nothing Here.m3u").exists(), (
 # each says which one happened rather than all of them blaming the library.
 # A name that is free as far as the caller knows can have been taken since:
 # the file dialog stands open for as long as the user browses, and another
-# program can write into the folder in that time. The write is refused rather
-# than swallowing what is there, which is the rule the rest of the store keeps.
+# program can write into the folder in that time. Import picks its own name,
+# so it reads the folder and lands on the next free one. Refusing here would
+# be a dead end rather than a question: nothing the user does to the dialog
+# changes a name they never chose, so pressing Import again would fail the
+# same way for as long as the squatter sat there.
 squatter = PLAYLISTS / "Road Trip 3.m3u"
 gui.write_playlist_entries(squatter, [str(first)])
-_none, _zero, taken_already = gui.import_playlist_file(
+landed, _kept, no_trouble = gui.import_playlist_file(
     PLAYLISTS, foreign, ["Road Trip", "Road Trip 2"]
 )
+assert no_trouble is None, no_trouble
+assert landed == PLAYLISTS / "Road Trip 4.m3u", landed
+assert gui.read_playlist_entries(squatter) == [str(first)], (
+    "an import overwrote a playlist that was already there"
+)
+gui.delete_local_playlist(landed)
+gui.delete_local_playlist(squatter)
+
+# A name is taken by whatever is sitting under it, not only by the playlists
+# that can be read out of the folder. A directory called "Road Trip 3.m3u" is
+# no playlist, but the write would land on it just the same, so the name it
+# occupies has to be spent as far as choosing one goes: counting only readable
+# playlists would pick that name, be refused by the file already there, and
+# pick it again on the next press for as long as the directory stood.
+in_the_way = PLAYLISTS / "Road Trip 3.m3u"
+in_the_way.mkdir()
+try:
+    stepped_over, _kept, no_trouble = gui.import_playlist_file(
+        PLAYLISTS, foreign, ["Road Trip", "Road Trip 2"]
+    )
+    assert no_trouble is None, no_trouble
+    assert stepped_over == PLAYLISTS / "Road Trip 4.m3u", stepped_over
+    assert in_the_way.is_dir(), "an import wrote over a directory in the folder"
+finally:
+    in_the_way.rmdir()
+gui.delete_local_playlist(stepped_over)
+
+# Reading the folder and writing into it are still two steps, and another
+# program can take the chosen name in between. That one is refused outright,
+# because a playlist already there is never overwritten - the rule the rest of
+# the store keeps. Stubbing the listing is that race, held still: the folder
+# says the name is free, and by the write it is not.
+squatter = PLAYLISTS / "Road Trip 3.m3u"
+gui.write_playlist_entries(squatter, [str(first)])
+_real_names_here = gui.playlist_names_here
+gui.playlist_names_here = lambda root: []
+try:
+    _none, _zero, taken_already = gui.import_playlist_file(
+        PLAYLISTS, foreign, ["Road Trip", "Road Trip 2"]
+    )
+finally:
+    gui.playlist_names_here = _real_names_here
 assert "already a playlist" in (taken_already or ""), taken_already
 assert gui.read_playlist_entries(squatter) == [str(first)], (
     "an import overwrote a playlist that was already there"
@@ -582,6 +653,55 @@ assert gui.read_playlist_entries(PLAYLISTS / "From Menu.m3u") == [
     str(first),
     str(second),
 ]
+
+# A row the file no longer has is not a folder to go and look at. Another
+# program can shorten a playlist while its rows are still on screen, so the
+# drag that lands next is aimed at a row that has gone: the window catches up
+# with the file rather than sending the user to check the permissions on one
+# that is perfectly writable, which is the answer removing a vanished row
+# already gives.
+shortened = FakeWindow()
+shortened.library_tracks([first, second])
+new_playlist(shortened, "Shortened")
+shortened.current_playlist = "Shortened"
+shortened._add_tracks_to_playlist(
+    "Shortened", [track_for(first), track_for(second)]
+)
+gui.write_playlist_entries(PLAYLISTS / "Shortened.m3u", [str(first)])
+painted = shortened.repaints
+assert shortened._reorder_playlist(1, 0) is False
+assert shortened.toasts[-1] == "That track is no longer in Shortened", (
+    shortened.toasts
+)
+assert gui.read_playlist_entries(PLAYLISTS / "Shortened.m3u") == [str(first)], (
+    "a reorder aimed at a row that had gone rewrote the playlist"
+)
+assert shortened.repaints > painted, (
+    "the window kept showing a row the file had lost"
+)
+gui.delete_local_playlist(PLAYLISTS / "Shortened.m3u")
+
+# The same playlist shortened under the other end of the same drag is a
+# different sentence. Here the row that has gone is the one the track was
+# dropped on, so the track itself is still listed and saying it is no longer
+# there would name the wrong row: the answer is that the list moved.
+dropped = FakeWindow()
+dropped.library_tracks([first, second])
+new_playlist(dropped, "Dropped")
+dropped.current_playlist = "Dropped"
+dropped._add_tracks_to_playlist("Dropped", [track_for(first), track_for(second)])
+gui.write_playlist_entries(PLAYLISTS / "Dropped.m3u", [str(first)])
+painted = dropped.repaints
+assert dropped._reorder_playlist(0, 1) is False
+assert dropped.toasts[-1] == "Dropped has changed - drag that again", dropped.toasts
+assert gui.read_playlist_entries(PLAYLISTS / "Dropped.m3u") == [str(first)], (
+    "a reorder aimed at a row that had gone rewrote the playlist"
+)
+assert dropped.repaints > painted, (
+    "the window kept showing a row the file had lost"
+)
+gui.delete_local_playlist(PLAYLISTS / "Dropped.m3u")
+
 # A device-only playlist has no local file to hold the order, so that one
 # still goes straight to the device and rebuilds; nothing here should have.
 assert window.commands == [], window.commands

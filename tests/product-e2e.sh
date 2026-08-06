@@ -1505,6 +1505,13 @@ test -s "$PLAYLIST_IPOD/iPod_Control/Music/Beach Boys/Surfin.mp3"
 /usr/bin/python3 "$ROOT/tests/gui-playlists.py" \
     2> "$EVIDENCE_DIR/gui-playlists.txt"
 
+# The demo builder's guard, which is the one step in this repository that
+# deletes a directory somebody named. It runs here as well as in CI because
+# the suite is what gets run before pushing, and it needs nothing this file
+# has not already got.
+/usr/bin/python3 "$ROOT/tests/demo-library-guard.py" \
+    > "$EVIDENCE_DIR/demo-library-guard.txt"
+
 /usr/bin/python3 "$ROOT/tests/gui-actions-smoke.py" \
     > "$EVIDENCE_DIR/gui-actions.json"
 

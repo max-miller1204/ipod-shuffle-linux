@@ -55,6 +55,7 @@ from .playlists import (
     playlist_contents,
     remove_entry,
     rename_local_playlist,
+    TARGET_GONE,
 )
 from .widgets import (
     ELLIPSIZE_END,
@@ -1230,10 +1231,30 @@ class PlaylistViewMixin:
 
         playlist = self._local_playlist(self.current_playlist)
         if playlist is not None:
-            if not move_entry(playlist.path, source, target):
+            moved = move_entry(playlist.path, source, target)
+            if moved is None:
                 self._toast(
                     f"Could not {self._edit_step(playlist)} {playlist.name}"
                 )
+                return False
+            if moved == TARGET_GONE:
+                # The playlist was shortened past where the drag was aimed
+                # rather than past the track being dragged, so that track is
+                # still listed and only the destination has gone: what to say
+                # is that the list moved under the drag, not that the track
+                # left it.
+                self._populate_playlist_rail()
+                self._toast(f"{playlist.name} has changed - drag that again")
+                return False
+            if not moved:
+                # The row was painted from an older reading of a playlist
+                # something else has shortened since, so nothing failed and
+                # there is nothing to write. Repainting re-reads the folder, so
+                # the window catches up with the file rather than sending the
+                # user to check the permissions on one that is perfectly
+                # writable - the same answer removing a vanished row gives.
+                self._populate_playlist_rail()
+                self._toast(f"That track is no longer in {playlist.name}")
                 return False
             self._after_playlist_change(playlist.name, "Playlist reordered")
             return True
