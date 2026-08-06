@@ -704,6 +704,8 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - A playlist rewritten in an order of its own, so a track dragged in the window arrived somewhere else on a player with no screen to reorder it from
 - Taking the last song out of a playlist leaving the list on the device, pointing at nothing
 - An edit that moved a track between playlists staging only the playlist it landed in, so the one it left synced with the track still listed
+- A playlist shortened by another program reporting the next drag as a write that failed, sending the user to check the permissions on a folder that was perfectly writable
+- An import refusing a name it had chosen itself rather than moving to the next free one, so pressing Import again produced the same rejected name for as long as the file holding it sat there
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 
