@@ -629,12 +629,16 @@ shortened._add_tracks_to_playlist(
     "Shortened", [track_for(first), track_for(second)]
 )
 gui.write_playlist_entries(PLAYLISTS / "Shortened.m3u", [str(first)])
+painted = shortened.repaints
 assert shortened._reorder_playlist(1, 0) is False
 assert shortened.toasts[-1] == "That track is no longer in Shortened", (
     shortened.toasts
 )
 assert gui.read_playlist_entries(PLAYLISTS / "Shortened.m3u") == [str(first)], (
     "a reorder aimed at a row that had gone rewrote the playlist"
+)
+assert shortened.repaints > painted, (
+    "the window kept showing a row the file had lost"
 )
 gui.delete_local_playlist(PLAYLISTS / "Shortened.m3u")
 

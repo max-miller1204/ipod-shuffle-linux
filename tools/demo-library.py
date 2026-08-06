@@ -25,7 +25,6 @@ same four albums always come out the same four colours.
 """
 
 import argparse
-import os
 import shutil
 import subprocess
 import sys
@@ -55,8 +54,19 @@ LOCAL_PLAYLIST = "Downloads"
 
 
 def run(command, **kwargs):
-    """Run a command, failing loudly rather than leaving a half-built demo."""
-    result = subprocess.run(command, capture_output=True, text=True, **kwargs)
+    """Run a command, failing loudly rather than leaving a half-built demo.
+
+    Nothing here is answering prompts, and the output is captured, so a child
+    that asked one would wait forever on a question nobody can see. Closing
+    stdin turns that into an error instead of a hang.
+    """
+    result = subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        **kwargs,
+    )
     if result.returncode != 0:
         sys.exit(
             f"{command[0]} failed ({result.returncode}):\n"
@@ -159,16 +169,23 @@ def sync(ipod, sources):
     the badges in the screenshot true: the app reads the device back and says
     what it finds there, so a fixture that only claimed to have synced would
     show every album as "In library".
+
+    --yes is the script's own flag for answering its prompts, and it is what
+    covers assert_shuffle's device-type warning on a volume this tool built
+    rather than plugged in.
     """
     command = [
         str(REPO / "ipod-sync.sh"),
         "--ipod", str(ipod),
+        "--yes",
         "--playlist-voiceover",
         *[str(source) for source in sources],
     ]
-    environment = {**os.environ, "IPOD_ASSUME_YES": "1"}
     return subprocess.run(
-        command, capture_output=True, text=True, env=environment
+        command,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
     )
 
 
