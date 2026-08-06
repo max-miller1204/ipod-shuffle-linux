@@ -441,6 +441,13 @@ class QueueMixin:
                 return {}, [], False
             if tracks:
                 refreshed[source] = tracks
+            else:
+                # Still there, but holding nothing the sync would copy: the
+                # folder was emptied by hand since it was staged. The queue is
+                # rebuilt without it either way, so it counts as dropped for
+                # the same reason a missing one does - the user staged it and
+                # it is not going to happen.
+                dropped.append(source)
         return refreshed, dropped, True
 
     def _finish_pending_source_scan(
@@ -463,24 +470,28 @@ class QueueMixin:
             self._set_busy(False)
             return False
         self._commit_queue_sources(sources, show_toast=False, replace=True)
-        # Carried into what the sync itself reports rather than said before it
-        # starts, because this sentence has to still be on screen when the
-        # copying has finished: what was dropped is the part of what the user
-        # staged that did not happen, and a count of the rest reads as success.
+        # Said on its own here rather than folded into what the sync reports:
+        # a run that succeeds replaces that message with _clear_pending's, and
+        # one that fails never shows it at all, so this is the only point both
+        # outcomes pass through. What was dropped is the part of what the user
+        # staged that will not happen, and a count of the rest reads as
+        # success on its own.
         gone = (
-            f" · {plural(len(dropped), 'queued source')} no longer there"
+            f"Dropped {plural(len(dropped), 'queued source')} with nothing "
+            "left to sync"
             if dropped
             else ""
         )
-        if not self.pending_sources:
-            self._set_busy(False)
-            self._toast(f"Nothing remains in the queued sources{gone}")
-            return False
         self._set_busy(False)
-        self._launch_pending_sync(gone)
+        if not self.pending_sources:
+            self._toast(gone or "Nothing remains in the queued sources")
+            return False
+        if gone:
+            self._toast(gone)
+        self._launch_pending_sync()
         return False
 
-    def _launch_pending_sync(self, note=""):
+    def _launch_pending_sync(self):
         paths = sorted(self.pending_sources)
         copy_tracks, changes, _queued_bytes = self._pending_accounting()
         self.sync_total = len(copy_tracks)
@@ -496,7 +507,7 @@ class QueueMixin:
                 *paths,
             ],
             "Copying to iPod",
-            f"{plural(changes, 'change')} synced{note}",
+            f"{plural(changes, 'change')} synced",
             then=self._clear_pending,
         )
 

@@ -91,7 +91,6 @@ SHARED_STATE = {
     # Controls one module builds and another decides the state of.
     "library_controls": ("library_view", "window"),
     "new_playlist_button": ("device_view", "playlist_view"),
-    "playlist_voiceover": ("device_view", "playlist_view"),
     "search_add_buttons": ("device_view", "search_view"),
 }
 

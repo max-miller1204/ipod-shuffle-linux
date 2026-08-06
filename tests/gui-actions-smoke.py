@@ -1908,16 +1908,15 @@ sync_pending_with(failed_sync)
 assert failed_sync.commands == [], failed_sync.commands
 assert not failed_sync.busy
 assert failed_sync.pending_sources == {}, failed_sync.pending_sources
-assert "Nothing remains" in failed_sync.toasts[-1], failed_sync.toasts
 # Dropped is said, not merely done: what went is the part of what the user
 # staged that will not happen.
-assert "1 queued source no longer there" in failed_sync.toasts[-1], (
-    failed_sync.toasts
-)
+assert (
+    failed_sync.toasts[-1] == "Dropped 1 queued source with nothing left to sync"
+), failed_sync.toasts
 
 # A sync that loses one source and keeps another still runs, and still says
-# what it lost: a count of what survived, on its own, reads as a clean success
-# for a folder of tracks that was never copied.
+# what it lost - said here rather than folded into the sync's own message,
+# which _clear_pending replaces on success and a non-zero exit never shows.
 partial_sync = FakeWindow()
 kept_source = Path(tempfile.mkdtemp(prefix="kept-source-")) / "Kept.mp3"
 kept_source.write_bytes(b"kept")
@@ -1931,9 +1930,31 @@ sync_pending_with(partial_sync)
 assert partial_sync.commands, "a sync with one source left never ran"
 assert str(kept_source) in partial_sync.commands[-1], partial_sync.commands[-1]
 assert "/missing/source" not in partial_sync.commands[-1], partial_sync.commands[-1]
-assert "1 queued source no longer there" in partial_sync.done_messages[-1], (
-    partial_sync.done_messages
+assert (
+    partial_sync.toasts[-1] == "Dropped 1 queued source with nothing left to sync"
+), partial_sync.toasts
+# The sync's own message says what it did, and nothing more: it is replaced by
+# what _clear_pending returns the moment the copy succeeds.
+assert partial_sync.done_messages[-1].endswith("synced"), partial_sync.done_messages
+
+# A folder that is still there but has been emptied by hand is the same news:
+# the queue is rebuilt without it either way, so the user hears about it.
+emptied_sync = FakeWindow()
+emptied_folder = Path(tempfile.mkdtemp(prefix="emptied-source-"))
+emptied_sync.pending = {str(kept_source)}
+emptied_sync.pending_sources = {
+    str(kept_source): {str(kept_source)},
+    str(emptied_folder): set(),
+}
+emptied_sync.pending_device_identity = emptied_sync.device_identity
+sync_pending_with(emptied_sync)
+assert emptied_sync.commands, "a sync with one source left never ran"
+assert str(emptied_folder) not in emptied_sync.commands[-1], (
+    emptied_sync.commands[-1]
 )
+assert (
+    emptied_sync.toasts[-1] == "Dropped 1 queued source with nothing left to sync"
+), emptied_sync.toasts
 
 # One that is there but cannot be read is the other thing entirely, and still
 # cancels: syncing around it would copy a queue the user never approved.

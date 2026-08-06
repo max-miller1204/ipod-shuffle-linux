@@ -441,8 +441,10 @@ assert window.pending_sources == {
 }, window.pending_sources
 assert window.toasts[-1] == "1 track added to Gym · queued for sync", window.toasts
 # A playlist implies wanting its name read aloud, since a screenless device
-# has no other way to tell one from another.
-assert window.playlist_voiceover.active, "adding to a playlist left voiceover off"
+# has no other way to tell one from another - decided when the sync runs, so
+# an edit does not rewrite the setting for every sync after it.
+assert "--playlist-voiceover" in window._sync_options(), window._sync_options()
+assert not window.playlist_voiceover.active, "an edit rewrote a sync option"
 
 window._add_tracks_to_playlist("Gym", [track_for(first)])
 assert window.toasts[-1] == "Already in Gym", window.toasts
@@ -596,7 +598,7 @@ new_playlist(silent, "Silent")
 silent._add_tracks_to_playlist("Silent", [track_for(first)])
 assert silent.pending_sources == {}, silent.pending_sources
 assert "no speech engine installed" in silent.toasts[-1], silent.toasts
-assert not silent.playlist_voiceover.active, "voiceover flipped without an engine"
+assert "--playlist-voiceover" not in silent._sync_options()
 
 # A track that exists only on the iPod has no local file to list, and writing
 # its device path into a playlist would ask the next sync to copy the device's
@@ -700,7 +702,9 @@ gui.delete_local_playlist(PLAYLISTS / "All On The iPod.m3u")
 # loud, removes the copy the iPod knows under the old one.
 window.playlists = [("Gym", [])]
 window.current_playlist = "Gym"
-window._on_rename_response(None, "rename", "Gym", Entry("Gym Mix"))
+window._on_rename_response(
+    None, "rename", "Gym", Entry("Gym Mix"), window.device_identity
+)
 assert (PLAYLISTS / "Gym Mix.m3u").is_file(), "the rename wrote no file"
 assert not (PLAYLISTS / "Gym.m3u").exists(), "the old name was left behind"
 assert window.current_playlist == "Gym Mix", window.current_playlist
@@ -787,10 +791,35 @@ staged_before = str(PLAYLISTS / "Before.m3u")
 assert staged_before in renamer.pending_sources, renamer.pending_sources
 renamer.mount_point = None
 renamer.device_identity = None
-renamer._on_rename_response(None, "rename", "Before", Entry("After"))
+renamer._on_rename_response(
+    None, "rename", "Before", Entry("After"), "uuid:test-ipod"
+)
 assert (PLAYLISTS / "After.m3u").is_file(), "the rename wrote no file"
 assert staged_before not in renamer.pending_sources, renamer.pending_sources
 gui.delete_local_playlist(PLAYLISTS / "After.m3u")
+
+# Renaming a playlist the iPod holds removes the old name from the device, and
+# that runs a script which deletes a playlist and rebuilds a database. A probe
+# can swap the mount while the dialog is open, so it goes to the iPod the
+# rename was started on or to none at all: another device carrying a list of
+# the same name is not the one the user was looking at.
+swapped_rename = FakeWindow()
+swapped_rename.library_tracks([first])
+new_playlist(swapped_rename, "Shared Name")
+swapped_rename.playlists = [("Shared Name", ["F00/AAAA.mp3"])]
+swapped_rename.current_playlist = "Shared Name"
+gui.volume_identity = lambda _mount: "uuid:a-different-ipod"
+try:
+    swapped_rename._on_rename_response(
+        None, "rename", "Shared Name", Entry("Renamed"), "uuid:test-ipod"
+    )
+finally:
+    gui.volume_identity = lambda _mount: "uuid:test-ipod"
+# The local half still happened - it needs no device at all.
+assert (PLAYLISTS / "Renamed.m3u").is_file(), "the rename wrote no file"
+assert swapped_rename.commands == [], swapped_rename.commands
+assert "changed" in swapped_rename.toasts[-1], swapped_rename.toasts
+gui.delete_local_playlist(PLAYLISTS / "Renamed.m3u")
 
 # And neither unstages anything when the file did not budge. Being told a
 # rename or a delete failed, while the sync it was queued for has silently
@@ -803,7 +832,7 @@ for operation, run, said in (
     (
         "rename_local_playlist",
         lambda window: window._on_rename_response(
-            None, "rename", "Stays", Entry("Moved")
+            None, "rename", "Stays", Entry("Moved"), window.device_identity
         ),
         "Could not rename Stays",
     ),

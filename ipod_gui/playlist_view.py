@@ -862,10 +862,11 @@ class PlaylistViewMixin:
             return ""
         if self.playlist_unavailable:
             return f" · not queued: {self.playlist_unavailable.lower()}"
-        # A named playlist implies wanting the name read aloud, exactly as
-        # choosing a grouping under Sync options does: with no screen, the
-        # spoken name is the only way to find the playlist again.
-        self.playlist_voiceover.set_active(True)
+        # A named playlist implies wanting the name read aloud, which the sync
+        # decides from what is staged rather than from the switch. Setting the
+        # switch here as well would outlive the queue that justified it: the
+        # sync writes the options back onto the device, so a list edited once
+        # would turn spoken names on for every track-only sync after it.
         queued = self._queue_playlists(
             [playlist.path for playlist in wanted], show_toast=False
         )
@@ -1042,12 +1043,17 @@ class PlaylistViewMixin:
             "Rename",
             name,
             taken,
-            lambda dialog, entry: dialog.connect(
-                "response", self._on_rename_response, name, entry
+            # Which iPod this is, as the dialog opens: renaming a playlist the
+            # device holds removes the old one from it, and a probe can swap
+            # the mount underneath an open dialog.
+            lambda dialog, entry, identity=self.device_identity: dialog.connect(
+                "response", self._on_rename_response, name, entry, identity
             ),
         )
 
-    def _on_rename_response(self, _dialog, response, old_name, entry):
+    def _on_rename_response(
+        self, _dialog, response, old_name, entry, device_identity
+    ):
         if response != "rename":
             return
         new_name = entry.get_text().strip()
@@ -1074,8 +1080,13 @@ class PlaylistViewMixin:
         self._toast(f"Renamed to {new_name}{note}")
         # The device knows the old name and nothing will remove it: the sync
         # writes the playlist its file is called, so the renamed copy would
-        # arrive beside the one it replaces.
+        # arrive beside the one it replaces. Against the iPod the rename was
+        # started on, though - this deletes a playlist and rebuilds a database,
+        # and the one under the mount now may be a different device that
+        # happens to carry a list of the same name.
         if self._playlist_on_device(old_name):
+            if not self._confirmed_device(device_identity):
+                return
             self._remove_device_playlist(old_name)
 
     # ------------------------------------------------ importing and removing
