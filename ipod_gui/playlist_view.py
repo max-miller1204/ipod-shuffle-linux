@@ -717,8 +717,19 @@ class PlaylistViewMixin:
         playlist = self._local_playlist(name)
         if playlist is None:
             return
-        if not remove_entry(playlist.path, track.path):
+        removed = remove_entry(playlist.path, track.path)
+        if removed is None:
             self._toast(f"Could not write {name}")
+            return
+        if not removed:
+            # The file no longer lists it, so nothing failed and there is
+            # nothing to write: the row was painted from an older reading of a
+            # playlist something else has edited since. Re-read so the window
+            # catches up with the file rather than sending the user to check
+            # permissions on one that is perfectly writable.
+            self._load_local_playlists()
+            self._populate_playlist_rail()
+            self._toast(f"That track is no longer in {name}")
             return
         # Said plainly, because the track itself is untouched: it is still in
         # the library, and still on the iPod if it was already copied there.
@@ -741,7 +752,19 @@ class PlaylistViewMixin:
             return
         # Only after the track has landed in the target: the opposite order
         # loses it entirely if the second write fails.
-        remove_entry(source.path, track.path)
+        if remove_entry(source.path, track.path) is None:
+            # Half a move is a copy, and it is reported as one: both lists now
+            # hold the track and both are staged, so a move called finished
+            # here would put it on the device twice without a word. A source
+            # that simply no longer listed it is not this - that is the move
+            # arriving at the state it was asked for.
+            self._after_playlist_change(
+                target_name,
+                f"Copied to {target_name}, but could not remove it from "
+                f"{source_name}",
+                also=source_name,
+            )
+            return
         self._after_playlist_change(
             target_name, f"Moved to {target_name}", also=source_name
         )
@@ -818,6 +841,10 @@ class PlaylistViewMixin:
             )
             return
         if self._local_playlist(name) is None:
+            # Said rather than passed over: a download that never starts and a
+            # menu that closes on nothing are the same thing to look at, and
+            # the local add says this much when a playlist has gone.
+            self._toast(f"There is no playlist called {name}")
             return
         self._start_youtube_download(
             result.url,
@@ -836,7 +863,8 @@ class PlaylistViewMixin:
         download reports nothing new, and the file it would have written is
         already sitting there.
         """
-        if self._local_playlist(name) is None:
+        playlist = self._local_playlist(name)
+        if playlist is None:
             return f"Downloaded, but {name} is no longer there"
         path = downloaded_file(video_id, YOUTUBE_LIBRARY)
         if path is None:
@@ -848,7 +876,6 @@ class PlaylistViewMixin:
             path = files[0] if len(files) == 1 else None
         if path is None:
             return f"Downloaded, but could not tell which track to add to {name}"
-        playlist = self._local_playlist(name)
         added = add_entries(playlist.path, [str(path)])
         if added is None:
             return f"Downloaded, but could not write {name}"
@@ -859,6 +886,54 @@ class PlaylistViewMixin:
 
     # ----------------------------------------------------- making a playlist
 
+    def _name_dialog(self, heading, body, response, verb, initial, taken, answered):
+        """Ask for a playlist's name, and refuse the ones that will not do.
+
+        Naming a new playlist and renaming an existing one are the same
+        question asked twice, so they are one dialog: what a name may be is
+        decided by name_problem either way, and a rule about it that only half
+        the app enforced would be a rule the user meets on the second try.
+
+        `answered` is handed the dialog and the field to connect what to do
+        with the name, because what that is - create a file, move one - is the
+        only part that differs once the name has been accepted. The dialog is
+        returned so a check can open one and read what it offers.
+        """
+        entry = Adw.EntryRow(title="Name")
+        entry.set_text(initial)
+        entry.set_activates_default(True)
+        problem = label("", "sf-caption", "sf-alert", wrap=True)
+        problem.set_visible(False)
+
+        fields = Adw.PreferencesGroup()
+        fields.add(entry)
+
+        dialog = Adw.AlertDialog(heading=heading, body=body)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.append(fields)
+        box.append(problem)
+        dialog.set_extra_child(box)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response(response, verb)
+        dialog.set_response_appearance(response, Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response(response)
+        dialog.set_close_response("cancel")
+
+        def revalidate(*_args):
+            # While it is being typed rather than after the button is pressed:
+            # the name becomes a filename on a FAT volume and the sentence
+            # saying why one will not do belongs beside the field it is about.
+            reason = name_problem(entry.get_text(), taken)
+            problem.set_text(reason or "")
+            problem.set_visible(bool(reason))
+            dialog.set_response_enabled(response, reason is None)
+
+        entry.connect("changed", revalidate)
+        revalidate()
+        answered(dialog, entry)
+        dialog.present(self)
+        return dialog
+
     def on_new_playlist(self, _button=None, then=None):
         """Ask for a name, and nothing else.
 
@@ -867,46 +942,19 @@ class PlaylistViewMixin:
         that needs an iPod attached.
         """
         taken = [playlist.name for playlist in self._shown_playlists()]
-        entry = Adw.EntryRow(title="Name")
-        entry.set_text(default_name(taken))
-        entry.set_activates_default(True)
-        problem = label("", "sf-caption", "sf-alert", wrap=True)
-        problem.set_visible(False)
-
-        fields = Adw.PreferencesGroup()
-        fields.add(entry)
-
-        dialog = Adw.AlertDialog(
-            heading="New playlist",
-            body=(
-                "Kept in "
-                f"{home_relative(PLAYLIST_LIBRARY)}. Add songs to it from your "
-                "library or from YouTube, then sync to put it on the iPod."
+        return self._name_dialog(
+            "New playlist",
+            "Kept in "
+            f"{home_relative(PLAYLIST_LIBRARY)}. Add songs to it from your "
+            "library or from YouTube, then sync to put it on the iPod.",
+            "create",
+            "Create",
+            default_name(taken),
+            taken,
+            lambda dialog, entry: dialog.connect(
+                "response", self._on_new_playlist_response, entry, then
             ),
         )
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.append(fields)
-        box.append(problem)
-        dialog.set_extra_child(box)
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("create", "Create")
-        dialog.set_response_appearance("create", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("create")
-        dialog.set_close_response("cancel")
-
-        def revalidate(*_args):
-            # While it is being typed rather than after Create is pressed: the
-            # name becomes a filename on a FAT volume and the sentence saying
-            # why one will not do belongs beside the field it is about.
-            reason = name_problem(entry.get_text(), taken)
-            problem.set_text(reason or "")
-            problem.set_visible(bool(reason))
-            dialog.set_response_enabled("create", reason is None)
-
-        entry.connect("changed", revalidate)
-        revalidate()
-        dialog.connect("response", self._on_new_playlist_response, entry, then)
-        dialog.present(self)
 
     def _on_new_playlist_response(self, _dialog, response, entry, then):
         if response != "create":
@@ -928,48 +976,25 @@ class PlaylistViewMixin:
     def on_rename_playlist(self, name):
         playlist = self._local_playlist(name)
         if playlist is None:
-            return
+            return None
         taken = [
             other.name for other in self._shown_playlists() if other.name != name
         ]
-        entry = Adw.EntryRow(title="Name")
-        entry.set_text(name)
-        entry.set_activates_default(True)
-        problem = label("", "sf-caption", "sf-alert", wrap=True)
-        problem.set_visible(False)
-        fields = Adw.PreferencesGroup()
-        fields.add(entry)
-
-        dialog = Adw.AlertDialog(
-            heading="Rename playlist",
-            body=(
-                "The name is what the iPod says out loud, so renaming a "
-                "playlist that is already on the device removes the old one "
-                "and syncs the new name."
-                if self._playlist_on_device(name)
-                else "The name is what the iPod will say out loud."
+        return self._name_dialog(
+            "Rename playlist",
+            "The name is what the iPod says out loud, so renaming a "
+            "playlist that is already on the device removes the old one "
+            "and syncs the new name."
+            if self._playlist_on_device(name)
+            else "The name is what the iPod will say out loud.",
+            "rename",
+            "Rename",
+            name,
+            taken,
+            lambda dialog, entry: dialog.connect(
+                "response", self._on_rename_response, name, entry
             ),
         )
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        box.append(fields)
-        box.append(problem)
-        dialog.set_extra_child(box)
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("rename", "Rename")
-        dialog.set_response_appearance("rename", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("rename")
-        dialog.set_close_response("cancel")
-
-        def revalidate(*_args):
-            reason = name_problem(entry.get_text(), taken)
-            problem.set_text(reason or "")
-            problem.set_visible(bool(reason))
-            dialog.set_response_enabled("rename", reason is None)
-
-        entry.connect("changed", revalidate)
-        revalidate()
-        dialog.connect("response", self._on_rename_response, name, entry)
-        dialog.present(self)
 
     def _on_rename_response(self, _dialog, response, old_name, entry):
         if response != "rename":

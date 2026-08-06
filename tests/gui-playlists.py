@@ -88,9 +88,29 @@ assert gui.add_entries(created, [first]) == 0, "a track was listed twice"
 assert gui.move_entry(created, 1, 0)
 assert gui.read_playlist_entries(created) == [str(second), str(first)]
 assert not gui.move_entry(created, 5, 0), "a move past the end was accepted"
-assert gui.remove_entry(created, second)
+
+# The two ways a removal changes nothing are two different things to go and
+# look at, so a count answers them apart the way add_entries does: a playlist
+# that no longer lists the track has been edited somewhere else, while one
+# that could not be rewritten is a folder to check the permissions on.
+# write_playlist_entries writes a scratch file beside the playlist and renames
+# it into place, so a directory sitting where that scratch file goes refuses
+# the write at exactly the point a full or read-only disk does.
+assert gui.remove_entry(created, second) == 1
 assert gui.read_playlist_entries(created) == [str(first)]
-assert not gui.remove_entry(created, second), "removing nothing reported a change"
+assert gui.remove_entry(created, second) == 0, "removing nothing reported a change"
+blocked_scratch = created.with_name(f".{created.name}.tmp")
+blocked_scratch.mkdir()
+try:
+    assert gui.remove_entry(created, first) is None, (
+        "a playlist that could not be rewritten reported nothing to remove"
+    )
+    assert gui.add_entries(created, [second]) is None
+finally:
+    blocked_scratch.rmdir()
+assert gui.read_playlist_entries(created) == [str(first)], (
+    "a refused write left the playlist half rewritten"
+)
 
 renamed = gui.rename_local_playlist(PLAYLISTS / "Gym.m3u", "Gym Two")
 assert renamed == PLAYLISTS / "Gym Two.m3u", renamed
@@ -251,6 +271,7 @@ class FakeWindow:
         self._library_by_path = {}
         self.commands = []
         self.toasts = []
+        self.downloads = []
         self.repaints = 0
         self._load_local_playlists()
 
@@ -262,6 +283,11 @@ class FakeWindow:
 
     def _toast(self, message):
         self.toasts.append(message)
+
+    # What a YouTube result asks for is a download that lands in a playlist,
+    # so what is recorded is the request: running it would need the network.
+    def _start_youtube_download(self, url, **kwargs):
+        self.downloads.append((url, kwargs))
 
     def _populate_playlist_rail(self):
         self.repaints += 1
@@ -302,6 +328,7 @@ class FakeWindow:
     _add_tracks_to_playlist = gui.IpodWindow._add_tracks_to_playlist
     _remove_track_from_playlist = gui.IpodWindow._remove_track_from_playlist
     _move_track_between = gui.IpodWindow._move_track_between
+    _add_result_to_playlist = gui.IpodWindow._add_result_to_playlist
     _after_playlist_change = gui.IpodWindow._after_playlist_change
     _stage_playlist = gui.IpodWindow._stage_playlist
     _stage_playlists = gui.IpodWindow._stage_playlists
@@ -417,6 +444,65 @@ window._remove_track_from_playlist("From Menu", track_for(first))
 assert gui.read_playlist_entries(PLAYLISTS / "From Menu.m3u") == [str(second)]
 assert first.is_file(), "removing from a playlist deleted the track"
 assert window.toasts[-1].startswith("Removed from From Menu"), window.toasts
+
+# A move that lands the track but cannot rewrite the source is a copy, and is
+# reported as one: the track is in both lists now, and a toast reading "Moved"
+# would leave the next sync to put it on the device twice with nothing said.
+# The scratch file the rewrite renames into place is a directory here, which
+# is how a read-only or full disk refuses at that same point.
+half_moved = FakeWindow()
+half_moved.library_tracks([first, second])
+new_playlist(half_moved, "Stuck")
+new_playlist(half_moved, "Landed")
+gui.write_playlist_entries(PLAYLISTS / "Stuck.m3u", [str(first)])
+half_moved._load_local_playlists()
+scratch = PLAYLISTS / ".Stuck.m3u.tmp"
+scratch.mkdir()
+try:
+    half_moved._move_track_between("Stuck", "Landed", track_for(first))
+finally:
+    scratch.rmdir()
+assert gui.read_playlist_entries(PLAYLISTS / "Landed.m3u") == [str(first)]
+assert gui.read_playlist_entries(PLAYLISTS / "Stuck.m3u") == [str(first)], (
+    "the source was rewritten after all"
+)
+assert half_moved.toasts[-1].startswith(
+    "Copied to Landed, but could not remove it from Stuck"
+), half_moved.toasts
+# Both ends are still staged: the source keeps the track, and a queue that
+# skipped it would sync a playlist that disagrees with its own file.
+assert set(half_moved.pending_sources) == {
+    str(PLAYLISTS / "Stuck.m3u"),
+    str(PLAYLISTS / "Landed.m3u"),
+}, half_moved.pending_sources
+for leftover in ("Stuck", "Landed"):
+    gui.delete_local_playlist(PLAYLISTS / f"{leftover}.m3u")
+
+# Removing a track the file no longer lists is not a failed write: the row was
+# painted before something else edited the playlist, so the window re-reads
+# and says so rather than sending the user to check the permissions on a file
+# that was never the trouble.
+stale = FakeWindow()
+stale.library_tracks([first, second])
+new_playlist(stale, "Stale")
+gui.write_playlist_entries(PLAYLISTS / "Stale.m3u", [str(first)])
+stale._load_local_playlists()
+painted = stale.repaints
+stale._remove_track_from_playlist("Stale", track_for(second))
+assert stale.toasts[-1] == "That track is no longer in Stale", stale.toasts
+assert gui.read_playlist_entries(PLAYLISTS / "Stale.m3u") == [str(first)]
+assert stale.repaints > painted, "the window kept showing a row the file had lost"
+
+# One that genuinely could not be rewritten still says exactly that.
+scratch = PLAYLISTS / ".Stale.m3u.tmp"
+scratch.mkdir()
+try:
+    stale._remove_track_from_playlist("Stale", track_for(first))
+finally:
+    scratch.rmdir()
+assert stale.toasts[-1] == "Could not write Stale", stale.toasts
+assert gui.read_playlist_entries(PLAYLISTS / "Stale.m3u") == [str(first)]
+gui.delete_local_playlist(PLAYLISTS / "Stale.m3u")
 
 # Reordering rewrites the file, because the order is the playlist and it has
 # to survive the window closing.
@@ -745,6 +831,32 @@ single = download_window._add_download_to_playlist("Fresh", "", [str(first)])
 assert single.startswith("Added to Fresh"), single
 gone = download_window._add_download_to_playlist("Deleted", "abc", [])
 assert "no longer there" in gone, gone
+
+# Picking a playlist from a result's ⋯ starts that download and carries both
+# the playlist and the id it will be found by afterwards.
+result = gui.SearchResult(
+    title="Bohemian Rhapsody",
+    uploader="Queen",
+    duration=355,
+    url="https://www.youtube.com/watch?v=fJ9rUzIMcZQ",
+    video_id="fJ9rUzIMcZQ",
+)
+download_window._add_result_to_playlist("Fresh", result)
+assert len(download_window.downloads) == 1, download_window.downloads
+url, asked = download_window.downloads[-1]
+assert url == result.url, url
+assert asked["playlist"] == "Fresh", asked
+assert asked["video_id"] == "fJ9rUzIMcZQ", asked
+# A playlist deleted since the menu was painted says so, rather than closing
+# the menu on nothing: a press that starts no download and shows no message is
+# indistinguishable from one the app never received.
+download_window._add_result_to_playlist("Deleted", result)
+assert download_window.toasts[-1] == "There is no playlist called Deleted", (
+    download_window.toasts
+)
+assert len(download_window.downloads) == 1, (
+    "a download started with nowhere to put it"
+)
 
 # The Playlists view resolves each entry against what it knows, and an entry
 # nothing knows about still becomes a row rather than disappearing.

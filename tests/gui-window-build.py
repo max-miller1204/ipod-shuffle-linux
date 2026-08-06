@@ -103,6 +103,23 @@ EXPECTED = {
 }
 
 
+def find_entry(widget):
+    """The name field inside a dialog, wherever it was nested.
+
+    Walked rather than reached for by path, so grouping the field differently
+    is a change to the dialog's looks rather than a broken check.
+    """
+    if widget is None or isinstance(widget, Adw.EntryRow):
+        return widget
+    child = widget.get_first_child()
+    while child is not None:
+        found = find_entry(child)
+        if found is not None:
+            return found
+        child = child.get_next_sibling()
+    return None
+
+
 def inspect(window):
     for name in ("library", "search", "album", "playlists", "settings"):
         if window.views.get_child_by_name(name) is None:
@@ -181,6 +198,36 @@ def inspect(window):
             continue
         if not isinstance(popover, Gtk.Popover):
             failures.append(f"{name} returned {popover!r}")
+
+    # Naming a playlist and renaming one are one dialog assembled in one place,
+    # so a break in it is a break in both, and neither is built until the user
+    # asks for it. What is read back is what the dialog offers: a usable name
+    # to accept, and a refusal while a name FAT cannot store is being typed.
+    for name, build, response in (
+        ("on_new_playlist", lambda: window.on_new_playlist(), "create"),
+        ("on_rename_playlist", lambda: window.on_rename_playlist("Built"), "rename"),
+    ):
+        try:
+            dialog = build()
+        except Exception:  # noqa: BLE001 - any of them failing is the finding
+            failures.append(f"{name} raised:\n{traceback.format_exc()}")
+            continue
+        if not isinstance(dialog, Adw.AlertDialog):
+            failures.append(f"{name} returned {dialog!r}")
+            continue
+        if not dialog.get_response_enabled(response):
+            failures.append(f"{name} opened offering a name it then refused")
+        field = find_entry(dialog.get_extra_child())
+        if field is None:
+            failures.append(f"{name} built no field to type a name into")
+        else:
+            field.set_text("Road/Trip")
+            if dialog.get_response_enabled(response):
+                failures.append(
+                    f"{name} still offered {response!r} for a name with a slash "
+                    "in it, which the sync would mangle into another name"
+                )
+        dialog.force_close()
 
     # Closing stops the player and disowns any download; it is a mixin's job
     # now, so a split that lost the wiring would leave audio playing.

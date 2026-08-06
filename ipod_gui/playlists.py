@@ -281,12 +281,21 @@ def add_entries(path, entries):
 
 
 def remove_entry(path, entry):
-    """Drop every mention of one track. True when the file changed."""
+    """Drop every mention of one track.
+
+    Returns how many lines went, or None if the file could not be written, the
+    way add_entries counts what it added. The two ways nothing changes are not
+    one thing: a playlist that no longer lists the track has already been
+    edited somewhere else, while a playlist that could not be rewritten is a
+    folder to go and look at - and a caller told only "False" reports whichever
+    of those it guessed at.
+    """
     current = read_playlist_entries(path)
     remaining = [line for line in current if line != str(entry)]
-    if len(remaining) == len(current):
-        return False
-    return write_playlist_entries(path, remaining)
+    removed = len(current) - len(remaining)
+    if not removed:
+        return 0
+    return removed if write_playlist_entries(path, remaining) else None
 
 
 def move_entry(path, source_index, target_index):
