@@ -209,10 +209,18 @@ class QueueMixin:
         if not complete:
             self._toast("Could not finish reading those tracks; nothing was queued")
             return False
+        # Reading tags takes seconds, and a playlist can be deleted or renamed
+        # in them. Whatever it was called, it was never in pending_sources to
+        # be taken out of, so a source that is no longer there is dropped here
+        # instead: staged, it would name a file the next sync cannot re-read,
+        # and every press of Sync from then on would be cancelled outright.
         resolved = {
             source: [enriched.get(track.path, track) for track in tracks]
             for source, tracks in sources.items()
+            if Path(source).exists()
         }
+        if not resolved:
+            return False
         self._commit_queue_sources(resolved, show_toast=show_toast)
         return False
 

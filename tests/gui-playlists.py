@@ -112,6 +112,30 @@ assert gui.read_playlist_entries(created) == [str(first)], (
     "a refused write left the playlist half rewritten"
 )
 
+# A playlist that cannot be read is not a playlist with nothing in it. Every
+# edit is a read and a rewrite, and the folder stays writable when the file
+# itself is not readable - a list symlinked onto a drive that is not plugged
+# in reads as empty, and os.replace would happily put the symlink's place
+# under a one-line file. So an edit that could not read refuses to write.
+unplugged_list = PLAYLISTS / "On The Drive.m3u"
+unplugged_list.symlink_to("/nowhere/mounted/On The Drive.m3u")
+assert gui.read_playlist_entries(unplugged_list) == []
+assert gui.add_entries(unplugged_list, [str(first)]) is None, (
+    "an unreadable playlist was rewritten from a read that did not happen"
+)
+assert gui.remove_entry(unplugged_list, first) is None
+assert not gui.move_entry(unplugged_list, 1, 0)
+assert unplugged_list.is_symlink(), "the edit replaced the playlist"
+assert not unplugged_list.exists(), "the edit wrote where the drive should be"
+unplugged_list.unlink()
+# The same for one that has gone since the folder was listed: adding a track
+# to a playlist somebody deleted is not a reason to write it back.
+assert gui.add_entries(PLAYLISTS / "Never Made.m3u", [str(first)]) is None
+assert not (PLAYLISTS / "Never Made.m3u").exists(), "an edit revived a playlist"
+# A playlist whose entries are readable but whose files have gone is a
+# different thing again, and still perfectly editable.
+assert gui.playlist_contents(created) == ([str(first)], True)
+
 renamed = gui.rename_local_playlist(PLAYLISTS / "Gym.m3u", "Gym Two")
 assert renamed == PLAYLISTS / "Gym Two.m3u", renamed
 assert not (PLAYLISTS / "Gym.m3u").exists()
@@ -847,6 +871,41 @@ assert set(moving.pending_sources) == {
 assert str(fresh_one) in moving.pending_sources[str(PLAYLISTS / "To.m3u")]
 assert str(fresh_one) not in moving.pending_sources[str(PLAYLISTS / "From.m3u")]
 assert str(fresh_two) in moving.pending_sources[str(PLAYLISTS / "From.m3u")]
+
+# Deleting a playlist while that reading is still running takes it out of the
+# sync it never finished joining. There is nothing in the queue to drop yet,
+# so the reading has to land on a playlist that is not there any more and let
+# it go: staged, it would name a file the next sync cannot re-read, and every
+# press of Sync from then on would be cancelled with nothing left to press.
+vanishing = FakeWindow()
+vanishing.library_tracks([first])
+new_playlist(vanishing, "Vanishing")
+gui.write_playlist_entries(PLAYLISTS / "Vanishing.m3u", [str(fresh_one)])
+vanishing._load_local_playlists()
+vanishing._scan_pending_tracks = enrich
+scheduled.clear()
+arrived.clear()
+gui.GLib = type("ImmediateGLib", (), {"idle_add": staticmethod(record_idle)})
+try:
+    vanishing._send_playlist_to_ipod("Vanishing")
+    assert arrived.wait(2), "staging an unindexed track never reached GLib"
+finally:
+    gui.GLib = original_glib
+assert vanishing.pending_sources == {}, (
+    "the playlist was queued before its tracks had been read"
+)
+vanishing._on_playlist_remove_response(
+    None, "remove", "Vanishing", "uuid:test-ipod"
+)
+assert not (PLAYLISTS / "Vanishing.m3u").exists(), "the playlist file survived"
+landed, landed_args = scheduled[-1]
+landed(*landed_args)
+assert vanishing.pending_sources == {}, (
+    "a deleted playlist came back when its reading landed"
+)
+assert vanishing.pending == set(), vanishing.pending
+# The window is not left waiting on the reading it dropped.
+assert not vanishing.discovering_sources, "the window stayed in its reading state"
 
 # Importing adopts the file rather than pointing at where it sat, so from then
 # on it is an ordinary playlist that can be edited here.

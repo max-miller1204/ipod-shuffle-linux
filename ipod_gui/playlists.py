@@ -77,18 +77,36 @@ def local_playlist_file(root, name):
     return Path(root) / f"{name}{PLAYLIST_SUFFIX}"
 
 
-def read_playlist_entries(path):
-    """The paths a playlist lists, in order, as written."""
+def playlist_contents(path):
+    """The paths a playlist lists, and whether the file could be read at all.
+
+    The pair, the way read_local_playlist_tracks answers, because "nothing is
+    in it" and "nothing could be read out of it" are the same empty list and
+    mean opposite things to an edit. Every edit here is a read and a rewrite -
+    a playlist symlinked onto a drive that is not plugged in, or a file that
+    has gone since the folder was last listed, reads as empty while the folder
+    it sits in is still perfectly writable, and a rewrite from that read would
+    replace the whole list with whatever the edit added.
+    """
     try:
         lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return []
+        return [], False
     entries = []
     for line in lines:
         line = line.strip()
         if line and not line.startswith("#"):
             entries.append(line)
-    return entries
+    return entries, True
+
+
+def read_playlist_entries(path):
+    """The paths a playlist lists, in order, as written.
+
+    Empty for a file that could not be read, because a rail has a row to paint
+    either way. Editing is what needs the difference, and asks for it.
+    """
+    return playlist_contents(path)[0]
 
 
 def write_playlist_entries(path, entries):
@@ -262,12 +280,15 @@ def import_playlist_file(root, source, taken=()):
 def add_entries(path, entries):
     """Append tracks to a playlist, skipping ones it already lists.
 
-    Returns how many were added, or None if the file could not be written. A
-    playlist is an ordered list rather than a set, but the same track landing
-    in one twice is always a mis-click here: the only way to ask for it is to
-    press Add twice, which is what a double click on one button is.
+    Returns how many were added, or None if the playlist could not be read or
+    written. A playlist is an ordered list rather than a set, but the same
+    track landing in one twice is always a mis-click here: the only way to ask
+    for it is to press Add twice, which is what a double click on one button
+    is.
     """
-    current = read_playlist_entries(path)
+    current, complete = playlist_contents(path)
+    if not complete:
+        return None
     known = set(current)
     added = []
     for entry in entries:
@@ -283,14 +304,16 @@ def add_entries(path, entries):
 def remove_entry(path, entry):
     """Drop every mention of one track.
 
-    Returns how many lines went, or None if the file could not be written, the
-    way add_entries counts what it added. The two ways nothing changes are not
-    one thing: a playlist that no longer lists the track has already been
-    edited somewhere else, while a playlist that could not be rewritten is a
-    folder to go and look at - and a caller told only "False" reports whichever
-    of those it guessed at.
+    Returns how many lines went, or None if the playlist could not be read or
+    written, the way add_entries counts what it added. The two ways nothing
+    changes are not one thing: a playlist that no longer lists the track has
+    already been edited somewhere else, while a playlist that could not be
+    rewritten is a folder to go and look at - and a caller told only "False"
+    reports whichever of those it guessed at.
     """
-    current = read_playlist_entries(path)
+    current, complete = playlist_contents(path)
+    if not complete:
+        return None
     remaining = [line for line in current if line != str(entry)]
     removed = len(current) - len(remaining)
     if not removed:
@@ -304,7 +327,9 @@ def move_entry(path, source_index, target_index):
     By position rather than by path, because the same file may legitimately be
     listed twice and dragging one of them must not move the other.
     """
-    entries = read_playlist_entries(path)
+    entries, complete = playlist_contents(path)
+    if not complete:
+        return False
     if not 0 <= source_index < len(entries) or not 0 <= target_index < len(entries):
         return False
     moved = entries.pop(source_index)
