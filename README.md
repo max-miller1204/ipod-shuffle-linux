@@ -129,6 +129,7 @@ Making a playlist is a name and nothing else.
 It is kept as an M3U in `~/Music/Playlists`, so it outlives this app and other players can read it.
 
 Songs go in from the `⋯` beside any track, in the library, on an album page, or in either half of the search results - including a YouTube result, which downloads first and lands in the playlist when it finishes.
+An album page also has **Add to playlist**, which puts the whole record in at once.
 Inside a playlist the same menu moves a track to another playlist or takes it out again, which leaves the song itself alone in your library and on the iPod.
 Tracks can also be dragged into a new order, and that order is the playlist, so it is written to the file rather than kept in the window.
 
@@ -209,6 +210,7 @@ That is deliberate: `yt-dlp`'s media URLs are short-lived and tied to the addres
 Those downloads go to `~/.cache/ipod-shuffle-linux/previews` by default, or under `$XDG_CACHE_HOME` when it is set, not to your music folder.
 A previewed track shows up in your library grid with a dashed marker, and pressing **Add** on it is what moves it into `~/Music/youtube` and out of the cache, queueing it for the next sync at the same time if an iPod is connected.
 Unlike every other **Add**, that works with nothing plugged in, because keeping a download is something you do to your own music folder.
+Adding a previewed track to a playlist keeps it the same way, since a playlist entry pointing into a cache that gets pruned would stop resolving on its own.
 
 **Device & Settings** shows what the cache is holding and can empty it in one press.
 Past 512 MB, roughly seventy songs, the oldest previews are dropped as new ones arrive; whatever is playing is never one of them.
@@ -404,7 +406,7 @@ Hand-placed files like this are left alone by the automatic upkeep above, except
 **From the GUI,** by making one under **Playlists**: name it, add songs from your library or from YouTube with the `⋯` beside any track, and press **Sync**.
 The list is an M3U the app keeps in `~/Music/Playlists`, and syncing hands that file to `ipod-sync.sh` exactly as the command above does, so the two routes produce the same thing on the device.
 **Playlist grouping** under **Device & Settings** still drives the folder and tag groupings, and **Import playlist file…** adopts a list another program wrote.
-Any of them switches spoken playlist names on automatically, for the reason above; the playlist file and its tracks join the staged queue until you press **Sync**.
+Choosing a grouping switches spoken playlist names on there and then, and a sync that carries a playlist file switches them on for that run, for the reason above; the playlist file and its tracks join the staged queue until you press **Sync**.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
 

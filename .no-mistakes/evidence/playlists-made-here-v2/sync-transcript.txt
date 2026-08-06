@@ -1,0 +1,46 @@
+tests/product-e2e.sh's new GUI-playlist block, run on its own fixtures.
+A playlist built by ipod_gui.playlists and handed to ipod-sync.sh:
+
+$ python3 -c '... create_local_playlist / add_entries / move_entry ...'
+  added 2
+  moved True
+  entries ['/tmp/tmp.0SxiFIPGSO/Library/Neil Young/Heart of Gold.mp3', '/tmp/tmp.0SxiFIPGSO/Library/Beach Boys/Surfin.mp3']
+
+$ ./ipod-sync.sh --ipod $IPOD --playlist-voiceover 'Gym Mix.m3u'
+  ==> iPod: /tmp/tmp.0SxiFIPGSO/playlist-target
+    + Heart of Gold.mp3 -> Neil Young/Heart of Gold.mp3
+    + Surfin.mp3 -> Beach Boys/Surfin.mp3
+  ==> Playlist 'Gym Mix': 2 track(s)
+  ==> Copied 2 file(s)
+  ==> Rebuilding iTunesSD database
+  ==> iPod now holds 2 track(s)
+  warning: Unmount before unplugging, or the database may be corrupted:
+  warning:   ./ipod-sync.sh --rebuild-only --eject
+
+The list on the device, in the order the entries were dragged into:
+  #EXTM3U
+  iPod_Control/Music/Neil Young/Heart of Gold.mp3
+  iPod_Control/Music/Beach Boys/Surfin.mp3
+
+$ ./ipod-sync.sh ... 'Emptied.m3u'   # before and after its last track was removed
+  ==> iPod: /tmp/tmp.0SxiFIPGSO/playlist-target
+  ==> Playlist 'Emptied': 1 track(s)
+  ==> Copied 0 file(s)
+  ==> Skipped 1 file(s) already on the iPod
+  warning: Nothing new copied; rebuilding the database anyway.
+  ==> Rebuilding iTunesSD database
+  ==> iPod now holds 2 track(s)
+  warning: Unmount before unplugging, or the database may be corrupted:
+  warning:   ./ipod-sync.sh --rebuild-only --eject
+  ==> iPod: /tmp/tmp.0SxiFIPGSO/playlist-target
+  warning: Playlist 'Emptied' references no playable local files; removed from the device.
+  ==> Copied 0 file(s)
+  warning: Nothing new copied; rebuilding the database anyway.
+  ==> Rebuilding iTunesSD database
+  ==> iPod now holds 2 track(s)
+  warning: Unmount before unplugging, or the database may be corrupted:
+  warning:   ./ipod-sync.sh --rebuild-only --eject
+
+PASS: a playlist the GUI store wrote synced in the order it was dragged into
+PASS: emptying a GUI playlist removed it from the device and kept its songs
+PASS: GUI playlists were made, named, edited, moved between and deleted
