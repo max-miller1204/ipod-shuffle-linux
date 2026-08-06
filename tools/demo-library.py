@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Builds the demo library the README screenshots are taken against.
+"""Builds the demo library `docs/screenshot.png` is taken against.
 
-The screenshots in `docs/` show a library nobody has: four albums with cover
-art the app generates itself, a playlist that has reached the device and one
-that has not, and an iPod called MAX SHUFFLE. That library used to be built by
-hand in a temporary directory, which is why `docs/screenshot.png` went stale
-and could not simply be retaken - the directory was gone and nothing recorded
-what had been in it.
+That shot shows a library nobody has: four albums with cover art the app
+generates itself, a playlist that has reached the device and one that has not,
+and an iPod called MAX SHUFFLE. The library used to be built by hand in a
+temporary directory, which is why the screenshot went stale and could not
+simply be retaken - the directory was gone and nothing recorded what had been
+in it.
 
 So it is built here instead. Everything the window shows is real: the tracks
 are real MP3s with real tags, the device is a stand-in volume that
@@ -17,6 +17,11 @@ claims about itself.
     tools/demo-library.py /tmp/shuffle-demo
 
 prints the command that launches the app against what it built.
+
+`docs/screenshot.png` is the only shot this reproduces. `docs/now-playing.png`
+is of a track that runs 3:34 with cover art of its own, and every track here
+is one second of silence behind a generated placeholder, so retaking that one
+from this fixture would give a visibly different bar.
 
 The album covers are not files. `make_cover` generates a placeholder from an
 "artist/title" seed when a track has no embedded art, so the colours in the
@@ -35,6 +40,13 @@ REPO = Path(__file__).resolve().parents[1]
 
 # The device's name is its mount point's basename, the way a real volume's is.
 IPOD_NAME = "MAX SHUFFLE"
+
+# Left in the root of every demo this builds, and the only thing that lets it
+# clear one out again. Rebuilding deletes the directory it was handed, and that
+# directory is whatever was typed on the command line, so it has to be able to
+# tell a demo of its own from a music folder somebody mistyped - the same
+# reason assert_shuffle() reads a volume's shape instead of trusting its path.
+MARKER = ".demo-library"
 
 # Four albums, because the screenshot's state pills count albums and reading
 # "All 4 / On iPod 1 / In library 3" is the point of the shot. Warm Ridge is
@@ -189,6 +201,50 @@ def sync(ipod, sources):
     )
 
 
+def built_here(root):
+    """Whether this tool owns `root`, so it may write over what is in it.
+
+    An empty directory counts, because that is what building somewhere new
+    leaves behind the moment before the first file lands in it. A directory
+    that cannot be listed does not: refusing to read one is no reason to feel
+    free to delete it.
+    """
+    if (root / MARKER).is_file():
+        return True
+    try:
+        return not any(root.iterdir())
+    except OSError:
+        return False
+
+
+def claim_root(root, keep):
+    """Take the demo's directory, refusing anything this tool did not build.
+
+    `tools/demo-library.py ~/Music` must not be a way to lose a music library,
+    and a rebuild deletes the directory whole, so it is only ever a directory
+    this tool built or an empty one. The check runs on the resolved path
+    because a symlinked root stands for the real directory, which is the one
+    that would go.
+    """
+    if root.exists() and not root.is_dir():
+        sys.exit(f"Not a directory: {root}")
+    if root.is_dir() and not built_here(root):
+        sys.exit(
+            f"Refusing to build in {root}: it holds something this tool did "
+            f"not build, so there is no {MARKER} in it saying the contents are "
+            "expendable. Build the demo somewhere new, or empty that "
+            "directory yourself first."
+        )
+    if root.is_dir() and not keep:
+        shutil.rmtree(root)
+    root.mkdir(parents=True, exist_ok=True)
+    (root / MARKER).write_text(
+        "Built by tools/demo-library.py, and safe to delete - though deleting "
+        "it makes the tool refuse to rebuild this directory.\n",
+        encoding="utf-8",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path, help="where to build the demo")
@@ -208,8 +264,7 @@ def main():
         sys.exit("ffmpeg is needed to write the demo's tracks")
 
     root = args.root.expanduser().resolve()
-    if root.exists() and not args.keep:
-        shutil.rmtree(root)
+    claim_root(root, args.keep)
     home = root / "home"
     music = home / "Music"
     music.mkdir(parents=True, exist_ok=True)

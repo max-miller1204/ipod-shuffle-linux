@@ -241,20 +241,42 @@ assert gui.read_playlist_entries(squatter) == [str(first)], (
     "an import overwrote a playlist that was already there"
 )
 gui.delete_local_playlist(landed)
+gui.delete_local_playlist(squatter)
+
+# A name is taken by whatever is sitting under it, not only by the playlists
+# that can be read out of the folder. A directory called "Road Trip 3.m3u" is
+# no playlist, but the write would land on it just the same, so the name it
+# occupies has to be spent as far as choosing one goes: counting only readable
+# playlists would pick that name, be refused by the file already there, and
+# pick it again on the next press for as long as the directory stood.
+in_the_way = PLAYLISTS / "Road Trip 3.m3u"
+in_the_way.mkdir()
+try:
+    stepped_over, _kept, no_trouble = gui.import_playlist_file(
+        PLAYLISTS, foreign, ["Road Trip", "Road Trip 2"]
+    )
+    assert no_trouble is None, no_trouble
+    assert stepped_over == PLAYLISTS / "Road Trip 4.m3u", stepped_over
+    assert in_the_way.is_dir(), "an import wrote over a directory in the folder"
+finally:
+    in_the_way.rmdir()
+gui.delete_local_playlist(stepped_over)
 
 # Reading the folder and writing into it are still two steps, and another
 # program can take the chosen name in between. That one is refused outright,
 # because a playlist already there is never overwritten - the rule the rest of
 # the store keeps. Stubbing the listing is that race, held still: the folder
 # says the name is free, and by the write it is not.
-_real_local_playlists = gui.local_playlists
-gui.local_playlists = lambda root: []
+squatter = PLAYLISTS / "Road Trip 3.m3u"
+gui.write_playlist_entries(squatter, [str(first)])
+_real_names_here = gui.playlist_names_here
+gui.playlist_names_here = lambda root: []
 try:
     _none, _zero, taken_already = gui.import_playlist_file(
         PLAYLISTS, foreign, ["Road Trip", "Road Trip 2"]
     )
 finally:
-    gui.local_playlists = _real_local_playlists
+    gui.playlist_names_here = _real_names_here
 assert "already a playlist" in (taken_already or ""), taken_already
 assert gui.read_playlist_entries(squatter) == [str(first)], (
     "an import overwrote a playlist that was already there"

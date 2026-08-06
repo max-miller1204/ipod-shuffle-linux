@@ -147,6 +147,27 @@ def local_playlists(root):
     return playlists
 
 
+def playlist_names_here(root):
+    """Every name the folder has already spent, whatever it spent it on.
+
+    local_playlists answers with the playlists that can be shown, which is a
+    narrower question: it drops an entry that is not a regular file, because
+    there is nothing to read out of a directory or a socket. A name is gone
+    either way - `local_playlist_file` would land on that entry and the write
+    would fail - so choosing a name asks the folder for its names rather than
+    for its playlists, and picking one and refusing one agree about what is
+    there. Reading no playlist's contents to collect names is the point as
+    much as the answer is: this runs on the main thread.
+    """
+    try:
+        entries = list(Path(root).iterdir())
+    except OSError:
+        return []
+    return [
+        entry.stem for entry in entries if entry.suffix.lower() == PLAYLIST_SUFFIX
+    ]
+
+
 def name_problem(name, taken=()):
     """Why this name cannot be used, as a sentence, or None.
 
@@ -283,7 +304,7 @@ def import_playlist_file(root, source, taken=()):
         return None, 0, "That playlist file could not be read"
     if not tracks:
         return None, 0, "Nothing in that playlist could be found on this computer"
-    here = [playlist.name for playlist in local_playlists(root)]
+    here = playlist_names_here(root)
     path = local_playlist_file(root, unique_name(source.stem, [*taken, *here]))
     if path.exists():
         return None, 0, f"There is already a playlist called {path.stem}"
