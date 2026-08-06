@@ -35,7 +35,11 @@ def claim(root, keep=False):
 
 
 with tempfile.TemporaryDirectory() as workspace:
-    workspace = Path(workspace)
+    # Resolved, because the guard answers with the directory it resolved and
+    # a temporary folder is reached through a symlink on plenty of machines -
+    # /tmp on macOS for one. Comparing those two would fail on the link
+    # rather than on anything the guard did.
+    workspace = Path(workspace).resolve()
 
     # A directory this tool did not build is refused, and everything in it is
     # still there afterwards - the mistyped ~/Music this guard exists for.

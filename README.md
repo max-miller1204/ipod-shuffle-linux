@@ -722,8 +722,9 @@ That folder carries every case the walk has to survive - a linked track, a linke
 `tests/gui-window-build.py` is the display-backed exception: it constructs the real window so a missing builder call, bad widget parent, or incomplete view stack cannot pass behind the stand-ins. Run it under a desktop session or with `xvfb-run -a`; it fails instead of skipping when no display is available.
 `tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the Xephyr recipe that brings the window up at exactly 1180x760 on any machine.
+`tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, a Python syntax and import check, and the real-window check under xvfb on every push and pull request.
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, and the real-window check under xvfb on every push and pull request.
 
 ## Credits
 
