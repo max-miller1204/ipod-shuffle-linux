@@ -362,6 +362,14 @@ class QueueMixin:
                     for record in records
                 ]
             elif path.suffix.lower() in PLAYLIST_EXTENSIONS:
+                if not path.exists():
+                    # Gone is not the same as unreadable, and a playlist folder
+                    # other programs read and write invites a list being
+                    # deleted or moved from outside this app. Failing the whole
+                    # scan over one would leave it staged and cancel every
+                    # press of Sync after it, naming nothing to go and put
+                    # right; dropped instead, the queue is rebuilt without it.
+                    continue
                 members, complete = read_local_playlist_tracks(path)
                 if complete:
                     records, complete = scan_tracks(

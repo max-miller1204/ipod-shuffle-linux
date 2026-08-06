@@ -56,6 +56,7 @@ class FakeWindow:
         self.playlists = ["should be cleared"]
         self.spoken = {"should be cleared"}
         self.current_playlist = "should be cleared"
+        self.local_playlists = []
         self.empty_page = Recorder()
         self.mount_button = Recorder()
         self.stack = Recorder()
@@ -78,6 +79,7 @@ class FakeWindow:
     # stand-in window that cannot answer that call makes its worker die on a
     # thread, where the failure is a traceback beside a passing check.
     _apply_probe = gui.IpodWindow._apply_probe
+    _local_playlist = gui.IpodWindow._local_playlist
 
     def _populate_playlist_rail(self):
         pass
@@ -162,6 +164,27 @@ with tempfile.TemporaryDirectory() as temporary:
 
 assert replaced.mount_point is None, replaced.mount_point
 assert replaced.readable is False, replaced.readable
+
+# A playlist made here is a file of your own, so it outlives the iPod being
+# unplugged. A probe that finds no device must leave it selected: a refresh
+# runs on every plug, unplug and finished command, and clearing the selection
+# hands the Playlists view to whichever list happens to sort first.
+kept = FakeWindow()
+kept.local_playlists = [gui.Playlist("Zebra", "/music/Playlists/Zebra.m3u", [])]
+kept.current_playlist = "Zebra"
+gui.IpodWindow._apply_probe(kept, kept.probe_generation, probe_with([]))
+assert kept.mount_point is None, kept.mount_point
+assert kept.current_playlist == "Zebra", kept.current_playlist
+
+# One that only ever existed on the device goes with it: its entries name
+# scrambled files on an iPod that is no longer there.
+device_only = FakeWindow()
+device_only.local_playlists = [gui.Playlist("Made Here", "/music/Made Here.m3u", [])]
+device_only.current_playlist = "Genres"
+gui.IpodWindow._apply_probe(
+    device_only, device_only.probe_generation, probe_with([])
+)
+assert device_only.current_playlist is None, device_only.current_playlist
 
 unplugged = FakeWindow()
 gui.IpodWindow._apply_probe(unplugged, unplugged.probe_generation, vanished)

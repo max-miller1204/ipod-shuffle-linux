@@ -426,7 +426,13 @@ class DeviceViewMixin:
             self._select_mount(None, None)
             self.playlists = []
             self.spoken = set()
-            self.current_playlist = None
+            # Only a playlist that came off the device goes with it. One made
+            # here is a file of your own that outlives the unplug, and clearing
+            # the selection would hand the Playlists view to whichever list
+            # sorts first - on every refresh, which is every plug, unplug and
+            # finished command.
+            if self._local_playlist(self.current_playlist) is None:
+                self.current_playlist = None
             if len(probe.candidates) > 1:
                 self._populate_disconnected_summary(
                     "Multiple iPods connected. Disconnect all but the one you "

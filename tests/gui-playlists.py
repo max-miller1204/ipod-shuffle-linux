@@ -369,6 +369,7 @@ class FakeWindow:
     unqueue_source = gui.IpodWindow.unqueue_source
     _prune_pending = gui.IpodWindow._prune_pending
     _queue_playlists = gui.IpodWindow._queue_playlists
+    _scan_queued_sources = gui.IpodWindow._scan_queued_sources
     _queue_sources = gui.IpodWindow._queue_sources
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
     _scan_pending_tracks = gui.IpodWindow._scan_pending_tracks
@@ -906,6 +907,61 @@ assert vanishing.pending_sources == {}, (
 assert vanishing.pending == set(), vanishing.pending
 # The window is not left waiting on the reading it dropped.
 assert not vanishing.discovering_sources, "the window stayed in its reading state"
+
+# The folder is one other programs read and write, so a queued playlist can be
+# deleted or moved from outside the app between staging it and pressing Sync.
+# That one is dropped from the queue rather than failing the re-read of every
+# source: a failed scan leaves it staged, and every press of Sync after it is
+# cancelled with nothing named the user could go and put right.
+scanning = FakeWindow()
+scanning.library_tracks([first])
+new_playlist(scanning, "Still Here")
+new_playlist(scanning, "Taken Away")
+for name in ("Still Here", "Taken Away"):
+    gui.write_playlist_entries(PLAYLISTS / f"{name}.m3u", [str(first)])
+scanning._load_local_playlists()
+original_scan_tracks = gui.scan_tracks
+
+
+def scan_stub(root=None, files=(), **_kwargs):
+    del root
+    return [
+        {"path": str(path), "title": Path(path).stem, "size": 8}
+        for path in files
+    ], True
+
+
+queued_paths = [
+    str(PLAYLISTS / "Still Here.m3u"),
+    str(PLAYLISTS / "Taken Away.m3u"),
+]
+gui.scan_tracks = scan_stub
+try:
+    gui.delete_local_playlist(PLAYLISTS / "Taken Away.m3u")
+    refreshed, complete = scanning._scan_queued_sources(
+        queued_paths, scanning.source_generation
+    )
+finally:
+    gui.scan_tracks = original_scan_tracks
+assert complete, "one playlist that had gone failed the re-read of them all"
+assert set(refreshed) == {str(PLAYLISTS / "Still Here.m3u")}, refreshed
+assert [track.path for track in refreshed[queued_paths[0]]] == [
+    str(first),
+    queued_paths[0],
+], refreshed[queued_paths[0]]
+
+# A playlist that is there but cannot be read is the other thing entirely, and
+# still stops the sync: dropping it would sync a list without the tracks it
+# lists, which on a device with no screen is a playlist that plays nothing.
+gui.scan_tracks = lambda root=None, **_kwargs: ([], False)
+try:
+    unreadable_scan = scanning._scan_queued_sources(
+        [queued_paths[0]], scanning.source_generation
+    )
+finally:
+    gui.scan_tracks = original_scan_tracks
+assert unreadable_scan == ({}, False), unreadable_scan
+gui.delete_local_playlist(PLAYLISTS / "Still Here.m3u")
 
 # Importing adopts the file rather than pointing at where it sat, so from then
 # on it is an ordinary playlist that can be edited here.

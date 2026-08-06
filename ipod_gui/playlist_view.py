@@ -724,10 +724,10 @@ class PlaylistViewMixin:
         if not removed:
             # The file no longer lists it, so nothing failed and there is
             # nothing to write: the row was painted from an older reading of a
-            # playlist something else has edited since. Re-read so the window
-            # catches up with the file rather than sending the user to check
-            # permissions on one that is perfectly writable.
-            self._load_local_playlists()
+            # playlist something else has edited since. Repainting re-reads the
+            # folder, so the window catches up with the file rather than
+            # sending the user to check permissions on one that is perfectly
+            # writable.
             self._populate_playlist_rail()
             self._toast(f"That track is no longer in {name}")
             return
