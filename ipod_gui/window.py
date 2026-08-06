@@ -130,6 +130,11 @@ class IpodWindow(
         self._library_ready = False
         self.current_album = None
         self.current_playlist = None
+        # The two halves of what the Playlists view shows: the lists made here,
+        # which are files in a folder of the user's own, and the ones the probe
+        # found on the device. Kept apart because only the first can be edited
+        # and only the second says what the iPod currently holds.
+        self.local_playlists = []
         self.playlists = []
         self.spoken = set()
         self.album_filter = "all"

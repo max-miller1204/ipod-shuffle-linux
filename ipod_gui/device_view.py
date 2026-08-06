@@ -23,7 +23,7 @@ from .text import home_relative, human_size, plural
 from .tags import scan_tracks
 from .device import DEVICE_IO_LOCK, probe_device
 from .model import Track
-from .widgets import ELLIPSIZE_END, StorageMeter, label
+from .widgets import ELLIPSIZE_END, StorageMeter, clear_children, label
 
 
 class DeviceViewMixin:
@@ -289,11 +289,13 @@ class DeviceViewMixin:
         self.add_button.connect("clicked", self.on_add_music)
         actions.append(self.add_button)
 
-        self.playlist_button = Gtk.Button(label="Add playlist file…")
+        self.playlist_button = Gtk.Button(label="Import playlist file…")
         self.playlist_button.add_css_class("sf-button")
-        self.playlist_button.connect("clicked", self.on_add_playlist)
-        if self.playlist_unavailable:
-            self.playlist_button.set_tooltip_text(self.playlist_unavailable)
+        self.playlist_button.set_tooltip_text(
+            "Adopt an M3U or PLS another program wrote. Making one needs "
+            "nothing but a name: use ＋ New under Playlists."
+        )
+        self.playlist_button.connect("clicked", self.on_import_playlist)
         actions.append(self.playlist_button)
 
         self.youtube_button = Gtk.Button(label="Add from YouTube…")
@@ -424,7 +426,13 @@ class DeviceViewMixin:
             self._select_mount(None, None)
             self.playlists = []
             self.spoken = set()
-            self.current_playlist = None
+            # Only a playlist that came off the device goes with it. One made
+            # here is a file of your own that outlives the unplug, and clearing
+            # the selection would hand the Playlists view to whichever list
+            # sorts first - on every refresh, which is every plug, unplug and
+            # finished command.
+            if self._local_playlist(self.current_playlist) is None:
+                self.current_playlist = None
             if len(probe.candidates) > 1:
                 self._populate_disconnected_summary(
                     "Multiple iPods connected. Disconnect all but the one you "
@@ -528,11 +536,7 @@ class DeviceViewMixin:
             meter.set_fractions(0, 0, False)
         self._set_settings_figures(None, 0, 0, False)
 
-        child = self.device_banner.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.device_banner.remove(child)
-            child = nxt
+        clear_children(self.device_banner)
         warning = label(message, "sf-caption", wrap=True, hexpand=True)
         warning.set_margin_start(11)
         warning.set_margin_top(10)
@@ -619,9 +623,11 @@ class DeviceViewMixin:
             and not self.discovering_sources
         )
         self.add_button.set_sensitive(queue_enabled)
-        self.playlist_button.set_sensitive(
-            queue_enabled and self.speech_engine_available
-        )
+        # Making and importing a playlist writes a file in a folder of your
+        # own, so neither waits for an iPod or for a speech engine. What those
+        # are needed for is putting one on the device, which the playlist's own
+        # page says in place of disabling the way you make it.
+        self.playlist_button.set_sensitive(not self.busy)
         self.youtube_button.set_sensitive(
             queue_enabled and not self.youtube_unavailable
         )
@@ -633,9 +639,7 @@ class DeviceViewMixin:
         for button in self.search_add_buttons:
             button.set_sensitive(downloadable)
             button.set_tooltip_text(self._youtube_download_tooltip())
-        self.new_playlist_button.set_sensitive(
-            queue_enabled and self.speech_engine_available
-        )
+        self.new_playlist_button.set_sensitive(not self.busy)
         self.rebuild_button.set_sensitive(enabled)
         self.wipe_button.set_sensitive(enabled)
         self.eject_button.set_sensitive(enabled)
@@ -653,11 +657,7 @@ class DeviceViewMixin:
         )
 
     def _set_settings_figures(self, usage, queued_bytes, total_tracks, over):
-        child = self.settings_figures.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.settings_figures.remove(child)
-            child = nxt
+        clear_children(self.settings_figures)
 
         def figure(value, suffix, *classes):
             box = Gtk.Box(spacing=5)
@@ -826,11 +826,7 @@ class DeviceViewMixin:
     # -------------------------------------------------------- music folders
 
     def _populate_folders(self):
-        child = self.folder_list.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.folder_list.remove(child)
-            child = nxt
+        clear_children(self.folder_list)
 
         counts = {}
         for track in self.library.tracks:

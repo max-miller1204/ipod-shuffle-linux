@@ -55,12 +55,15 @@ SHARED_STATE = {
         "device_view", "playlist_view", "queue", "search_view",
     ),
     # The two models. Read widely and rebuilt in one place each.
-    "library": ("device_view", "library_view", "playback_view", "search_view"),
+    "library": (
+        "device_view", "library_view", "playback_view", "playlist_view",
+        "search_view",
+    ),
     "player": ("playback_view", "search_view"),
     # What the machine cannot do, worked out once at startup.
     "youtube_unavailable": ("device_view", "playback_view", "search_view"),
     "preview_unavailable": ("playback_view", "search_view"),
-    "speech_engine_available": ("device_view", "playlist_view"),
+    "speech_engine_available": ("device_view", "playlist_view", "queue"),
     # The queue, held by queue.py and shown by the device summary.
     "pending": ("device_view", "queue"),
     "pending_device_identity": ("device_view", "queue"),
@@ -88,7 +91,6 @@ SHARED_STATE = {
     # Controls one module builds and another decides the state of.
     "library_controls": ("library_view", "window"),
     "new_playlist_button": ("device_view", "playlist_view"),
-    "playlist_voiceover": ("device_view", "playlist_view"),
     "search_add_buttons": ("device_view", "search_view"),
 }
 

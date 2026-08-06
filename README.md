@@ -123,10 +123,26 @@ The grid groups by album or by artist, and swaps for a sortable table of every t
 The state pills count and filter the collections shown in the grid, or the individual tracks shown in the table, so their totals always describe the active view.
 
 Local music folders are configurable under **Device & Settings**, which is also where the sync options, **Rebuild database**, **Wipe** and **Eject** live.
-**Add playlist file…** picks an M3U or PLS file and queues it with the tracks it references; **Sync** copies the tracks and keeps them grouped under the playlist's name, switching spoken playlist names on so the result can be found again on a device with no screen.
-The **Playlists** view marks which playlists the device can announce (`◉`) and which it cannot (`◌`), since on a screenless player a spoken name is the only identity a playlist has.
-Tracks there can be dragged into a new order, which rewrites the list on the device and rebuilds the database, so the order survives unplugging.
-That view is deliberately not sortable: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
+
+Making a playlist is a name and nothing else.
+**＋ New** under **Playlists** offers the next free *Playlist N*, and the list exists the moment you accept it: there is no file to choose, no iPod to have plugged in, and no sync to wait for.
+It is kept as an M3U in `~/Music/Playlists`, so it outlives this app and other players can read it.
+
+Songs go in from the `⋯` beside any track, in the library, on an album page, or in either half of the search results - including a YouTube result, which downloads first and lands in the playlist when it finishes.
+An album page also has **Add to playlist**, which puts the whole record in at once.
+Inside a playlist the same menu moves a track to another playlist or takes it out again, which leaves the song itself alone in your library and on the iPod.
+Tracks can also be dragged into a new order, and that order is the playlist, so it is written to the file rather than kept in the window.
+
+Every edit stages the playlist and its songs for the next sync, and **Sync** copies them and writes the list onto the device under its own name.
+Editing with no iPod attached is fine - **Send to iPod** stages it whenever one turns up.
+Because the device stores playlist names only as spoken audio, a playlist reaching it switches spoken names on automatically; without a speech engine installed the playlist stays on this computer and the page says so.
+The dot beside a playlist means what it means beside a track: on the iPod, or here and waiting to be.
+
+The **Playlists** view also lists the playlists that exist only on the device - a folder or tag grouping a sync generated, or a list made on another computer.
+Those are shown, reordered and removed but not edited, because their entries name scrambled files on the iPod with no local counterpart to write down.
+Neither kind of playlist is sortable by column: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
+
+**Import playlist file…** under **Device & Settings** adopts an M3U or PLS another program wrote, resolving its entries and copying it into the playlist folder, so from then on it is an ordinary playlist you can edit here.
 
 The search field at the top of the window queries two sources at once.
 Your indexed music folders answer immediately, matching every word of the query in any order across title, artist and album, so "queen rhapsody" finds a track tagged *Bohemian Rhapsody* by *Queen*.
@@ -194,6 +210,7 @@ That is deliberate: `yt-dlp`'s media URLs are short-lived and tied to the addres
 Those downloads go to `~/.cache/ipod-shuffle-linux/previews` by default, or under `$XDG_CACHE_HOME` when it is set, not to your music folder.
 A previewed track shows up in your library grid with a dashed marker, and pressing **Add** on it is what moves it into `~/Music/youtube` and out of the cache, queueing it for the next sync at the same time if an iPod is connected.
 Unlike every other **Add**, that works with nothing plugged in, because keeping a download is something you do to your own music folder.
+Adding a previewed track to a playlist keeps it the same way, since a playlist entry pointing into a cache that gets pruned would stop resolving on its own.
 
 **Device & Settings** shows what the cache is holding and can empty it in one press.
 Past 512 MB, roughly seventy songs, the oldest previews are dropped as new ones arrive; whatever is playing is never one of them.
@@ -386,8 +403,10 @@ Then rebuild:
 
 Hand-placed files like this are left alone by the automatic upkeep above, except that a rebuild simply skips entries it can no longer resolve.
 
-**From the GUI,** using **Playlist grouping** under **Device & Settings** for the folder and tag groupings, or **Add playlist file…** to pick an M3U or PLS file.
-Either choice switches spoken playlist names on automatically, for the reason above; the playlist file and its tracks join the staged queue until you press **Sync**.
+**From the GUI,** by making one under **Playlists**: name it, add songs from your library or from YouTube with the `⋯` beside any track, and press **Sync**.
+The list is an M3U the app keeps in `~/Music/Playlists`, and syncing hands that file to `ipod-sync.sh` exactly as the command above does, so the two routes produce the same thing on the device.
+**Playlist grouping** under **Device & Settings** still drives the folder and tag groupings, and **Import playlist file…** adopts a list another program wrote.
+Choosing a grouping switches spoken playlist names on there and then, and a sync that carries a playlist file switches them on for that run, for the reason above; the playlist file and its tracks join the staged queue until you press **Sync**.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
 
@@ -581,6 +600,9 @@ Useful when deciding what is safe to delete.
 | `iPod_Control/Speakable/` | Apple's built-in spoken prompts | **No** |
 | `iPod_Control/Device/` | Device identity data | **No** |
 
+A playlist made in the app is a file on this computer, not on the device: it lives in `~/Music/Playlists`, and the list at the volume root is the copy a sync wrote from it.
+Deleting the device copy therefore removes the playlist from the iPod and leaves it here to sync again.
+
 `Speakable/` holds the system voice prompts for things like battery level.
 They ship with the firmware, nothing in the open-source toolchain can regenerate them, and on a device with no screen they are the only feedback the hardware gives you.
 
@@ -633,6 +655,7 @@ The GUI is a package, `ipod_gui/`, launched by `ipod-gui.py` and split by what e
 | `youtube.py` | Search, artwork, and the `ipod-fetch.sh` command for a result |
 | `previews.py` | The preview cache: what is in it, what may be pruned, what is promoted |
 | `model.py` | The library as the window sees it: tracks, albums, and the index over them |
+| `playlists.py` | The playlists you make here, as M3U files in a folder of your own |
 | `theme.py` | The design's token sheet, as the one stylesheet the window loads |
 | `widgets.py` | The widgets more than one view builds, so they look the same in each |
 | `player.py` | GStreamer, and the pipeline behind the now-playing bar |
@@ -678,6 +701,9 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - A `--new-tracks` file left stale by a `yt-dlp` that could not fill it, which reads as a definite answer to whoever picks it up next
 - `find` enumerating a source without `-L`, so a library assembled out of symlinks synced as an empty folder and said nothing about it
 - A single dangling `.mp3` link anywhere under a music folder failing the whole library scan, which showed an empty library because of one broken link
+- A playlist rewritten in an order of its own, so a track dragged in the window arrived somewhere else on a player with no screen to reorder it from
+- Taking the last song out of a playlist leaving the list on the device, pointing at nothing
+- An edit that moved a track between playlists staging only the playlist it landed in, so the one it left synced with the track still listed
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 

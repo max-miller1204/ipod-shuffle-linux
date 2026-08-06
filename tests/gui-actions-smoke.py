@@ -138,6 +138,7 @@ class FakeWindow:
         self._library_by_path = {}
         self.commands = []
         self.busy_messages = []
+        self.done_messages = []
         self.on_failure = None
         self.toasts = []
         self.track_names = {}
@@ -166,6 +167,7 @@ class FakeWindow:
         self.then = then
         self.on_failure = on_failure
         self.busy_messages.append(busy_message)
+        self.done_messages.append(done_message)
         return True
 
     def _toast(self, message):
@@ -197,11 +199,14 @@ class FakeWindow:
     _merge_states = gui.IpodWindow._merge_states
     _scan_pending_tracks = gui.IpodWindow._scan_pending_tracks
     _finish_pending_enrichment = gui.IpodWindow._finish_pending_enrichment
+    _source_gone = staticmethod(gui.IpodWindow._source_gone)
+    is_playlist_queued = gui.IpodWindow.is_playlist_queued
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
     _queue_sources = gui.IpodWindow._queue_sources
     _queue_paths = gui.IpodWindow._queue_paths
-    _queue_playlist = gui.IpodWindow._queue_playlist
+    _queue_playlists = gui.IpodWindow._queue_playlists
     _unqueue_track = gui.IpodWindow._unqueue_track
+    _prune_pending = gui.IpodWindow._prune_pending
     _scan_queued_sources = gui.IpodWindow._scan_queued_sources
     _finish_pending_source_scan = gui.IpodWindow._finish_pending_source_scan
     _launch_pending_sync = gui.IpodWindow._launch_pending_sync
@@ -707,6 +712,12 @@ assert identity_window.pending_sources == {}, identity_window.pending_sources
 assert identity_window.toasts and "different iPod" in identity_window.toasts[-1]
 
 # ----------------------------------------------------------------- playlist
+#
+# What a playlist costs the queue: one source holding the list itself and every
+# track it names. The file is a member too, so an emptied playlist is still a
+# queued change - the sync is what removes the device's copy of it.
+# tests/gui-playlists.py covers making and editing the list; this is the seam
+# between a playlist and the sync.
 
 playlist_window = FakeWindow()
 playlist_root = Path(tempfile.mkdtemp())
@@ -722,7 +733,7 @@ playlist_window.library.tracks = [
     )
 ]
 playlist_window._merge_states()
-gui.IpodWindow._add_playlist(playlist_window, playlist_path)
+playlist_window._queue_playlists([playlist_path], show_toast=False)
 
 assert playlist_window.commands == [], playlist_window.commands
 assert playlist_window.pending_sources == {
@@ -732,16 +743,21 @@ assert playlist_window.pending == {
     str(playlist_path),
     str(playlist_track),
 }, playlist_window.pending
-# A playlist that cannot speak its name cannot be found again on a screenless
-# device, so adding one switches the spoken names on rather than warning later.
-assert playlist_window.playlist_voiceover.active, "adding a playlist left voiceover off"
+# One change to copy and one list to write, rather than two tracks: the m3u is
+# not audio, so it counts as the playlist change and not as a file to play.
+assert playlist_window._pending_change_count() == 2, (
+    playlist_window._pending_change_count()
+)
+assert [t.path for t in playlist_window._pending_copy_tracks()] == [
+    str(playlist_track)
+]
 
-silent_window = FakeWindow()
-silent_window.speech_engine_available = False
-gui.IpodWindow._add_playlist(silent_window, playlist_path)
-assert not silent_window.playlist_voiceover.active, "voiceover flipped without an engine"
-assert not silent_window.commands, "a playlist was synced without spoken names"
-assert silent_window.toasts == ["No speech engine installed"], silent_window.toasts
+emptied = playlist_root / "Emptied.m3u"
+emptied.write_text("#EXTM3U\n", encoding="utf-8")
+playlist_window._queue_playlists([emptied], show_toast=False)
+assert playlist_window.pending_sources[str(emptied)] == {str(emptied)}, (
+    "an emptied playlist left nothing for the sync to rewrite"
+)
 
 folder_window = FakeWindow()
 folder_members = [
@@ -863,7 +879,12 @@ finally:
     gui.scan_tracks = original_scan_tracks
 
 gui.IpodWindow._set_busy(busy_window, False)
-assert not busy_window.playlist_button.sensitive, "busy reset enabled Add Playlist"
+# Making and importing a playlist writes a file in a folder of the user's own,
+# so neither waits for a speech engine - this window has none. What an engine
+# is needed for is putting a playlist on the device, which is refused when the
+# playlist is staged rather than when it is made.
+assert busy_window.playlist_button.sensitive, "importing needed a speech engine"
+assert busy_window.new_playlist_button.sensitive, "New needed a speech engine"
 assert busy_window.youtube_button.sensitive, "busy reset left YouTube disabled"
 # Nothing is queued, so there is nothing for Sync to do.
 assert not busy_window.sync_button.sensitive, "Sync offered with an empty queue"
@@ -930,50 +951,6 @@ assert not queued_window.sync_button.sensitive
 queued_window._device_snapshot_ready = True
 queued_window._update_device_controls()
 assert queued_window.sync_button.sensitive
-
-# -------------------------------------------------------- playlist removal
-
-playlist_removal = FakeWindow()
-original_volume_identity = gui.volume_identity
-gui.volume_identity = lambda _mount: playlist_removal.device_identity
-try:
-    gui.IpodWindow._on_playlist_remove_response(
-        playlist_removal,
-        None,
-        "remove",
-        "twizzy",
-        playlist_removal.device_identity,
-    )
-finally:
-    gui.volume_identity = original_volume_identity
-
-playlist_rm = playlist_removal.commands[0]
-assert playlist_rm[0].endswith("ipod-remove.sh"), playlist_rm
-assert playlist_rm[1:3] == ["--ipod", playlist_removal.mount_point], playlist_rm
-assert "--yes" in playlist_rm, playlist_rm
-assert "--playlist" in playlist_rm, playlist_rm
-assert playlist_rm[-2:] == ["--", "twizzy"], playlist_rm
-
-for answer in ("cancel", "close"):
-    quiet = FakeWindow()
-    gui.IpodWindow._on_playlist_remove_response(
-        quiet, None, answer, "twizzy", quiet.device_identity
-    )
-    assert quiet.commands == [], (answer, quiet.commands)
-
-disconnected_playlist_removal = FakeWindow()
-removed_device = disconnected_playlist_removal.device_identity
-disconnected_playlist_removal.mount_point = None
-disconnected_playlist_removal.device_identity = None
-gui.IpodWindow._on_playlist_remove_response(
-    disconnected_playlist_removal,
-    None,
-    "remove",
-    "twizzy",
-    removed_device,
-)
-assert disconnected_playlist_removal.commands == []
-assert "changed" in disconnected_playlist_removal.toasts[-1]
 
 # The rows the window shows come from the m3u files at the volume root, with
 # entries under the music folder rewritten to match the track list's keys so
@@ -1887,38 +1864,116 @@ assert queue_window.pending_sources == {}, "sync sources survived a successful s
 assert queue_window.pending_device_identity is None, "queue stayed device-bound"
 assert isinstance(cleared, str), cleared
 
+def sync_pending_with(window):
+    """Press Sync, then run the scan's answer on this thread.
+
+    The scan runs on a worker that posts its result back through GLib. Letting
+    that through inline would run the answer - the toast, the queue it rebuilds
+    and the command it launches - on the worker, while this thread is already
+    reading them. Recorded and called here instead, so nothing is asserted
+    while another thread is still writing it.
+    """
+    landed = []
+    arrived = threading.Event()
+
+    def record_idle(callback, *args):
+        landed.append((callback, args))
+        arrived.set()
+        return 1
+
+    original_volume_identity = gui.volume_identity
+    original_glib = gui.GLib
+    gui.volume_identity = lambda _mount: window.device_identity
+    gui.GLib = type(
+        "RecordingGLib", (), {"idle_add": staticmethod(record_idle)}
+    )
+    try:
+        gui.IpodWindow.on_sync_pending(window, None)
+        assert arrived.wait(5), "the source scan before a sync never reported"
+        for callback, args in landed:
+            callback(*args)
+    finally:
+        gui.volume_identity = original_volume_identity
+        gui.GLib = original_glib
+
+
+# A queued source that has gone - a folder on a stick that was unplugged, a
+# playlist another program deleted - is dropped rather than failing the re-read
+# of every source. Failing it would leave the source staged and cancel every
+# press of Sync after it for the rest of the session, naming nothing the user
+# could go and put right.
 failed_sync = FakeWindow()
 failed_member = "/missing/source/song.mp3"
 failed_sync.pending = {failed_member}
 failed_sync.pending_sources = {"/missing/source": {failed_member}}
 failed_sync.pending_device_identity = failed_sync.device_identity
-failure_ready = threading.Event()
-original_toast = failed_sync._toast
-
-
-def record_failure(message):
-    original_toast(message)
-    failure_ready.set()
-
-
-failed_sync._toast = record_failure
-original_volume_identity = gui.volume_identity
-original_glib = gui.GLib
-gui.volume_identity = lambda _mount: failed_sync.device_identity
-gui.GLib = type(
-    "ImmediateGLib",
-    (),
-    {"idle_add": staticmethod(lambda callback, *args: callback(*args))},
-)
-try:
-    gui.IpodWindow.on_sync_pending(failed_sync, None)
-    assert failure_ready.wait(5), "failed source scan did not report its refusal"
-finally:
-    gui.volume_identity = original_volume_identity
-    gui.GLib = original_glib
+sync_pending_with(failed_sync)
 assert failed_sync.commands == [], failed_sync.commands
 assert not failed_sync.busy
-assert "cancelled" in failed_sync.toasts[-1]
+assert failed_sync.pending_sources == {}, failed_sync.pending_sources
+# Dropped is said, not merely done: what went is the part of what the user
+# staged that will not happen.
+assert (
+    failed_sync.toasts[-1] == "Dropped 1 queued source with nothing left to sync"
+), failed_sync.toasts
+
+# A sync that loses one source and keeps another still runs, and still says
+# what it lost - said here rather than folded into the sync's own message,
+# which _clear_pending replaces on success and a non-zero exit never shows.
+partial_sync = FakeWindow()
+kept_source = Path(tempfile.mkdtemp(prefix="kept-source-")) / "Kept.mp3"
+kept_source.write_bytes(b"kept")
+partial_sync.pending = {str(kept_source), failed_member}
+partial_sync.pending_sources = {
+    str(kept_source): {str(kept_source)},
+    "/missing/source": {failed_member},
+}
+partial_sync.pending_device_identity = partial_sync.device_identity
+sync_pending_with(partial_sync)
+assert partial_sync.commands, "a sync with one source left never ran"
+assert str(kept_source) in partial_sync.commands[-1], partial_sync.commands[-1]
+assert "/missing/source" not in partial_sync.commands[-1], partial_sync.commands[-1]
+assert (
+    partial_sync.toasts[-1] == "Dropped 1 queued source with nothing left to sync"
+), partial_sync.toasts
+# The sync's own message says what it did, and nothing more: it is replaced by
+# what _clear_pending returns the moment the copy succeeds.
+assert partial_sync.done_messages[-1].endswith("synced"), partial_sync.done_messages
+
+# A folder that is still there but has been emptied by hand is the same news:
+# the queue is rebuilt without it either way, so the user hears about it.
+emptied_sync = FakeWindow()
+emptied_folder = Path(tempfile.mkdtemp(prefix="emptied-source-"))
+emptied_sync.pending = {str(kept_source)}
+emptied_sync.pending_sources = {
+    str(kept_source): {str(kept_source)},
+    str(emptied_folder): set(),
+}
+emptied_sync.pending_device_identity = emptied_sync.device_identity
+sync_pending_with(emptied_sync)
+assert emptied_sync.commands, "a sync with one source left never ran"
+assert str(emptied_folder) not in emptied_sync.commands[-1], (
+    emptied_sync.commands[-1]
+)
+assert (
+    emptied_sync.toasts[-1] == "Dropped 1 queued source with nothing left to sync"
+), emptied_sync.toasts
+
+# One that is there but cannot be read is the other thing entirely, and still
+# cancels: syncing around it would copy a queue the user never approved.
+unreadable_sync = FakeWindow()
+unreadable_source = Path(tempfile.mkdtemp(prefix="unreadable-")) / "notes.txt"
+unreadable_source.write_text("not a source this can read", encoding="utf-8")
+unreadable_sync.pending = {str(unreadable_source)}
+unreadable_sync.pending_sources = {str(unreadable_source): {str(unreadable_source)}}
+unreadable_sync.pending_device_identity = unreadable_sync.device_identity
+sync_pending_with(unreadable_sync)
+assert unreadable_sync.commands == [], unreadable_sync.commands
+assert not unreadable_sync.busy
+assert "cancelled" in unreadable_sync.toasts[-1], unreadable_sync.toasts
+assert str(unreadable_source) in unreadable_sync.pending_sources, (
+    "a source that is there but unreadable was dropped from the queue"
+)
 
 outside_window = FakeWindow()
 outside_track = gui.Track(
@@ -2939,6 +2994,7 @@ class PreviewWindow:
     _populate_cache_card = gui.IpodWindow._populate_cache_card
     on_clear_cache = gui.IpodWindow.on_clear_cache
     _promote_preview = gui.IpodWindow._promote_preview
+    _keep_preview = gui.IpodWindow._keep_preview
     _prune_preview_cache = gui.IpodWindow._prune_preview_cache
     _forget_empty_preview_folders = staticmethod(
         gui.IpodWindow._forget_empty_preview_folders
@@ -2957,6 +3013,7 @@ class PreviewWindow:
     _merge_states = gui.IpodWindow._merge_states
     _queue_sources = gui.IpodWindow._queue_sources
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
+    _prune_pending = gui.IpodWindow._prune_pending
     _pending_accounting = gui.IpodWindow._pending_accounting
     _pending_change_count = gui.IpodWindow._pending_change_count
     _pending_track = gui.IpodWindow._pending_track
@@ -3141,7 +3198,6 @@ print(
             "staged_sync_command": staged,
             "remove_command": removal,
             "playlist_queue_sources": sorted(playlist_window.pending_sources),
-            "playlist_remove_command": playlist_rm,
             "parsed_playlists": parsed,
             "fetch_command": fetch,
             "queued_after_fetch": sorted(window.pending_sources),

@@ -220,6 +220,28 @@ window.shuffle.light .sf-log { color: #6f6c67; }
 .sf-cover-play:focus { opacity: 1; }
 .sf-cover-play:disabled { color: alpha(#ffffff, 0.45); }
 
+/* The ⋯ on a track row. Dimmed at rest and full strength under the pointer,
+   because it sits on every row of a table that can be hundreds long: at full
+   contrast a column of identical glyphs competes with the titles beside it,
+   and hiding it entirely would leave the only way to add a track to a playlist
+   invisible until the mouse happened to pass over it. */
+.sf-row-menu {
+  min-width: 26px; min-height: 26px; padding: 0;
+  opacity: 0.45; transition: opacity 90ms ease-out;
+}
+.sf-tracks row:hover .sf-row-menu,
+.sf-track-row:hover .sf-row-menu,
+.sf-row-menu:hover,
+.sf-row-menu:focus,
+.sf-row-menu:checked { opacity: 1; }
+
+.sf-menu { padding: 4px; }
+.sf-menu .sf-section-label { padding: 4px 8px 2px 8px; }
+.sf-menu-item {
+  border-radius: 6px; padding: 6px 8px; font-size: 12.5px;
+  min-height: 0; box-shadow: none;
+}
+
 .sf-track-row { border-radius: 9px; padding: 6px 8px; }
 .sf-track-row:hover { background: alpha(#ffffff, 0.04); }
 window.shuffle.light .sf-track-row:hover { background: alpha(#000000, 0.03); }

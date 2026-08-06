@@ -15,7 +15,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from .config import ART_CACHE, FETCH_SCRIPT
+from .config import ART_CACHE, AUDIO_EXTENSIONS, FETCH_SCRIPT
 from .shell import lib_function_output
 
 
@@ -246,6 +246,32 @@ def video_id_from_name(name):
 def cached_thumbnail_for(path):
     """The cached YouTube artwork for a file on disk, or None."""
     return youtube_art_path(video_id_from_name(Path(path).name), ART_CACHE)
+
+
+def downloaded_file(video_id, library):
+    """The file a video id was downloaded to, or None.
+
+    ipod-fetch.sh writes the id into every filename, so the folder can be asked
+    what became of one video without keeping a second record beside it - the
+    same question cached_preview_path asks of the preview cache. Adding a
+    search result to a playlist needs this rather than the download's own
+    report: a video already in the music folder downloads nothing and reports
+    nothing, and the file it would have written is already sitting there.
+    """
+    video_id = (video_id or "").strip()
+    if not video_id:
+        return None
+    marker = f"[{video_id}]"
+    try:
+        candidates = sorted(Path(library).rglob("*"))
+    except OSError:
+        return None
+    for path in candidates:
+        if marker not in path.name:
+            continue
+        if path.suffix.lower() in AUDIO_EXTENSIONS and path.is_file():
+            return path
+    return None
 
 
 def thumbnail_from_entry(entry, want=YOUTUBE_ART_SIZE):

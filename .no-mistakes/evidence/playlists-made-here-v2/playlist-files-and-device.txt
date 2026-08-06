@@ -1,0 +1,51 @@
+Files on disk after the run captured in the screenshots beside this file.
+
+The GUI ran against a disposable HOME (/tmp/pl-e2e-home) and a stand-in iPod
+volume, so nothing here touched the real device mounted on the machine. Only
+iPod detection and HOME were replaced; the window, the playlist store and
+ipod-sync.sh are the shipped code.
+
+$ ls ~/Music/Playlists
+Gym.m3u
+Road Trip.m3u
+
+$ cat ~/Music/Playlists/Road Trip.m3u
+#EXTM3U
+/tmp/pl-e2e-home/Music/Ana Petrov/Field Notes/01 - Paper Boats.mp3
+/tmp/pl-e2e-home/Music/Ana Petrov/Field Notes/02 - Coastal Road.mp3
+/tmp/pl-e2e-home/Music/youtube/Kevin MacLeod/Cipher [N0KuBFK9r24].mp3
+
+  Paper Boats came from the search results, Coastal Road from the library
+  table, and Cipher from a YouTube result the app downloaded first. Paper
+  Boats sits first because it was dragged there from third place; the file
+  was rewritten in the order the window shows.
+
+$ cat ~/Music/Playlists/Gym.m3u
+#EXTM3U
+/tmp/pl-e2e-home/Music/youtube/Kevin MacLeod/Cipher [N0KuBFK9r24].mp3
+
+  Gym was made from the ⋯ menu while moving a track into it, then emptied
+  again, then given the same YouTube video a second time. The second add
+  downloaded nothing - the video was already in the music folder - and the
+  track was still filed into the playlist, found by its video id.
+
+$ ls '/tmp/pl-e2e-home/iPod'          # the stand-in volume, after Sync
+iPod_Control
+Made Elsewhere.m3u
+Road Trip.m3u
+
+$ cat '/tmp/pl-e2e-home/iPod/Road Trip.m3u'
+#EXTM3U
+iPod_Control/Music/Field Notes/01 - Paper Boats.mp3
+iPod_Control/Music/Field Notes/02 - Coastal Road.mp3
+
+  Written by ipod-sync.sh from the playlist file above, in the same order,
+  with the entries rewritten relative to the volume root. Gym.m3u was on the
+  device after the first sync and is gone after the second, because its last
+  track had been taken out - the song itself stayed on the iPod.
+
+$ cat /tmp/pl-e2e-home/iPod/iPod_Control/.sync-options
+--playlist-voiceover
+
+  Switched on by the sync itself: a playlist reaching a screenless device has
+  no identity without a spoken name.

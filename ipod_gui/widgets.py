@@ -31,6 +31,20 @@ PLAYLIST_ROW_COVER = 32
 TRACK_PAGE_WIDTH = 900
 
 
+def clear_children(container):
+    """Empty a container, one child at a time.
+
+    The next child is held before this one is removed: a widget's sibling links
+    go with it when it leaves, so the loop that reads get_next_sibling
+    afterwards clears the first child and stops.
+    """
+    child = container.get_first_child()
+    while child is not None:
+        nxt = child.get_next_sibling()
+        container.remove(child)
+        child = nxt
+
+
 def cover_pixel_size(width, height, size):
     """How large to draw artwork so it fills a square of this size.
 
@@ -145,8 +159,34 @@ def playable_cover(window, track, view):
     return overlay
 
 
-def track_cell(window, track, number, column, view=None):
-    """One cell of a track row, for whichever column asked for it."""
+def row_menu_button(build_popover, tooltip, dim=True):
+    """The ⋯ that opens a row's menu.
+
+    The popover is built when it opens rather than when the row is drawn: what
+    it lists is the set of playlists, which changes under the row, and building
+    one per row would build several hundred menus to show at most one of them.
+
+    Dimmed at rest on a row, where there is one per line and a column of them
+    at full contrast competes with the titles beside it. A page that carries a
+    single one is the other case: there it is one control among two or three,
+    and half-strength reads as disabled.
+    """
+    button = Gtk.MenuButton(icon_name="view-more-symbolic")
+    button.add_css_class("flat")
+    if dim:
+        button.add_css_class("sf-row-menu")
+    button.set_valign(Gtk.Align.CENTER)
+    button.set_tooltip_text(tooltip)
+    button.set_create_popup_func(lambda menu: menu.set_popover(build_popover()))
+    return button
+
+
+def track_cell(window, track, number, column, view=None, playlist=None):
+    """One cell of a track row, for whichever column asked for it.
+
+    `playlist` names the playlist the row is being shown inside, which is what
+    turns its menu from adding to moving and lets it offer a removal.
+    """
     if column == "number":
         return label(str(number), "sf-caption", "sf-mono", width_chars=3, xalign=1.0)
 
@@ -176,6 +216,12 @@ def track_cell(window, track, number, column, view=None):
             "sf-mono",
             width_chars=5,
             xalign=1.0,
+        )
+
+    if column == "menu":
+        return row_menu_button(
+            lambda: window.track_menu(track, playlist),
+            f"Playlists holding {track.title}",
         )
 
     action = Gtk.Button()
@@ -219,6 +265,7 @@ TRACK_COLUMNS = (
     ("state", "", False, lambda t: t.state),
     ("duration", "Time", False, lambda t: t.duration),
     ("action", "", False, None),
+    ("menu", "", False, None),
 )
 
 
@@ -305,14 +352,16 @@ def track_list_view(window, on_reorder):
 
     def bind(_factory, item):
         row = item.get_child()
-        child = row.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            row.remove(child)
-            child = nxt
+        clear_children(row)
         entry = item.get_item()
-        for key in ("number", "title", "state", "duration", "action"):
-            row.append(track_cell(window, entry.track, entry.number, key, view))
+        # Which playlist is on screen is read at bind time rather than captured
+        # when the view was built, because one view shows every playlist in
+        # turn and a row recycled by a scroll binds long after the switch.
+        playlist = window.current_playlist
+        for key in ("number", "title", "state", "duration", "action", "menu"):
+            row.append(
+                track_cell(window, entry.track, entry.number, key, view, playlist)
+            )
         if entry.track.state == STATE_PREVIEW:
             row.add_css_class("previewed")
         else:

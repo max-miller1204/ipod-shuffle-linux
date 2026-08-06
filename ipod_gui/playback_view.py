@@ -548,8 +548,26 @@ class PlaybackViewMixin:
         want - but a previewed file lives in a cache that gets pruned, so
         keeping it has to move it before anything is queued.
         """
-        if track.state != STATE_PREVIEW:
+        if not self._keep_preview(track):
             return
+        kept = f"Kept in {home_relative(YOUTUBE_LIBRARY)}"
+        if self.mount_point and self.device_identity is not None:
+            queued = self._queue_sources({track.path: [track]}, show_toast=False)
+            self._toast(f"{kept} and queued for sync" if queued else kept)
+            return
+        self._refresh_current_view()
+        self._toast(kept)
+
+    def _keep_preview(self, track):
+        """Move a previewed file into the library. True once it is there.
+
+        Apart from the Add that usually asks for it, because adding a previewed
+        track to a playlist has to keep the file too: an entry pointing into a
+        cache that gets pruned would stop resolving without anything having
+        been deleted on purpose.
+        """
+        if track.state != STATE_PREVIEW:
+            return False
         source = Path(track.path)
         if not source.is_file():
             # Pruned, or cleared from another window, between the row being
@@ -561,7 +579,7 @@ class PlaybackViewMixin:
             self._populate_cache_card()
             self._refresh_current_view()
             self._toast("That preview is no longer in the cache")
-            return
+            return False
         destination = promote_destination(source, PREVIEW_CACHE, YOUTUBE_LIBRARY)
         try:
             destination.parent.mkdir(parents=True, exist_ok=True)
@@ -575,7 +593,7 @@ class PlaybackViewMixin:
                 shutil.move(str(source), str(destination))
         except OSError as exc:
             self._toast(f"Could not move the preview into your library: {exc}")
-            return
+            return False
         self._forget_empty_preview_folders(source.parent)
 
         track.path = str(destination)
@@ -592,14 +610,7 @@ class PlaybackViewMixin:
         self._merge_states()
         self._populate_cache_card()
         self._update_now_playing()
-
-        kept = f"Kept in {home_relative(YOUTUBE_LIBRARY)}"
-        if self.mount_point and self.device_identity is not None:
-            queued = self._queue_sources({track.path: [track]}, show_toast=False)
-            self._toast(f"{kept} and queued for sync" if queued else kept)
-            return
-        self._refresh_current_view()
-        self._toast(kept)
+        return True
 
     # ------------------------------------------------------------ transport
 

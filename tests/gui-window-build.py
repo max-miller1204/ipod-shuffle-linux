@@ -78,6 +78,7 @@ EXPECTED = {
     "playlist_view": [
         "playlist_rail", "playlist_list", "playlist_shelf", "shelf_section",
         "playlist_tracks", "playlist_heading", "playlist_voice_note",
+        "playlist_actions", "playlist_body", "playlist_empty",
         "playlists_view", "new_playlist_button",
     ],
     "playback_view": [
@@ -100,6 +101,49 @@ EXPECTED = {
         "details_revealer", "details_toggle", "rebuild_button", "eject_button",
     ],
 }
+
+
+def walk(widget):
+    """Every widget in a tree, the one it was given included."""
+    if widget is None:
+        return
+    yield widget
+    child = widget.get_first_child()
+    while child is not None:
+        yield from walk(child)
+        child = child.get_next_sibling()
+
+
+def find_entry(widget):
+    """The name field inside a dialog, wherever it was nested.
+
+    Walked rather than reached for by path, so grouping the field differently
+    is a change to the dialog's looks rather than a broken check.
+    """
+    for found in walk(widget):
+        if isinstance(found, Adw.EntryRow):
+            return found
+    return None
+
+
+def find_button(widget, text):
+    """The button in a menu whose row reads like this, or None."""
+    for found in walk(widget):
+        if isinstance(found, Gtk.Button) and any(
+            isinstance(inner, Gtk.Label) and inner.get_text() == text
+            for inner in walk(found)
+        ):
+            return found
+    return None
+
+
+def menu_text(widget):
+    """Everything a menu says, as one string."""
+    return " / ".join(
+        found.get_text()
+        for found in walk(widget)
+        if isinstance(found, Gtk.Label)
+    )
 
 
 def inspect(window):
@@ -146,6 +190,114 @@ def inspect(window):
             repaint()
         except Exception:  # noqa: BLE001 - any of them failing is the finding
             failures.append(f"{repaint.__name__} raised:\n{traceback.format_exc()}")
+
+    # A playlist made the way the app makes one, painted the way the app
+    # paints it. The rail, the detail and the menus are the only widgets built
+    # from data rather than at construction, so nothing else here would notice
+    # a row or a popover that cannot be built at all.
+    gui.create_local_playlist(gui.PLAYLIST_LIBRARY, "Built")
+    window._populate_playlist_rail()
+    if window.current_playlist != "Built":
+        failures.append(
+            f"a new playlist was not selected: {window.current_playlist!r}"
+        )
+    if window.playlist_heading.get_text() != "Built":
+        failures.append(
+            f"the detail shows {window.playlist_heading.get_text()!r}"
+        )
+    if window.playlist_body.get_visible_child_name() != "empty":
+        failures.append("an empty playlist did not show its empty state")
+
+    # Every popover is built as it opens rather than with the row it hangs off,
+    # so a broken one would first show up under the user's pointer.
+    track = gui.Track("/music/Artist/Song.mp3", {"title": "Song"}, gui.STATE_LIBRARY)
+    result = gui.SearchResult("Result", "Uploader", 0, "https://x.invalid/v", "v")
+    for name, build in (
+        ("track_menu", lambda: window.track_menu(track)),
+        ("track_menu in a playlist", lambda: window.track_menu(track, "Built")),
+        ("result_menu", lambda: window.result_menu(result)),
+    ):
+        try:
+            popover = build()
+        except Exception:  # noqa: BLE001 - any of them failing is the finding
+            failures.append(f"{name} raised:\n{traceback.format_exc()}")
+            continue
+        if not isinstance(popover, Gtk.Popover):
+            failures.append(f"{name} returned {popover!r}")
+
+    # The list a row is in is the one place it cannot be moved to, so with only
+    # that one made the move menu has nothing to offer - and must not say "no
+    # playlists yet" while the user is standing in one it names two lines down.
+    only_one = window.track_menu(track, "Built")
+    said = menu_text(only_one.get_child())
+    if "No other playlists" not in said:
+        failures.append(f"the move menu with one playlist reads: {said}")
+    if "No playlists yet" in said:
+        failures.append(f"the move menu called a playlist the user is in none: {said}")
+    # The add menu is a different question and keeps its own wording, with the
+    # one playlist there is on offer rather than a sentence about having none.
+    if "No" in menu_text(window.track_menu(track).get_child()):
+        failures.append("the add menu claimed there were no playlists")
+
+    # A playlist another program wrote can list a track relative to the folder
+    # it sits in. The sync resolves that, so the entry is real - but it names
+    # nothing this app can write into a different playlist. Taking it out of
+    # the list it is in writes no path anywhere, so that has to stay on offer,
+    # or a line like this could never be removed at all.
+    relative_list = gui.local_playlist_file(gui.PLAYLIST_LIBRARY, "Built")
+    gui.write_playlist_entries(relative_list, ["Somebody Else Wrote This.mp3"])
+    window._populate_playlist_rail()
+    borrowed = gui.Track(
+        "Somebody Else Wrote This.mp3",
+        {"title": "Somebody Else Wrote This"},
+        gui.STATE_LIBRARY,
+    )
+    inside = window.track_menu(borrowed, "Built")
+    removal = find_button(inside.get_child(), "Remove from Built")
+    if removal is None:
+        failures.append(
+            "a folder-relative entry offered no way out of the playlist it is in"
+        )
+    else:
+        removal.emit("clicked")
+        left = gui.read_playlist_entries(relative_list)
+        if left:
+            failures.append(f"Remove left the entry in the playlist: {left}")
+    # Putting it in a different playlist stays refused: resolved against that
+    # playlist's folder instead, the same line names nothing at all.
+    outside = window.track_menu(borrowed)
+    if find_button(outside.get_child(), "Built") is not None:
+        failures.append("a folder-relative entry was offered as one to add")
+
+    # Naming a playlist and renaming one are one dialog assembled in one place,
+    # so a break in it is a break in both, and neither is built until the user
+    # asks for it. What is read back is what the dialog offers: a usable name
+    # to accept, and a refusal while a name FAT cannot store is being typed.
+    for name, build, response in (
+        ("on_new_playlist", lambda: window.on_new_playlist(), "create"),
+        ("on_rename_playlist", lambda: window.on_rename_playlist("Built"), "rename"),
+    ):
+        try:
+            dialog = build()
+        except Exception:  # noqa: BLE001 - any of them failing is the finding
+            failures.append(f"{name} raised:\n{traceback.format_exc()}")
+            continue
+        if not isinstance(dialog, Adw.AlertDialog):
+            failures.append(f"{name} returned {dialog!r}")
+            continue
+        if not dialog.get_response_enabled(response):
+            failures.append(f"{name} opened offering a name it then refused")
+        field = find_entry(dialog.get_extra_child())
+        if field is None:
+            failures.append(f"{name} built no field to type a name into")
+        else:
+            field.set_text("Road/Trip")
+            if dialog.get_response_enabled(response):
+                failures.append(
+                    f"{name} still offered {response!r} for a name with a slash "
+                    "in it, which the sync would mangle into another name"
+                )
+        dialog.force_close()
 
     # Closing stops the player and disowns any download; it is a mixin's job
     # now, so a split that lost the wiring would leave audio playing.

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 61,
+  "revision": 72,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -126,11 +126,12 @@
     {
       "id": "make-it-easier-to-create-a-new-playlist",
       "title": "Make it easier to create a new playlist",
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-04T19:53:03.767Z",
-      "updatedAt": "2026-08-05T04:01:15.010Z",
-      "description": "Currently, in order to create a new playlist, you need to choose a playlist file.\n\nInstead, creating a playlist should be low friction like spotify where it creates everything for you, and you just get the option to name the new playlist (start with default name like Playlist #_ if none is typed). \n\nThen it should be easy to add songs to the playlist from yt-dlp or from the existing library. It should also be easy to move songs between playlists and remove back to the standard library.\n\nIf you have any other suggestions let me know, i'm open to anything.",
-      "group": "UI"
+      "updatedAt": "2026-08-05T15:44:04.842Z",
+      "description": "Currently, in order to create a new playlist, you need to choose a playlist file.\n\nInstead, creating a playlist should be low friction like spotify where it creates everything for you, and you just get the option to name the new playlist (start with default name like Playlist #_ if none is typed). \n\nThen it should be easy to add songs to the playlist from yt-dlp or from the existing library. It should also be easy to move songs between playlists and remove back to the standard library.\n\nIf you have any other suggestions let me know, i'm open to anything.\n\nDone 2026-08-05. A playlist is now a file the app writes rather than one you had to bring with you: one M3U per list under ~/Music/Playlists, which ipod_gui/playlists.py owns. Making one is a name and nothing else - the new dialog offers the next free 'Playlist N', refuses a name FAT cannot hold while it is being typed rather than letting ipod-sync.sh mangle it into a different spoken name two steps later, and writes the file when it closes. No iPod, no export from another program, no sync to wait for.\n\nSongs go in from a \u22ef menu on every track row - the library table, an album page, and both halves of the search results - plus an album-level Add to playlist. A YouTube result carries the same menu: it downloads first and lands in the playlist when it finishes, found by video id rather than by what the run reported, because a video the music folder already holds downloads nothing and reports nothing. A previewed track is kept into the library before it is listed, since an entry pointing into a cache that gets pruned would stop resolving with nothing having been deleted on purpose. Inside a playlist the same menu moves a track to another playlist or removes it, which is what the goal asked for and leaves the song itself alone.\n\nEvery edit rewrites the file and stages the playlist and its tracks for the next sync; an emptied one is still staged, because the sync is what removes the device's copy. Editing with no iPod attached is not a failure - Send to iPod stages it when one turns up. Without a speech engine the playlist stays here and the page says why, which is the old refusal moved from making a playlist to putting one on a screenless device.\n\nDevice playlists are still listed beside them - a folder or tag grouping, or a list made elsewhere - but read-only, because their entries name scrambled files on the iPod with no local counterpart to write down. The rail and shelf now carry the same state dot a track does, since the spoken-name marker they used to show says nothing about a playlist that has never been synced, and every new one starts out as exactly that. Add playlist file\u2026 became Import playlist file\u2026, which adopts the list into the folder with its entries resolved instead of pointing at where it sat.\n\nTwo defects were caught by measuring rather than by looking. A row of four action buttons took the narrowest the window could be from 640px to 730px, past the point where the sidebar has already folded away to make room; it is two buttons and a \u22ef now, and the Playlists view is narrower than before this goal at 426\u2192574px against 545px. And a \u22ef at row opacity beside two solid buttons reads as disabled, so the one a page carries alone is full strength.\n\nCovered by tests/gui-playlists.py, which asserts the file after every edit and what each one staged, and by two end-to-end steps that take a list built by that same store through ipod-sync.sh: the order a track was dragged into survives onto the device, and emptying a playlist removes it from the device while keeping its songs. Eleven mutations checked, each caught by the check that should: de-duplication, staging, re-staging the source of a move, deleting the file, removing the old device playlist after a rename, the emptied-playlist rule, refusing a device-only track, the row menu, selecting a new playlist, painting the detail, and queueing the list itself alongside its tracks. Full product-e2e.sh passes, 69 checks.",
+      "group": "UI",
+      "completedAt": "2026-08-05T15:44:04.842Z"
     },
     {
       "id": "add-top-bar-to-maximize-minimize-close",
@@ -143,10 +144,40 @@
     {
       "id": "wipe-the-ipod-and-redownload-everything",
       "title": "wipe the ipod and redownload everything",
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-04T20:00:44.881Z",
-      "updatedAt": "2026-08-05T04:01:15.192Z",
-      "group": "Sync"
+      "updatedAt": "2026-08-05T16:35:46.838Z",
+      "group": "Sync",
+      "completedAt": "2026-08-05T16:35:46.838Z"
+    },
+    {
+      "id": "add-queued-filter-and-symbol-on-library",
+      "title": "add queued filter and symbol on library page",
+      "status": "open",
+      "createdAt": "2026-08-05T16:04:11.221Z",
+      "updatedAt": "2026-08-05T16:04:11.221Z"
+    },
+    {
+      "id": "add-covers-to-playlists",
+      "title": "Add covers to playlists",
+      "status": "open",
+      "createdAt": "2026-08-05T16:06:26.195Z",
+      "updatedAt": "2026-08-05T16:06:26.195Z"
+    },
+    {
+      "id": "fix-unknown-album-on-every-song-import",
+      "title": "fix \"unknown album\" on every song import",
+      "status": "open",
+      "createdAt": "2026-08-05T16:10:59.459Z",
+      "updatedAt": "2026-08-05T16:35:25.763Z",
+      "description": "Why does every song imported get put into an album?\n\nAlso why do the sync options not apply when i add a song from youtube? they keep resetting.\n\nFor example,\n\nI try to set playlist grouping and it always goes back to none"
+    },
+    {
+      "id": "delete-from-library-button",
+      "title": "delete from library button",
+      "status": "open",
+      "createdAt": "2026-08-05T16:38:43.375Z",
+      "updatedAt": "2026-08-05T16:38:43.375Z"
     }
   ],
   "retiredIds": [

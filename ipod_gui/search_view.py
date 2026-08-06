@@ -31,9 +31,11 @@ from .previews import cached_preview_path
 from .model import local_search_matches
 from .widgets import (
     ELLIPSIZE_END,
+    clear_children,
     fill_tracks,
     label,
     make_cover,
+    row_menu_button,
     track_column_view,
 )
 
@@ -86,7 +88,7 @@ class SearchViewMixin:
         self.search_local_note = label("", "sf-body", wrap=True)
         local.append(self.search_local_note)
         self.search_local_table = track_column_view(
-            self, columns=("title", "album", "state", "duration", "action")
+            self, columns=("title", "album", "state", "duration", "action", "menu")
         )
         local.append(self.search_local_table)
         box.append(local)
@@ -177,6 +179,14 @@ class SearchViewMixin:
         add.set_tooltip_text(self._youtube_download_tooltip())
         row.append(add)
         self.search_add_buttons.append(add)
+        # The same ⋯ a library row carries, so adding a song to a playlist is
+        # one gesture whether the song is already on this computer or not.
+        row.append(
+            row_menu_button(
+                lambda r=result: self.result_menu(r),
+                f"Playlists to add {result.title} to",
+            )
+        )
         return row
 
     def _preview_cover(self, result):
@@ -241,6 +251,49 @@ class SearchViewMixin:
             and not self.youtube_unavailable
         )
 
+    def _can_fetch(self):
+        """Whether a result could be downloaded at all, iPod or no iPod.
+
+        Add copies a track onto the device, so it needs one attached. Adding
+        the same track to a playlist does not: the download lands in a music
+        folder and the playlist is a file on this computer, and neither has
+        anything to do with what happens to be plugged in.
+        """
+        return bool(not self.busy and not self.youtube_unavailable)
+
+    def focus_search(self):
+        """Put the cursor in the one field that searches both sources.
+
+        A verb, so the playlist page's "Add songs" can send the user to the
+        search without reaching into the header's widgets: which field that is
+        belongs to this module.
+        """
+        self.search_entry.grab_focus()
+
+    def result_menu(self, result):
+        """The ⋯ on a YouTube result, which downloads before it adds.
+
+        Here rather than beside the track menu it mirrors, because whether a
+        result can be fetched at all is this module's question; the list of
+        playlists it offers is still the playlist view's.
+        """
+        if not self._can_fetch():
+            return self._menu_popover(
+                "Cannot download",
+                [
+                    label(
+                        self.youtube_unavailable or "Something else is running",
+                        "sf-body",
+                        wrap=True,
+                        max_width_chars=32,
+                    )
+                ],
+            )
+        return self._playlist_menu(
+            "Add to playlist",
+            lambda name: self._add_result_to_playlist(name, result),
+        )
+
     # ------------------------------------------------- painting the results
 
     def _paint_local_results(self):
@@ -268,11 +321,7 @@ class SearchViewMixin:
         quietly erase it.
         """
         self.search_add_buttons = []
-        child = self.search_youtube_rows.get_first_child()
-        while child is not None:
-            nxt = child.get_next_sibling()
-            self.search_youtube_rows.remove(child)
-            child = nxt
+        clear_children(self.search_youtube_rows)
 
         if self.search_loading:
             for _ in range(YOUTUBE_SEARCH_RESULTS):
@@ -467,9 +516,13 @@ class SearchViewMixin:
         """Say in the section that this particular download did not finish.
 
         The toast is gone by the time the eye returns to the row that was being
-        added, and that row is what the user is looking at.
+        added, and that row is what the user is looking at - unless the press
+        was Add to a new playlist, which takes the window to the Playlists view
+        while the download runs. Nothing else reports this failure, so somewhere
+        it is not on screen the toast is the only word there would be.
         """
         if self.current_view() != "search":
+            self._toast(f"Could not finish downloading {result.title}")
             return
         self._set_search_note(
             f"Could not finish downloading {result.title}. Details has what "
