@@ -36,6 +36,13 @@ jobs:
       - name: Mixin contract
         run: python3 tools/mixin-contract.py
 
+      # The demo builder rebuilds by deleting the directory it is handed, so
+      # the guard deciding whether it may is checked on its own. It needs no
+      # display and no ffmpeg, and it is the only step covering a path that
+      # cannot be undone by rerunning anything.
+      - name: Demo library guard
+        run: python3 tests/demo-library-guard.py
+
       # Compiling catches a syntax error in any file, and the import catches
       # what compiling cannot now that the GUI is a package: a name that moved
       # to another module and left an import behind pointing at nothing.

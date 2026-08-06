@@ -221,14 +221,15 @@ def built_here(root):
 
 
 def claim_root(root, keep):
-    """Take the demo's directory, refusing anything this tool did not build.
+    """Take the demo's directory and return it, refusing what is not ours.
 
     `tools/demo-library.py ~/Music` must not be a way to lose a music library,
     and a rebuild deletes the directory whole, so it is only ever a directory
-    this tool built or an empty one. The check runs on the resolved path
-    because a symlinked root stands for the real directory, which is the one
-    that would go.
+    this tool built or an empty one. Resolving the path is part of the guard
+    rather than something done to it beforehand: a symlinked root stands for
+    the real directory, and the real directory is the one that would go.
     """
+    root = Path(root).expanduser().resolve()
     if root.exists() and not root.is_dir():
         sys.exit(f"Not a directory: {root}")
     if root.is_dir() and not built_here(root):
@@ -246,6 +247,7 @@ def claim_root(root, keep):
         "it makes the tool refuse to rebuild this directory.\n",
         encoding="utf-8",
     )
+    return root
 
 
 def main():
@@ -266,8 +268,7 @@ def main():
     if not shutil.which("ffmpeg"):
         sys.exit("ffmpeg is needed to write the demo's tracks")
 
-    root = args.root.expanduser().resolve()
-    claim_root(root, args.keep)
+    root = claim_root(args.root, args.keep)
     home = root / "home"
     music = home / "Music"
     music.mkdir(parents=True, exist_ok=True)

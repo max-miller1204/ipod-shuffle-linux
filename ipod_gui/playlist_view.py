@@ -55,6 +55,7 @@ from .playlists import (
     playlist_contents,
     remove_entry,
     rename_local_playlist,
+    TARGET_GONE,
 )
 from .widgets import (
     ELLIPSIZE_END,
@@ -1235,6 +1236,15 @@ class PlaylistViewMixin:
                 self._toast(
                     f"Could not {self._edit_step(playlist)} {playlist.name}"
                 )
+                return False
+            if moved == TARGET_GONE:
+                # The playlist was shortened past where the drag was aimed
+                # rather than past the track being dragged, so that track is
+                # still listed and only the destination has gone: what to say
+                # is that the list moved under the drag, not that the track
+                # left it.
+                self._populate_playlist_rail()
+                self._toast(f"{playlist.name} has changed - drag that again")
                 return False
             if not moved:
                 # The row was painted from an older reading of a playlist

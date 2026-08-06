@@ -357,6 +357,14 @@ def remove_entry(path, entry):
     return removed if write_playlist_entries(path, remaining) else None
 
 
+# What move_entry answers when it is the row that was dropped on that the
+# file no longer has. A drag names two rows, and only one of them is the
+# track: when the other one is the stale one, the dragged track is still
+# listed, so "that track is no longer here" would be a sentence about a row
+# that never went anywhere.
+TARGET_GONE = "target gone"
+
+
 def move_entry(path, source_index, target_index):
     """Reorder one track within a playlist, by position.
 
@@ -364,8 +372,10 @@ def move_entry(path, source_index, target_index):
     listed twice and dragging one of them must not move the other.
 
     Returns True when the new order was written, False when the playlist no
-    longer has that row, or None if it could not be read or written - the same
-    three answers remove_entry gives, and for the same reason. A row the file
+    longer has the row being dragged, TARGET_GONE when it no longer has the
+    row that was dropped on, or None if it could not be read or written -
+    remove_entry's three answers, with the vanished row answered as two
+    because a drag reads two of them off the same painted list. A row the file
     has lost since the window painted it is a repaint, while a list that could
     not be rewritten is a folder to go and look at, and a caller told only
     "False" reports whichever of those it guessed at.
@@ -373,8 +383,10 @@ def move_entry(path, source_index, target_index):
     entries, complete = playlist_contents(path)
     if not complete:
         return None
-    if not 0 <= source_index < len(entries) or not 0 <= target_index < len(entries):
+    if not 0 <= source_index < len(entries):
         return False
+    if not 0 <= target_index < len(entries):
+        return TARGET_GONE
     moved = entries.pop(source_index)
     entries.insert(target_index, moved)
     return True if write_playlist_entries(path, entries) else None

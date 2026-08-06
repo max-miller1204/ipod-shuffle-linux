@@ -92,6 +92,16 @@ assert gui.read_playlist_entries(created) == [str(second), str(first)]
 # list, and saying "could not write" sends the reader to a folder that is
 # perfectly writable. Answered apart the way remove_entry answers its two.
 assert gui.move_entry(created, 5, 0) is False, "a move past the end was accepted"
+# The stale row can be the one the drag landed on instead, and then the track
+# being dragged is still listed: what has gone is where it was going. Answered
+# apart from the row that vanished, because a caller told only "False" would
+# say a track that is still there has left the playlist.
+assert gui.move_entry(created, 0, 5) == gui.TARGET_GONE, (
+    "a drop past the end was accepted"
+)
+assert gui.read_playlist_entries(created) == [str(second), str(first)], (
+    "a drop onto a row that had gone rewrote the playlist"
+)
 
 # The two ways a removal changes nothing are two different things to go and
 # look at, so a count answers them apart the way add_entries does: a playlist
@@ -663,6 +673,27 @@ assert shortened.repaints > painted, (
     "the window kept showing a row the file had lost"
 )
 gui.delete_local_playlist(PLAYLISTS / "Shortened.m3u")
+
+# The same playlist shortened under the other end of the same drag is a
+# different sentence. Here the row that has gone is the one the track was
+# dropped on, so the track itself is still listed and saying it is no longer
+# there would name the wrong row: the answer is that the list moved.
+dropped = FakeWindow()
+dropped.library_tracks([first, second])
+new_playlist(dropped, "Dropped")
+dropped.current_playlist = "Dropped"
+dropped._add_tracks_to_playlist("Dropped", [track_for(first), track_for(second)])
+gui.write_playlist_entries(PLAYLISTS / "Dropped.m3u", [str(first)])
+painted = dropped.repaints
+assert dropped._reorder_playlist(0, 1) is False
+assert dropped.toasts[-1] == "Dropped has changed - drag that again", dropped.toasts
+assert gui.read_playlist_entries(PLAYLISTS / "Dropped.m3u") == [str(first)], (
+    "a reorder aimed at a row that had gone rewrote the playlist"
+)
+assert dropped.repaints > painted, (
+    "the window kept showing a row the file had lost"
+)
+gui.delete_local_playlist(PLAYLISTS / "Dropped.m3u")
 
 # A device-only playlist has no local file to hold the order, so that one
 # still goes straight to the device and rebuilds; nothing here should have.
