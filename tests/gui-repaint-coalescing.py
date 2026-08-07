@@ -15,11 +15,16 @@ after it appeared, and the grouping drop-down could not be used at all until
 the first scan finished. The protocol trace that showed this is in the goal
 `stop-startup-repaints-from-dismissing`.
 
-It is the batch repaints that wait for a menu, and only those. The repaint a
-finished or failed scan asks for goes in immediately, on purpose: it is the
-one that says what the library actually holds, and a menu is a worse thing to
-leave standing over a grid that is no longer true than to close. Every batch
-behind it is skippable, which is why those are the ones held back.
+It is the batch repaints that wait for a menu, and not every repaint does. A
+library scan that finishes or fails, a device read that fails and a mount that
+changes all repaint directly rather than through this queue, and are the last
+word even over an open menu: they are what says the grid is no longer what it
+was, and a menu left standing over a grid that is no longer true is the worse
+thing of the two. A device read that completes is the one terminal repaint
+that does come through here, asked for with the scan complete - never
+coalesced away, but still waiting out the interval and the menu like any
+other. Every batch behind all of them is skippable, which is why those are the
+ones held back.
 
 Needs no display: the coalescing is a main-loop concern, so this drives a
 GLib loop against a stand-in and counts repaints.
