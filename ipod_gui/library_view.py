@@ -60,19 +60,18 @@ class LibraryViewMixin:
         """
         self.library_controls = Gtk.Box(spacing=8, valign=Gtk.Align.CENTER)
 
-        # Known broken on one arrangement, and deliberately kept anyway: a
-        # Gtk.DropDown opens its list as a popup whose positioner is reactive,
-        # and on a 2x display a floating window's popup is dismissed by the
-        # compositor about ten milliseconds after it maps, so the list flashes
-        # open and shut. Maximised, or on a 1x monitor, it is fine. That is not
-        # this app's code - it reproduces in twenty-five lines of stock GTK
-        # with a bare window and nothing else in it, and every GTK app on such
-        # a display behaves the same way. The goal
-        # `stop-startup-repaints-from-dismissing` holds the trace and the
-        # routes to a real fix; swapping the control out here would only have
-        # hidden a compositor bug behind app code.
+        # Once suspected of being at fault here, and it never was: on a
+        # floating window the list flashed open and shut because mutter
+        # refused to place the popup, taking a legacy HiDPI path that
+        # multiplies every positioner coordinate by the monitor scale. Nothing
+        # in this file and nothing in GTK needed changing; the goal
+        # `stop-startup-repaints-from-dismissing` carries the diagnosis.
         self.group_mode = Gtk.DropDown.new_from_strings(["Album", "Artist"])
         self.group_mode.add_css_class("flat")
+        # A separate defect, app-side and on every display: a tooltip is its
+        # own surface, which GTK goes on showing while the list opens beneath
+        # it, so it draws over the options and takes the click meant for one
+        # of them.
         tooltip_beside_popover(
             self.group_mode, "Group the library by album or by artist"
         )
