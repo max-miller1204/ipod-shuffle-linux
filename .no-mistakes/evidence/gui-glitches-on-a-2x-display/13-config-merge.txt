@@ -1,0 +1,33 @@
+The grouping is saved without dropping the configured music folders
+===================================================================
+
+Driven through the running application: every write below was made by clicking
+a control in the window, not by editing the file.
+
+Starting config, with music folders configured as a user would have them:
+
+  {
+    "group_mode": "artist",
+    "view_mode": "grid",
+    "music_roots": [
+      "/tmp/shuffle-demo/home/Music"
+    ]
+  }
+
+After clicking "Album", then the list-view button, in the running window:
+
+  {
+    "group_mode": "album",
+    "view_mode": "list",
+    "music_roots": [
+      "/tmp/shuffle-demo/home/Music"
+    ]
+  }
+
+Both settings the click owns are updated and music_roots survives, which is
+what the read-modify-write in config.py exists for: before it, each writer
+dumped only what it knew about.
+
+Restart check: with "artist" saved, the application was closed with its own
+close button and launched again. It came back grouped by artist with the
+Artist toggle lit - 04-grouping-restored-after-restart-2x.png.

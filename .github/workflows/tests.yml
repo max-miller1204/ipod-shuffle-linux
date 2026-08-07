@@ -52,9 +52,9 @@ jobs:
           python3 -c 'import ipod_gui'
 
       # Needs a main loop but no display. A scan used to rebuild the whole
-      # grid per batch, which destroys the focused widget - and a popup that
-      # loses the focus is dismissed by the compositor, so an open menu could
-      # not survive the first seconds after launch.
+      # grid per batch, so a card was replaced under the pointer that was
+      # hovering it - which is the flicker this answers - and any menu open
+      # over the grid lost the widget holding the focus.
       - name: GUI repaints coalesce
         run: python3 tests/gui-repaint-coalescing.py
 

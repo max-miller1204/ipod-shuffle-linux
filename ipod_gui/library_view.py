@@ -441,13 +441,17 @@ class LibraryViewMixin:
         """Whether a popover currently holds the focus.
 
         Repainting rebuilds the grid, which destroys the widget the focus is
-        on, and GTK moves the focus out of the popup when that happens. A
-        Wayland compositor reads a popup that has lost the focus as dismissed
-        and destroys it, so a repaint landing while a menu is open closes that
-        menu about ten milliseconds after it appeared. That is what made the
-        grouping drop-down unusable for the first seconds after launch: the
-        scan was repainting several times a second, and the menu never
-        survived long enough to be clicked.
+        on, and GTK moves the focus out of the popup when that happens, so a
+        repaint landing while a menu is open churns the widgets that menu is
+        standing over. A scan does that several times a second; holding its
+        batches back until the menu closes takes the rebuilds under one from
+        19 to 0.
+
+        Not the reason the Album/Artist control could not be opened on a 2x
+        display: that one is the compositor dismissing any popup a floating
+        window maps there, reproduced in stock GTK with no repaints of any
+        kind, and it is recorded in the goal
+        `stop-startup-repaints-from-dismissing`.
         """
         widget = self.get_focus()
         while widget is not None:

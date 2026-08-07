@@ -1,0 +1,45 @@
+tests/gui-window-minimum.py against the base commit and against this branch
+===========================================================================
+
+The window advertises a 640px minimum. When its contents need more than that,
+GTK does not clip - it allocates widgets a rectangle smaller than they asked
+for and paints them at the size they wanted, so clicks land beside the control
+under the pointer. The new guard measures every page and every window-spanning
+bar against the minimum the window itself advertises.
+
+Run against the base commit (the new test file copied in, everything else at
+598f93c):
+
+  $ cd /tmp/base-repo
+  $ GDK_BACKEND=x11 GSK_RENDERER=cairo DISPLAY=:9 \
+        /usr/bin/python3.12 tests/gui-window-minimum.py
+  (python3.12:883146): Adwaita-WARNING **: AdwToastOverlay exceeds
+      ipod_gui+window+IpodWindow width: requested 653 px, 630 px available
+  FAIL: the album page needs 678px but the window offers to be 640px wide; widest thing in it: Box [vertical]
+  FAIL: the playlists page needs 655px but the window offers to be 640px wide; widest thing in it: Box [horizontal]
+  FAIL: the content pane needs 678px but the window offers to be 640px wide; widest thing in it: Box [vertical]
+  FAIL: at 630px wide the window still needs 678px; widest thing in it: Box [vertical]
+  exit code 1
+
+Run against this branch, same command from the worktree:
+
+    page library     484px
+    page search      338px
+    page album       527px
+    page playlists   615px
+    page settings    518px
+    content pane     615px
+    top-bar          0px
+    bottom-bar       568px
+    window height    462px
+    allocated width  630px
+    whole window     615px
+    sidebar + pane   851px
+  every page and bar fits the minimum the window advertises
+  exit code 0
+
+Libadwaita's own warning on the base commit ("requested 653 px, 630 px
+available") is the compositor-visible form of the same thing: see
+07-narrow-640-before.png, where the album covers, the mode buttons and the
+"Preview on this computer" label are all painted past the right edge of the
+window.

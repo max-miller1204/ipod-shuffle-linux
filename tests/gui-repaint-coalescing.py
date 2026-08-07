@@ -7,12 +7,16 @@ second. The device walk shares this queue but never drove it: it holds its
 reads and asks for one repaint once, which is the request that is never
 coalesced away.
 
-That was not only wasted work. Rebuilding destroys the widget the focus is on,
-and GTK moves the focus out of a popup when that happens; a Wayland compositor
-reads a popup that has lost the focus as dismissed and destroys it. So a
-repaint landing while a menu was open closed that menu about ten milliseconds
-after it appeared, and the grouping drop-down could not be used at all until
-the first scan finished. The protocol trace that showed this is in the goal
+That was not only wasted work. A batch arriving while the pointer rested on a
+card rebuilt that card underneath it, which is the flashing that was reported;
+and rebuilding destroys the widget the focus is on, which GTK answers by moving
+the focus out of any popup holding it, so a menu open over the grid is churned
+from underneath. Holding the batches back takes the rebuilds during an open
+menu from 19 to 0.
+
+This is not the fix for the Album/Artist control failing on a 2x display, and
+must not be read as one: that one is the compositor's, reproduced with none of
+this app's code involved, and the trace is in the goal
 `stop-startup-repaints-from-dismissing`.
 
 It is the batch repaints that wait for a menu, and not every repaint does. A
