@@ -353,6 +353,20 @@ def inspect(window):
             )
             break
 
+    # What the option says has to be the grouping it gives. The control is read
+    # by index, so a label drifting from the mode it sits beside would group the
+    # library by the other one, save that, and never raise a thing. Read off the
+    # widget's own model, which is what the user is picking from.
+    options = window.group_mode.get_model()
+    for index in range(options.get_n_items()):
+        window.group_mode.set_selected(index)
+        shown = options.get_string(index)
+        if window._group_mode_name() != shown.lower():
+            failures.append(
+                f"the option reading {shown!r} grouped the library by "
+                f"{window._group_mode_name()!r}"
+            )
+
     # A tooltip on a control that opens a list has to get out of the way of the
     # list. A tip is a surface of its own and GTK goes on showing it while the
     # popover maps underneath, so one left up is drawn over the options and

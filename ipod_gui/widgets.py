@@ -194,8 +194,14 @@ def tooltip_beside_popover(widget, text):
     Withheld while the popover is up rather than dropped altogether: that is
     the one moment it is not wanted, because whatever it would have explained
     is already open and on screen.
+
+    The description is published as well, because GTK reads a screen reader's
+    description off `tooltip-text` and a handler leaves that unset. The widgets
+    this is asked for carry an icon and no label, so that string is the only
+    thing naming them.
     """
     widget.set_has_tooltip(True)
+    widget.update_property([Gtk.AccessibleProperty.DESCRIPTION], [text])
 
     def query(target, _x, _y, _keyboard, tooltip):
         if _open_popover(target) is not None:

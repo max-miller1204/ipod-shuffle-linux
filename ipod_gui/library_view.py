@@ -20,6 +20,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from .config import (
     AUDIO_EXTENSIONS,
+    GROUP_MODE_LABELS,
     GROUP_MODES,
     PREVIEW_CACHE,
     STATE_IPOD,
@@ -66,7 +67,7 @@ class LibraryViewMixin:
         # multiplies every positioner coordinate by the monitor scale. Nothing
         # in this file and nothing in GTK needed changing; the goal
         # `stop-startup-repaints-from-dismissing` carries the diagnosis.
-        self.group_mode = Gtk.DropDown.new_from_strings(["Album", "Artist"])
+        self.group_mode = Gtk.DropDown.new_from_strings(list(GROUP_MODE_LABELS))
         self.group_mode.add_css_class("flat")
         # A separate defect, app-side and on every display: a tooltip is its
         # own surface, which GTK goes on showing while the list opens beneath

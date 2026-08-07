@@ -80,7 +80,13 @@ PLAYLIST_EXTENSIONS = {".m3u", ".pls"}
 # How the library grid was last being read. Stored as words rather than as the
 # dropdown's index and the stack's child name, so the file stays readable and a
 # renamed widget cannot silently change what an old config means.
-GROUP_MODES = ("album", "artist")
+#
+# Each grouping is paired with the label its control shows, rather than kept in
+# a second list beside this one: the control is read by index, so two lists
+# could be reordered apart and choosing one grouping would then save the other.
+GROUP_MODE_CHOICES = (("album", "Album"), ("artist", "Artist"))
+GROUP_MODES = tuple(mode for mode, _label in GROUP_MODE_CHOICES)
+GROUP_MODE_LABELS = tuple(label for _mode, label in GROUP_MODE_CHOICES)
 VIEW_MODES = ("grid", "list")
 
 
