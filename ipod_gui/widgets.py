@@ -196,9 +196,10 @@ def tooltip_beside_popover(widget, text):
     is already open and on screen.
 
     The description is published as well, because GTK reads a screen reader's
-    description off `tooltip-text` and a handler leaves that unset. The widgets
-    this is asked for carry an icon and no label, so that string is the only
-    thing naming them.
+    description off `tooltip-text` and a handler leaves that unset. It is the
+    only thing that says what the ⋯ button is for, since that carries an icon
+    and no label; the grouping drop-down is announced by the value it shows,
+    and this is what says what choosing a value there does.
     """
     widget.set_has_tooltip(True)
     widget.update_property([Gtk.AccessibleProperty.DESCRIPTION], [text])

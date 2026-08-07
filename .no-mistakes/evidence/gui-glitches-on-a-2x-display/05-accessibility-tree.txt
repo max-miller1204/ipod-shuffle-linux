@@ -1,0 +1,15 @@
+AT-SPI accessible tree of the running app (what a screen reader reads).
+Captured with Atspi from outside the process, app running on Xephyr :9.
+
+=== application 'ipod-gui.py' -> frame 'Shuffle' ===
+combo box      name='Artist'                             description='Group the library by album or by artist'
+push button    name='Rescan the device and your music folders' description=''
+push button    name='Minimize'                           description='Minimize the window'
+push button    name='Maximize'                           description='Maximize the window'
+push button    name='Close'                              description='Close the window'
+push button    name='Your Library'                       description=''
+push button    name='Playlists'                          description=''
+push button    name='Downloads Not on the iPod yet'      description='Not on the iPod yet'
+push button    name='Morning Ride On the iPod'           description='On the iPod'
+push button    name='Unmount safely before unplugging'   description=''
+push button    name='Device & Settings'                  description=''

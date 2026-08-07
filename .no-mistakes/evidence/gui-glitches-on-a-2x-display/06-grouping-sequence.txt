@@ -1,0 +1,12 @@
+A repeat in the sequence is deliberate: re-choosing what is already
+chosen emits no notify at all, so the grid and the saved layout must
+stay where they are rather than read as a change.
+
+chosen   notify  heading   cards on the grid                                    next launch reopens on
+------------------------------------------------------------------------------------------------------
+artist        1  Artists   Ana Petrov, Elle Marchetti, Kova                     artist
+album         1  Albums    Field Notes, Warm Ridge, Nightbus                    album
+artist        1  Artists   Ana Petrov, Elle Marchetti, Kova                     artist
+artist        0  Artists   Ana Petrov, Elle Marchetti, Kova                     artist
+album         1  Albums    Field Notes, Warm Ridge, Nightbus                    album
+album         0  Albums    Field Notes, Warm Ridge, Nightbus                    album
