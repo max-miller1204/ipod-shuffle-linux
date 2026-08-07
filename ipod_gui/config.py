@@ -99,14 +99,27 @@ def _write_config(**changes):
     Read-modify-write rather than a plain dump, because each setting is saved
     by whichever widget owns it: writing only what that widget knows about
     would drop the music folders the moment the grouping changed.
+
+    Written beside itself and renamed into place, the way a playlist is. Every
+    save now carries the music folders, and every click of the grouping and
+    view controls is a save - so a rewrite in place would put the only record
+    of where the user's music lives through a truncate several times a
+    session. A file left half written reads as no file at all: _read_config
+    answers unparseable JSON with the defaults, silently, which would be the
+    configured folders gone with nothing on screen to say so.
     """
     stored = _read_config()
     stored.update(changes)
+    temporary = CONFIG_FILE.with_name(f".{CONFIG_FILE.name}.tmp")
     try:
         CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        CONFIG_FILE.write_text(json.dumps(stored, indent=2))
+        temporary.write_text(json.dumps(stored, indent=2))
+        os.replace(temporary, CONFIG_FILE)
     except OSError:
-        pass
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
 
 
 def music_roots():

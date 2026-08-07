@@ -17,7 +17,7 @@ The sidebar is deliberately not counted. It folds away into an overlay at and
 below gui.SIDEBAR_COLLAPSE_WIDTH, which is well above the advertised minimum,
 so at any width where the minimum matters the sidebar is not taking space from
 the content. The widths just above that breakpoint are checked separately, at
-the end of measure().
+the end of check().
 
 Needs a display, like tests/gui-window-build.py, and fails rather than skips
 without one for the same reason.
@@ -68,14 +68,19 @@ measured = []
 FIXTURE_ALLOWANCE = 50
 
 
+def children(widget):
+    child = widget.get_first_child()
+    while child is not None:
+        yield child
+        child = child.get_next_sibling()
+
+
 def walk(widget):
     if widget is None:
         return
     yield widget
-    child = widget.get_first_child()
-    while child is not None:
+    for child in children(widget):
         yield from walk(child)
-        child = child.get_next_sibling()
 
 
 def minimum_width(widget):
@@ -184,14 +189,30 @@ def check(window):
                 f"{limit}px wide; widest thing in it: {widest(page)}"
             )
 
-    # The header, and the bars along the bottom, which span the window rather
-    # than sitting inside a page.
+    # The bars along the bottom, which span the window rather than sitting
+    # inside a page. Taken from the toolbar view's own children rather than by
+    # style class: a class names one bar, so the sync bar went unmeasured for
+    # as long as this looked for the now-playing bar's, and the next bar added
+    # would go the same way. Everything the toolbar view holds beside its
+    # content spans the window by construction, whichever bars those are.
+    #
+    # The header is not here because it is not a toolbar-view bar: it sits at
+    # the top of the split's content, so the content pane already carries it.
     spanning = [("content pane", window.split.get_content())]
-    spanning += [
-        ("bottom bar", found)
-        for found in walk(window)
-        if "sf-bottom-bar" in found.get_css_classes()
-    ]
+    bars = next(
+        (found for found in walk(window) if isinstance(found, Adw.ToolbarView)),
+        None,
+    )
+    if bars is None:
+        failures.append(
+            "the window has no Adw.ToolbarView, so its bars were never measured"
+        )
+    else:
+        spanning += [
+            (" ".join(bar.get_css_classes()) or type(bar).__name__, bar)
+            for bar in children(bars)
+            if bar is not window.split
+        ]
     for name, widget in spanning:
         width = minimum_width(widget)
         measured.append((name, width))

@@ -779,10 +779,9 @@ class DeviceViewMixin:
             self.track_names = {
                 track.relpath: track.title for track in self.device_tracks
             }
-            if scan_complete:
-                self._device_scan_active = False
-                self._update_refresh_spinner()
-                self._device_snapshot_ready = True
+            self._device_scan_active = False
+            self._update_refresh_spinner()
+            self._device_snapshot_ready = True
             self._merge_states()
             self._request_refresh(scan_complete=scan_complete)
         return False

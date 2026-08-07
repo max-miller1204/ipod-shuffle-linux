@@ -459,11 +459,13 @@ class LibraryViewMixin:
     def _request_refresh(self, scan_complete=False):
         """Repaint soon, rather than once per batch.
 
-        A library scan publishes every 25 tracks and a device walk publishes
-        every read it completes, and each of those used to rebuild every card
-        in the grid and every row in the table. Coalescing them costs the grid
-        nothing - it is filling in either way - and takes the repaint rate
-        from several a second down to one per interval.
+        A library scan publishes every 25 tracks, and each of those batches
+        used to rebuild every card in the grid and every row in the table.
+        Coalescing them costs the grid nothing - it is filling in either way -
+        and takes the repaint rate from several a second down to one per
+        interval. The device walk is the other caller and never needed it: it
+        collects its reads and asks for a single repaint at the end, which is
+        the request that is never coalesced away.
 
         The final repaint is not coalesced away: it is the one that says what
         the library actually holds, so it replaces whatever is queued rather

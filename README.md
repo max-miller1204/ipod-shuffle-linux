@@ -722,7 +722,7 @@ Thumbnail fetching is checked against a local HTTP server rather than YouTube, s
 Symlinked sources are checked on both sides of the same folder, because the script and the GUI walk it separately and the count the GUI produces is what drives the sync progress bar: `tests/gui-scan-paths.py` prints what the scan finds, and the suite holds it against what the sync actually copied.
 That folder carries every case the walk has to survive - a linked track, a linked folder, a link out of the tree, a dangling link, and a folder that links back to its own parent - since `os.walk` has no loop detection of its own and would otherwise recurse through the last one forever.
 
-`tests/gui-repaint-coalescing.py` covers the repaint queue, which needs a main loop but no display: a scan publishes a batch every 25 tracks and a device read publishes one per read, and each of those used to rebuild every card in the grid.
+`tests/gui-repaint-coalescing.py` covers the repaint queue, which needs a main loop but no display: a library scan publishes a batch every 25 tracks, and each of those used to rebuild every card in the grid.
 That was not only wasted work - rebuilding destroys the widget the focus is on, GTK moves the focus out of a popup when that happens, and a Wayland compositor treats a popup that has lost the focus as dismissed, so an open menu was closed about ten milliseconds after it appeared and the grouping drop-down could not be used until the first scan had finished.
 The check holds a burst of batches to one repaint, holds repaints back entirely while a popover has the focus, and asserts the deferred repaint still lands once the menu closes.
 

@@ -18,6 +18,7 @@ so the scan started during construction reads an empty folder rather than the
 real music library and the caches point somewhere disposable.
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -346,6 +347,39 @@ def inspect(window):
                 f"clicking {chosen!r} saved the grouping as {saved!r}"
             )
             break
+
+    # What a grouping click costs the settings beside it. One file holds the
+    # layout and the music folders, and every click rewrites the whole of it,
+    # so a save that dropped keys or landed half written would take the folder
+    # list with it - and an unreadable config reads as no config at all, which
+    # is the folders silently back to their default with nothing said.
+    roots = [Path(_SANDBOX, "Music"), Path(_SANDBOX, "Second Library")]
+    before_group, _before_view = gui.library_layout()
+    gui.save_music_roots(roots)
+    after_group, _after_view = gui.library_layout()
+    if after_group != before_group:
+        failures.append(
+            f"saving the music folders turned the grouping from "
+            f"{before_group!r} into {after_group!r}"
+        )
+    window.group_buttons["artist"].emit("clicked")
+    if gui.music_roots() != roots:
+        failures.append(
+            f"saving the grouping dropped the music folders: {gui.music_roots()}"
+        )
+    try:
+        json.loads(gui.CONFIG_FILE.read_text())
+    except (OSError, ValueError) as error:
+        failures.append(f"the config is not a whole document after a save: {error}")
+    # The file is written beside itself and renamed into place, so a save that
+    # has returned has left nothing half written next to it.
+    half_written = [
+        found.name
+        for found in gui.CONFIG_FILE.parent.iterdir()
+        if found.name.startswith(".")
+    ]
+    if half_written:
+        failures.append(f"a config save left {half_written} beside the config")
 
     # Closing stops the player and disowns any download; it is a mixin's job
     # now, so a split that lost the wiring would leave audio playing.

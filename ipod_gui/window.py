@@ -39,11 +39,12 @@ from .commands import CommandsMixin
 # the first has to stay above the sidebar and the content added together, which
 # is what tests/gui-window-minimum.py checks it against.
 #
-# 940 rather than something rounder. A real library with a device attached
-# needs 862 of it, and the check's fixture cannot reproduce every last widget
-# that contributes, so it holds this to a margin above what it can measure.
-# Above 960 would also take the sidebar away from a window tiled to half of a
-# 1920px screen, which is the most ordinary way this app is ever half-sized.
+# 940 rather than something rounder. A library with a device attached needs
+# around 860 of it, measured with every page built, and the rest is the margin
+# that keeps the same window clear of this on a desktop whose fonts are not
+# the ones the check ran against. Above 960 would also take the sidebar away
+# from a window tiled to half of a 1920px screen, which is the most ordinary
+# way this app is ever half-sized.
 SIDEBAR_COLLAPSE_WIDTH = 940
 TITLE_HIDE_WIDTH = 700
 
@@ -404,6 +405,11 @@ class IpodWindow(
         self.refresh_spinner = Gtk.Spinner()
         self.refresh_button = Gtk.Button(child=self.refresh_icon)
         self.refresh_button.add_css_class("flat")
+        # Given rather than inherited: GTK only adds this to a button it built
+        # the icon for, and this one is handed its child so the spinner can
+        # take the icon's place. Without it the button keeps a text button's
+        # wider padding and stops matching the icon buttons either side of it.
+        self.refresh_button.add_css_class("image-button")
         self.refresh_button.set_valign(Gtk.Align.CENTER)
         self.refresh_button.set_tooltip_text("Rescan the device and your music folders")
         self.refresh_button.connect("clicked", self.on_refresh_clicked)

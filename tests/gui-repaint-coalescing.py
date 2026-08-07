@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Holds the scan to one repaint per interval, and none over an open menu.
 
-A scan publishes a batch every 25 tracks, and a device read publishes one per
-read it finishes. Each of those used to rebuild every card in the grid and
-every row in the table, several times a second.
+A library scan publishes a batch every 25 tracks, and each of those used to
+rebuild every card in the grid and every row in the table, several times a
+second. The device walk shares this queue but never drove it: it holds its
+reads and asks for one repaint once, which is the request that is never
+coalesced away.
 
 That was not only wasted work. Rebuilding destroys the widget the focus is on,
 and GTK moves the focus out of a popup when that happens; a Wayland compositor
