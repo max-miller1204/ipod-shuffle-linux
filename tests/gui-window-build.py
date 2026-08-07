@@ -420,7 +420,17 @@ def inspect(window):
             f"saving the music folders turned the grouping from "
             f"{before_group!r} into {after_group!r}"
         )
-    window.group_mode.set_selected(gui.GROUP_MODES.index("artist"))
+    # Whichever grouping is not the one showing, so this stays a real change
+    # however the checks above left the control: re-choosing what is already
+    # chosen emits no notify, nothing would be saved, and the folders below
+    # would then be read back from a write that never happened.
+    moved_to = (window.group_mode.get_selected() + 1) % len(gui.GROUP_MODES)
+    window.group_mode.set_selected(moved_to)
+    if gui.library_layout()[0] != gui.GROUP_MODES[moved_to]:
+        failures.append(
+            f"choosing {gui.GROUP_MODES[moved_to]!r} saved nothing, so the "
+            "music folders below are not being read back from a save"
+        )
     if gui.music_roots() != roots:
         failures.append(
             f"saving the grouping dropped the music folders: {gui.music_roots()}"
