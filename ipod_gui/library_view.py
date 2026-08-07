@@ -40,6 +40,7 @@ from .widgets import (
     label,
     make_cover,
     state_dot,
+    tooltip_beside_popover,
     track_column_view,
 )
 
@@ -72,7 +73,9 @@ class LibraryViewMixin:
         # hidden a compositor bug behind app code.
         self.group_mode = Gtk.DropDown.new_from_strings(["Album", "Artist"])
         self.group_mode.add_css_class("flat")
-        self.group_mode.set_tooltip_text("Group the library by album or by artist")
+        tooltip_beside_popover(
+            self.group_mode, "Group the library by album or by artist"
+        )
         # Selected before the handler is connected, so reopening the app on the
         # grouping it was left in does not count as a change and repaint a grid
         # that has not been filled yet.
