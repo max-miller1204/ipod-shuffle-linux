@@ -569,6 +569,13 @@ class IpodWindow(
             if self._refresh_stop_timer is not None:
                 GLib.source_remove(self._refresh_stop_timer)
                 self._refresh_stop_timer = None
+                # The spinner was already on its way out when this work
+                # arrived, so the minimum below runs from here rather than
+                # from the start it was about to end. Pressing refresh while
+                # the last spin is finishing is the one press most likely to
+                # be a second try, and it is the one that would otherwise put
+                # the spinner out again a few milliseconds after the click.
+                self._refresh_spinner_since = GLib.get_monotonic_time()
             if not self.refresh_spinner.get_spinning():
                 self._refresh_spinner_since = GLib.get_monotonic_time()
                 self.refresh_button.set_child(self.refresh_spinner)

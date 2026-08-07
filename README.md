@@ -724,7 +724,8 @@ That folder carries every case the walk has to survive - a linked track, a linke
 
 `tests/gui-repaint-coalescing.py` covers the repaint queue, which needs a main loop but no display: a library scan publishes a batch every 25 tracks, and each of those used to rebuild every card in the grid.
 That was not only wasted work - rebuilding destroys the widget the focus is on, GTK moves the focus out of a popup when that happens, and a Wayland compositor treats a popup that has lost the focus as dismissed, so an open menu was closed about ten milliseconds after it appeared and the grouping drop-down could not be used until the first scan had finished.
-The check holds a burst of batches to one repaint, holds repaints back entirely while a popover has the focus, and asserts the deferred repaint still lands once the menu closes.
+The check holds a burst of batches to one repaint, holds those batch repaints back entirely while a popover has the focus, and asserts the deferred repaint still lands once the menu closes.
+A finished or failed scan is deliberately the exception and repaints straight away: it is the one repaint that says what the library actually holds, so it is the last word even over an open menu, while every batch behind it is skippable and waits.
 
 `tests/gui-window-build.py` is the display-backed exception: it constructs the real window so a missing builder call, bad widget parent, or incomplete view stack cannot pass behind the stand-ins. Run it under a desktop session or with `xvfb-run -a`; it fails instead of skipping when no display is available.
 `tests/gui-window-minimum.py` is the other one, and it measures rather than looks: it fills the window with long names and holds every page and bar to the minimum size the window advertises.

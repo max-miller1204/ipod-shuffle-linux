@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Holds the scan to one repaint per interval, and none over an open menu.
+"""Holds the scan to one repaint per interval, and none of those over a menu.
 
 A library scan publishes a batch every 25 tracks, and each of those used to
 rebuild every card in the grid and every row in the table, several times a
@@ -14,6 +14,12 @@ repaint landing while a menu was open closed that menu about ten milliseconds
 after it appeared, and the grouping drop-down could not be used at all until
 the first scan finished. The protocol trace that showed this is in the goal
 `stop-startup-repaints-from-dismissing`.
+
+It is the batch repaints that wait for a menu, and only those. The repaint a
+finished or failed scan asks for goes in immediately, on purpose: it is the
+one that says what the library actually holds, and a menu is a worse thing to
+leave standing over a grid that is no longer true than to close. Every batch
+behind it is skippable, which is why those are the ones held back.
 
 Needs no display: the coalescing is a main-loop concern, so this drives a
 GLib loop against a stand-in and counts repaints.

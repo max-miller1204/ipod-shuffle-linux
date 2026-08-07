@@ -18,7 +18,6 @@ so the scan started during construction reads an empty folder rather than the
 real music library and the caches point somewhere disposable.
 """
 
-import json
 import os
 import sys
 import tempfile
@@ -367,19 +366,28 @@ def inspect(window):
         failures.append(
             f"saving the grouping dropped the music folders: {gui.music_roots()}"
         )
+    # And a save that cannot finish costs nothing at all. The file is written
+    # beside itself and renamed into place, so the way to stop one half way is
+    # to make that sibling unwritable - a directory in its name, standing in
+    # for the disk filling up or the session ending mid-write. A writer that
+    # truncated the real file first would have nothing to put back.
+    layout_before = gui.library_layout()
+    blocked = gui.CONFIG_FILE.with_name(f".{gui.CONFIG_FILE.name}.tmp")
+    blocked.mkdir()
     try:
-        json.loads(gui.CONFIG_FILE.read_text())
-    except (OSError, ValueError) as error:
-        failures.append(f"the config is not a whole document after a save: {error}")
-    # The file is written beside itself and renamed into place, so a save that
-    # has returned has left nothing half written next to it.
-    half_written = [
-        found.name
-        for found in gui.CONFIG_FILE.parent.iterdir()
-        if found.name.startswith(".")
-    ]
-    if half_written:
-        failures.append(f"a config save left {half_written} beside the config")
+        gui.save_library_layout("album", "list")
+    finally:
+        blocked.rmdir()
+    if gui.music_roots() != roots:
+        failures.append(
+            f"a config save that could not finish lost the music folders: "
+            f"{gui.music_roots()}"
+        )
+    if gui.library_layout() != layout_before:
+        failures.append(
+            f"a config save that could not finish still moved the layout from "
+            f"{layout_before} to {gui.library_layout()}"
+        )
 
     # Closing stops the player and disowns any download; it is a mixin's job
     # now, so a split that lost the wiring would leave audio playing.

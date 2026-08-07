@@ -58,6 +58,13 @@ jobs:
       - name: GUI repaints coalesce
         run: python3 tests/gui-repaint-coalescing.py
 
+      # Also a main loop and no display. The refresh button's spinner is held
+      # to a minimum so a scan that finishes instantly still looks like work,
+      # and the timing is the whole of it: there is nothing to see in a
+      # screenshot of a button that has already stopped.
+      - name: GUI refresh spinner
+        run: python3 tests/gui-refresh-spinner.py
+
       # The only check that constructs the window. Every other GUI check runs
       # methods unbound against a stand-in, so none of them would notice a
       # builder that stopped being called or a widget that never reached the
