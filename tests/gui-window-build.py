@@ -147,6 +147,16 @@ def menu_text(widget):
     )
 
 
+def tooltip_shown(widget):
+    """Whether this widget would put its tip on screen right now.
+
+    Asking the widget the question GTK asks it when the pointer settles, rather
+    than reading a property: a tip that is withheld is one whose handler
+    answered False for where the pointer is, and nothing else records that.
+    """
+    return widget.emit("query-tooltip", 0, 0, False, Gtk.Tooltip())
+
+
 def inspect(window):
     # Where the window says it is the moment it opens, read before anything
     # below calls show_view and answers the question for it. The stack shows
@@ -342,6 +352,45 @@ def inspect(window):
                 f"choosing {chosen!r} saved the grouping as {saved!r}"
             )
             break
+
+    # A tooltip on a control that opens a list has to get out of the way of the
+    # list. A tip is a surface of its own and GTK goes on showing it while the
+    # popover maps underneath, so one left up is drawn over the options and
+    # takes the click meant for the one below it - the menu closes having
+    # chosen nothing, and the tip blinking as the pointer moves reads as the
+    # window flickering. Both controls that ask for this are driven, because
+    # each finds its popover by a different route: a menu button hands its one
+    # over, while a drop-down keeps its list in a popover it offers no accessor
+    # for and is walked for it, which holds only while GtkDropDown parents that
+    # popover directly under itself.
+    row_menu = gui.row_menu_button(lambda: window.track_menu(track), "Menu")
+    window.library_controls.append(row_menu)
+    for name, control, show_list, hide_list in (
+        (
+            "the Album/Artist drop-down",
+            window.group_mode,
+            lambda: window.group_mode.get_first_child().set_active(True),
+            lambda: window.group_mode.get_first_child().set_active(False),
+        ),
+        ("a row's menu button", row_menu, row_menu.popup, row_menu.popdown),
+    ):
+        if not tooltip_shown(control):
+            failures.append(f"{name} withheld its tooltip with no list open")
+        show_list()
+        if gui._open_popover(control) is None:
+            failures.append(
+                f"{name} opened a list the tooltip cannot see, so the tip stays "
+                "up on top of it"
+            )
+        if tooltip_shown(control):
+            failures.append(
+                f"{name} kept its tooltip over the list it had just opened, "
+                "where it takes the click meant for an option beneath it"
+            )
+        hide_list()
+        if not tooltip_shown(control):
+            failures.append(f"{name} never got its tooltip back once closed")
+    window.library_controls.remove(row_menu)
 
     # What a grouping click costs the settings beside it. One file holds the
     # layout and the music folders, and every click rewrites the whole of it,
