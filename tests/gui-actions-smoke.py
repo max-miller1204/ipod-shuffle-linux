@@ -120,6 +120,10 @@ class FakeLibrary:
 class FakeWindow:
     """Records the commands the window would have run."""
 
+    def _update_refresh_spinner(self):
+        # Chrome the real window spins while a scan runs; nothing to show here.
+        pass
+
     def __init__(self):
         self.mount_point = "/media/alex/Alex's iPod"
         self.device_identity = "uuid:test-ipod"
@@ -547,12 +551,14 @@ callback(*callback_args)
 assert enrichment_window.pending_records[str(pending_only)]["artist"] == "Artist"
 
 
-class Selected:
-    def __init__(self, value):
-        self.value = value
+class Grouping:
+    """The Album/Artist drop-down, as much of it as the code reads."""
+
+    def __init__(self, selected):
+        self.selected = selected
 
     def get_selected(self):
-        return self.value
+        return self.selected
 
 
 class VisibleView:
@@ -569,8 +575,14 @@ class RefreshWindow:
     # decides whether a repaint reopens album detail, so a fake that answered
     # differently would be checking itself.
     current_view = gui.IpodWindow.current_view
+    _grouped_by_artist = gui.IpodWindow._grouped_by_artist
+    _group_mode_name = gui.IpodWindow._group_mode_name
+    # A repaint clears the coalesced queue behind it, so the real one is here
+    # too rather than a stand-in that would not.
+    _cancel_refresh = gui.IpodWindow._cancel_refresh
 
     def __init__(self, visible):
+        self._refresh_timer = None
         old_track = gui.Track("old.mp3", {"album": "Album"}, gui.STATE_LIBRARY)
         new_track = gui.Track("new.mp3", {"album": "Album"}, gui.STATE_LIBRARY)
         self.current_album = gui.Album("Album", "Unknown artist")
@@ -578,7 +590,7 @@ class RefreshWindow:
         replacement = gui.Album("Album", "Unknown artist")
         replacement.add(new_track)
         self.library = type("Library", (), {"collections": lambda _self, _mode: [replacement]})()
-        self.group_mode = Selected(0)
+        self.group_mode = Grouping(gui.GROUP_MODES.index("album"))
         self.views = VisibleView(visible)
         self.current_playlist = None
         self.repaints = 0
@@ -670,6 +682,10 @@ assert merge_library.device_only == [other_album]
 
 
 class SelectionWindow:
+    def _update_refresh_spinner(self):
+        # Chrome the real window spins while a scan runs; nothing to show here.
+        pass
+
     def __init__(self):
         queued = gui.Track("/music/queued.mp3", common, gui.STATE_LIBRARY)
         self.mount_point = "/media/A"
@@ -2981,6 +2997,12 @@ class PreviewWindow:
 
     def _refresh_current_view(self, scan_complete=True):
         self.repaints += 1
+
+    def _request_refresh(self, scan_complete=False):
+        # The real one waits out a coalescing interval on the main loop, which
+        # these checks do not run. Painting straight away keeps them counting
+        # repaints rather than counting timers.
+        self._refresh_current_view(scan_complete=scan_complete)
 
     def _populate_device_summary(self):
         pass

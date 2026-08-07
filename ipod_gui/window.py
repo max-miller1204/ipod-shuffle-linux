@@ -16,13 +16,14 @@ import threading
 
 from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
+from .config import library_layout
 from .shell import (
     has_speech_engine,
     youtube_search_unavailable_reason,
     youtube_unavailable_reason,
 )
 from .model import LibraryIndex
-from .widgets import label
+from .widgets import ELLIPSIZE_END, label
 from .player import PreviewPlayer, UNPAINTED, preview_unavailable_reason
 from .library_view import LibraryViewMixin
 from .search_view import SearchViewMixin
@@ -31,6 +32,26 @@ from .playback_view import PlaybackViewMixin
 from .device_view import DeviceViewMixin
 from .queue import QueueMixin
 from .commands import CommandsMixin
+
+
+# The width the sidebar folds away below, and the narrower one the view title
+# gives up at. Named here because they are load-bearing rather than cosmetic:
+# the first has to stay above the sidebar and the content added together, which
+# is what tests/gui-window-minimum.py checks it against.
+#
+# 940 rather than something rounder. A library with a device attached needs
+# around 860 of it, measured with every page built and the view title counted,
+# and the rest is the margin that keeps the same window clear of this on a
+# desktop whose fonts are not the ones the check ran against. Above 960 would
+# also take the sidebar away from a window tiled to half of a 1920px screen,
+# which is the most ordinary way this app is ever half-sized.
+SIDEBAR_COLLAPSE_WIDTH = 940
+TITLE_HIDE_WIDTH = 700
+
+# How long the refresh button keeps spinning once the scans behind it have
+# finished. A rescan of a small library is over in a few dozen milliseconds,
+# and a spinner that brief is a flicker rather than an answer.
+REFRESH_SPINNER_MIN_MS = 600
 
 
 class IpodWindow(
@@ -115,6 +136,9 @@ class IpodWindow(
         self.device_tracks = []
         self._device_scan_tracks = {}
         self._device_scan_active = False
+        self._library_scan_running = False
+        self._refresh_spinner_since = 0
+        self._refresh_stop_timer = None
         self._device_snapshot_ready = False
         self._library_scan_tracks = {}
         self._library_by_path = {}
@@ -128,6 +152,9 @@ class IpodWindow(
         # fires its handler, which would repaint a grid that does not exist
         # yet. Flipped once the last widget is in place.
         self._library_ready = False
+        # A repaint asked for by a scan batch, waiting to be coalesced with
+        # whatever follows it rather than rebuilding the grid per batch.
+        self._refresh_timer = None
         self.current_album = None
         self.current_playlist = None
         # The two halves of what the Playlists view shows: the lists made here,
@@ -138,7 +165,10 @@ class IpodWindow(
         self.playlists = []
         self.spoken = set()
         self.album_filter = "all"
-        self.view_mode = "grid"
+        # How the library was last being read. Restored here rather than inside
+        # the library mixin because the header carries both controls and is
+        # built before the grid and the table they switch between exist.
+        self._saved_group_mode, self.view_mode = library_layout()
 
         self.toasts = Adw.ToastOverlay()
         self.set_content(self.toasts)
@@ -203,6 +233,12 @@ class IpodWindow(
 
     def _on_close_request(self, _window):
         self._shutdown_previews()
+        # A coalesced repaint still queued would fire against a window that is
+        # on its way out, rebuilding a grid nobody will see.
+        self._cancel_refresh()
+        if self._refresh_stop_timer is not None:
+            GLib.source_remove(self._refresh_stop_timer)
+            self._refresh_stop_timer = None
         return False
 
     def _apply_theme(self):
@@ -271,15 +307,58 @@ class IpodWindow(
 
         # Below this width the sidebar stops being furniture and starts being
         # most of the window, so it folds away behind the toggle instead.
+        #
+        # It is a floor before it is a preference: while the sidebar is shown
+        # it takes its width out of the content's, so this has to stay above
+        # the two of them added together or there is a band of widths where the
+        # window is showing a sidebar it has no room for. That band does not
+        # look cramped, it looks broken - GTK paints the content past the edge
+        # of the window and clicks land where it was measured rather than where
+        # it was drawn. tests/gui-window-minimum.py holds this number to it.
         breakpoint_ = Adw.Breakpoint.new(
-            Adw.BreakpointCondition.parse("max-width: 780px")
+            Adw.BreakpointCondition.parse(f"max-width: {SIDEBAR_COLLAPSE_WIDTH}px")
         )
         breakpoint_.add_setter(self.split, "collapsed", True)
         self.add_breakpoint(breakpoint_)
 
+        # Narrower again and the title has been ellipsised down to a word and a
+        # half, which reads as something broken rather than as a heading. The
+        # sidebar it folds away with is one click from the toggle beside it,
+        # and every view names itself in its own first heading anyway.
+        #
+        # This one repeats the setter above rather than adding to it: only one
+        # breakpoint is ever applied, the last one that matches, so down here
+        # it replaces the wider one instead of joining it. A narrower
+        # breakpoint that leaves out a wider one's setters silently undoes
+        # them, and here that meant the sidebar staying open in a window too
+        # narrow to hold it and the content being painted off the edge.
+        narrow = Adw.Breakpoint.new(
+            Adw.BreakpointCondition.parse(f"max-width: {TITLE_HIDE_WIDTH}px")
+        )
+        narrow.add_setter(self.split, "collapsed", True)
+        narrow.add_setter(self.view_title, "visible", False)
+        self.add_breakpoint(narrow)
+
         return toolbar
 
     def _build_header(self):
+        """The window's one header bar, and its only titlebar.
+
+        An Adw.ApplicationWindow has no titlebar of its own: whatever the
+        content puts at the top is it. A plain box there leaves the window with
+        nothing to drag it by and no minimise, maximise or close button, so
+        this is a box that is given both explicitly - a Gtk.WindowControls for
+        the buttons, wrapped in a Gtk.WindowHandle for the drag. An
+        Adw.HeaderBar would carry the two of them for free but lays its
+        children out in a way this row cannot use, for the reason recorded
+        below where the controls are added.
+
+        Everything in it is allowed to shrink. The window offers a 640px
+        minimum, and a header that cannot go that narrow makes the whole window
+        narrower than its own contents, which GTK resolves by allocating
+        widgets somewhere other than where it paints them - clicks then land
+        beside the control that appears to be under the pointer.
+        """
         header = Gtk.Box(spacing=12)
         header.set_size_request(-1, 48)
         header.set_margin_start(18)
@@ -304,8 +383,13 @@ class IpodWindow(
         )
         header.append(self.sidebar_toggle)
 
-        self.view_title = label("Your Library", "sf-section-heading")
+        self.view_title = label(
+            "Your Library", "sf-section-heading", ellipsize=ELLIPSIZE_END
+        )
         self.view_title.set_valign(Gtk.Align.CENTER)
+        # Long enough for every view's name, short enough that the title gives
+        # way before the controls do when the window is dragged narrow.
+        self.view_title.set_max_width_chars(18)
         header.append(self.view_title)
 
         header.append(Gtk.Box(hexpand=True))
@@ -313,15 +397,42 @@ class IpodWindow(
         header.append(self._build_search_entry())
         header.append(self._build_library_controls())
 
-        self.refresh_button = Gtk.Button(icon_name="view-refresh-symbolic")
+        # The icon is swapped for a spinner while the rescan runs, because
+        # otherwise pressing this does nothing anybody can see: the only
+        # progress the window had to offer was the status line under the grid,
+        # and that line is hidden whenever the library has anything in it.
+        self.refresh_icon = Gtk.Image.new_from_icon_name("view-refresh-symbolic")
+        self.refresh_spinner = Gtk.Spinner()
+        self.refresh_button = Gtk.Button(child=self.refresh_icon)
         self.refresh_button.add_css_class("flat")
+        # Given rather than inherited: GTK only adds this to a button it built
+        # the icon for, and this one is handed its child so the spinner can
+        # take the icon's place. Without it the button keeps a text button's
+        # wider padding and stops matching the icon buttons either side of it.
+        self.refresh_button.add_css_class("image-button")
         self.refresh_button.set_valign(Gtk.Align.CENTER)
         self.refresh_button.set_tooltip_text("Rescan the device and your music folders")
         self.refresh_button.connect("clicked", self.on_refresh_clicked)
         header.append(self.refresh_button)
 
+        # The buttons a titlebar would have carried. An Adw.HeaderBar would
+        # bring its own, but it centres whatever widget it is given as a title
+        # and hands its end pack a natural width before anything else, which
+        # moves this row's contents around and overlaps them once the window is
+        # narrow. Its two useful parts are separable: these are the buttons.
+        self.window_controls = Gtk.WindowControls(side=Gtk.PackType.END)
+        self.window_controls.set_decoration_layout(":minimize,maximize,close")
+        self.window_controls.set_valign(Gtk.Align.CENTER)
+        header.append(self.window_controls)
+
+        # ...and this is the rest: the strip is now something the window can be
+        # dragged by, double-clicked to maximise and right-clicked for the
+        # window menu. Interactive children keep their own clicks.
+        handle = Gtk.WindowHandle()
+        handle.set_child(header)
+
         wrapper = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        wrapper.append(header)
+        wrapper.append(handle)
         line = Gtk.Separator()
         wrapper.append(line)
         return wrapper
@@ -342,7 +453,12 @@ class IpodWindow(
         badge.set_size_request(24, 24)
         brand.append(badge)
         brand.append(label("Shuffle", "sf-row-title", valign=Gtk.Align.CENTER))
-        sidebar.append(brand)
+        # The header bar only spans the content pane, so without this the strip
+        # above the sidebar is the one part of the top edge the window cannot
+        # be dragged by.
+        brand_handle = Gtk.WindowHandle()
+        brand_handle.set_child(brand)
+        sidebar.append(brand_handle)
 
         nav = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         nav.set_margin_start(10)
@@ -440,6 +556,56 @@ class IpodWindow(
     def on_refresh_clicked(self, _button):
         self.refresh()
         self._rescan_library()
+
+    def _update_refresh_spinner(self):
+        """Spin while either scan is still running.
+
+        Derived from the two scans rather than counted up and down around
+        them: a scan superseded by a newer one returns without finishing, and
+        a counter would be left believing work was still in flight forever.
+        """
+        running = self._library_scan_running or self._device_scan_active
+        if running:
+            if self._refresh_stop_timer is not None:
+                GLib.source_remove(self._refresh_stop_timer)
+                self._refresh_stop_timer = None
+                # The spinner was already on its way out when this work
+                # arrived, so the minimum below runs from here rather than
+                # from the start it was about to end. Pressing refresh while
+                # the last spin is finishing is the one press most likely to
+                # be a second try, and it is the one that would otherwise put
+                # the spinner out again a few milliseconds after the click.
+                self._refresh_spinner_since = GLib.get_monotonic_time()
+            if not self.refresh_spinner.get_spinning():
+                self._refresh_spinner_since = GLib.get_monotonic_time()
+                self.refresh_button.set_child(self.refresh_spinner)
+                self.refresh_spinner.start()
+            return
+
+        if not self.refresh_spinner.get_spinning():
+            return
+        if self._refresh_stop_timer is not None:
+            return
+        # A scan over a small library finishes in well under a tenth of a
+        # second, and a spinner that appears and vanishes inside that reads as
+        # a glitch rather than as work having been done. Held to a minimum so
+        # pressing the button always looks like it did something.
+        spent = (GLib.get_monotonic_time() - self._refresh_spinner_since) // 1000
+        remaining = REFRESH_SPINNER_MIN_MS - spent
+        if remaining <= 0:
+            self._stop_refresh_spinner()
+            return
+        self._refresh_stop_timer = GLib.timeout_add(
+            remaining, self._stop_refresh_spinner
+        )
+
+    def _stop_refresh_spinner(self):
+        # Stopped as well as swapped out: a spinner left running is an
+        # animation frame clock ticking for a widget nobody can see.
+        self._refresh_stop_timer = None
+        self.refresh_spinner.stop()
+        self.refresh_button.set_child(self.refresh_icon)
+        return False
 
     def _toast(self, message):
         self.toasts.add_toast(Adw.Toast(title=message))

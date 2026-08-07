@@ -62,11 +62,12 @@ EXPECTED = {
     "window": [
         "toasts", "stack", "views", "view_title", "nav_buttons", "split",
         "sidebar_toggle", "refresh_button", "empty_page", "mount_button",
-        "library_controls", "monitor",
+        "library_controls", "monitor", "window_controls",
     ],
     "library_view": [
         "album_flow", "album_filters", "library_table", "library_modes",
-        "library_status", "collection_heading", "group_mode", "mode_buttons",
+        "library_status", "collection_heading", "group_mode",
+        "mode_buttons",
         "album_view", "album_tracks", "album_heading", "album_subheading",
         "album_actions", "album_art_holder", "library_view",
     ],
@@ -144,6 +145,16 @@ def menu_text(widget):
         for found in walk(widget)
         if isinstance(found, Gtk.Label)
     )
+
+
+def tooltip_shown(widget):
+    """Whether this widget would put its tip on screen right now.
+
+    Asking the widget the question GTK asks it when the pointer settles, rather
+    than reading a property: a tip that is withheld is one whose handler
+    answered False for where the pointer is, and nothing else records that.
+    """
+    return widget.emit("query-tooltip", 0, 0, False, Gtk.Tooltip())
 
 
 def inspect(window):
@@ -312,6 +323,140 @@ def inspect(window):
                     "in it, which the sync would mangle into another name"
                 )
         dialog.force_close()
+
+    # The Album/Artist drop-down, moved the way the user moves it. The grouping
+    # is not held anywhere but in the widget, so what the grid draws and what
+    # the next launch reopens on both have to follow the selection rather than
+    # a copy of it kept beside it. Repeats are in the sequence on purpose:
+    # re-choosing what is already chosen emits no notify at all, and must
+    # leave both of those where they were rather than reading as a change.
+    for chosen in ("artist", "album", "artist", "artist", "album", "album"):
+        window.group_mode.set_selected(gui.GROUP_MODES.index(chosen))
+        if window.group_mode.get_selected() != gui.GROUP_MODES.index(chosen):
+            failures.append(
+                f"choosing {chosen!r} left the grouping control showing "
+                f"{gui.GROUP_MODES[window.group_mode.get_selected()]!r}"
+            )
+            break
+        if window._grouped_by_artist() != (chosen == "artist"):
+            failures.append(
+                f"choosing {chosen!r} left the grid grouped the other way"
+            )
+            break
+        # What the next launch reopens on. The user's report was that this
+        # never survived being closed, so the write is read back rather than
+        # assumed from the button.
+        saved, _view = gui.library_layout()
+        if saved != chosen:
+            failures.append(
+                f"choosing {chosen!r} saved the grouping as {saved!r}"
+            )
+            break
+
+    # What the option says has to be the grouping it gives. The control is read
+    # by index, so a label drifting from the mode it sits beside would group the
+    # library by the other one, save that, and never raise a thing. Read off the
+    # widget's own model, which is what the user is picking from.
+    options = window.group_mode.get_model()
+    for index in range(options.get_n_items()):
+        window.group_mode.set_selected(index)
+        shown = options.get_string(index)
+        if window._group_mode_name() != shown.lower():
+            failures.append(
+                f"the option reading {shown!r} grouped the library by "
+                f"{window._group_mode_name()!r}"
+            )
+
+    # A tooltip on a control that opens a list has to get out of the way of the
+    # list. A tip is a surface of its own and GTK goes on showing it while the
+    # popover maps underneath, so one left up is drawn over the options and
+    # takes the click meant for the one below it - the menu closes having
+    # chosen nothing, and the tip blinking as the pointer moves reads as the
+    # window flickering. Both controls that ask for this are driven, because
+    # each finds its popover by a different route: a menu button hands its one
+    # over, while a drop-down keeps its list in a popover it offers no accessor
+    # for and is walked for it, which holds only while GtkDropDown parents that
+    # popover directly under itself.
+    row_menu = gui.row_menu_button(lambda: window.track_menu(track), "Menu")
+    window.library_controls.append(row_menu)
+    for name, control, show_list, hide_list in (
+        (
+            "the Album/Artist drop-down",
+            window.group_mode,
+            lambda: window.group_mode.get_first_child().set_active(True),
+            lambda: window.group_mode.get_first_child().set_active(False),
+        ),
+        ("a row's menu button", row_menu, row_menu.popup, row_menu.popdown),
+    ):
+        if not tooltip_shown(control):
+            failures.append(f"{name} withheld its tooltip with no list open")
+        show_list()
+        if gui._open_popover(control) is None:
+            failures.append(
+                f"{name} opened a list the tooltip cannot see, so the tip stays "
+                "up on top of it"
+            )
+        if tooltip_shown(control):
+            failures.append(
+                f"{name} kept its tooltip over the list it had just opened, "
+                "where it takes the click meant for an option beneath it"
+            )
+        hide_list()
+        if not tooltip_shown(control):
+            failures.append(f"{name} never got its tooltip back once closed")
+    window.library_controls.remove(row_menu)
+
+    # What a grouping click costs the settings beside it. One file holds the
+    # layout and the music folders, and every click rewrites the whole of it,
+    # so a save that dropped keys or landed half written would take the folder
+    # list with it - and an unreadable config reads as no config at all, which
+    # is the folders silently back to their default with nothing said.
+    roots = [Path(_SANDBOX, "Music"), Path(_SANDBOX, "Second Library")]
+    before_group, _before_view = gui.library_layout()
+    gui.save_music_roots(roots)
+    after_group, _after_view = gui.library_layout()
+    if after_group != before_group:
+        failures.append(
+            f"saving the music folders turned the grouping from "
+            f"{before_group!r} into {after_group!r}"
+        )
+    # Whichever grouping is not the one showing, so this stays a real change
+    # however the checks above left the control: re-choosing what is already
+    # chosen emits no notify, nothing would be saved, and the folders below
+    # would then be read back from a write that never happened.
+    moved_to = (window.group_mode.get_selected() + 1) % len(gui.GROUP_MODES)
+    window.group_mode.set_selected(moved_to)
+    if gui.library_layout()[0] != gui.GROUP_MODES[moved_to]:
+        failures.append(
+            f"choosing {gui.GROUP_MODES[moved_to]!r} saved nothing, so the "
+            "music folders below are not being read back from a save"
+        )
+    if gui.music_roots() != roots:
+        failures.append(
+            f"saving the grouping dropped the music folders: {gui.music_roots()}"
+        )
+    # And a save that cannot finish costs nothing at all. The file is written
+    # beside itself and renamed into place, so the way to stop one half way is
+    # to make that sibling unwritable - a directory in its name, standing in
+    # for the disk filling up or the session ending mid-write. A writer that
+    # truncated the real file first would have nothing to put back.
+    layout_before = gui.library_layout()
+    blocked = gui.CONFIG_FILE.with_name(f".{gui.CONFIG_FILE.name}.tmp")
+    blocked.mkdir()
+    try:
+        gui.save_library_layout("album", "list")
+    finally:
+        blocked.rmdir()
+    if gui.music_roots() != roots:
+        failures.append(
+            f"a config save that could not finish lost the music folders: "
+            f"{gui.music_roots()}"
+        )
+    if gui.library_layout() != layout_before:
+        failures.append(
+            f"a config save that could not finish still moved the layout from "
+            f"{layout_before} to {gui.library_layout()}"
+        )
 
     # Closing stops the player and disowns any download; it is a mixin's job
     # now, so a split that lost the wiring would leave audio playing.

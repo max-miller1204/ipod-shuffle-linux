@@ -402,7 +402,21 @@ def main():
         "  # Park the pointer off the window before grabbing - the screen is\n"
         "  # larger than the window for that - or whichever album card it\n"
         "  # happens to rest on wears its hover state in the shot:\n"
-        "  #   DISPLAY=:9 xdotool mousemove 1290 850"
+        "  #   DISPLAY=:9 xdotool mousemove 1290 850\n"
+        "  #\n"
+        "  # Then grab the window rather than the root. The screen is bigger\n"
+        "  # than the window on purpose, so a root grab keeps that margin as a\n"
+        "  # black band and the parked pointer as a cursor sitting in it:\n"
+        "  #   DISPLAY=:9 import -window \"$(DISPLAY=:9 xdotool search \\\n"
+        "  #     --name '^Shuffle$' | head -1)\" docs/screenshot.png\n"
+        "  # With no window id to hand, crop the root back to the window - the\n"
+        "  # window is at the origin, so the top-left 1180x760 is all of it:\n"
+        "  #   DISPLAY=:9 import -window root -crop 1180x760+0+0 +repage \\\n"
+        "  #     docs/screenshot.png\n"
+        "  # Without ImageMagick at all, ffmpeg takes the same region, and\n"
+        "  # grabs it as a region rather than cropping one afterwards:\n"
+        "  #   ffmpeg -f x11grab -video_size 1180x760 -i :9.0+0,0 \\\n"
+        "  #     -frames:v 1 -y docs/screenshot.png"
     )
     print()
     # Replacing HOME does not by itself keep the demo out of the developer's

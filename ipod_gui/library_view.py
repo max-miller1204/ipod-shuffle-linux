@@ -20,11 +20,14 @@ from gi.repository import Adw, GLib, Gtk
 
 from .config import (
     AUDIO_EXTENSIONS,
+    GROUP_MODE_LABELS,
+    GROUP_MODES,
     PREVIEW_CACHE,
     STATE_IPOD,
     STATE_LABELS,
     STATE_LIBRARY,
     STATE_PREVIEW,
+    save_library_layout,
 )
 from .text import human_duration, human_size, plural
 from .tags import scan_tracks
@@ -38,8 +41,14 @@ from .widgets import (
     label,
     make_cover,
     state_dot,
+    tooltip_beside_popover,
     track_column_view,
 )
+
+# How long repaints are allowed to queue behind each other while a scan is
+# still publishing batches. Long enough that a burst of them costs one rebuild
+# rather than a dozen, short enough that the grid still visibly fills in.
+REFRESH_COALESCE_MS = 250
 
 
 class LibraryViewMixin:
@@ -52,10 +61,26 @@ class LibraryViewMixin:
         """
         self.library_controls = Gtk.Box(spacing=8, valign=Gtk.Align.CENTER)
 
-        self.group_mode = Gtk.DropDown.new_from_strings(["Album", "Artist"])
+        # Once suspected of being at fault here, and it never was: on a
+        # floating window the list flashed open and shut because mutter
+        # refused to place the popup, taking a legacy HiDPI path that
+        # multiplies every positioner coordinate by the monitor scale. Nothing
+        # in this file and nothing in GTK needed changing; the goal
+        # `stop-startup-repaints-from-dismissing` carries the diagnosis.
+        self.group_mode = Gtk.DropDown.new_from_strings(list(GROUP_MODE_LABELS))
         self.group_mode.add_css_class("flat")
-        self.group_mode.set_tooltip_text("Group the library by album or by artist")
-        self.group_mode.connect("notify::selected", lambda *_a: self._populate_albums())
+        # A separate defect, app-side and on every display: a tooltip is its
+        # own surface, which GTK goes on showing while the list opens beneath
+        # it, so it draws over the options and takes the click meant for one
+        # of them.
+        tooltip_beside_popover(
+            self.group_mode, "Group the library by album or by artist"
+        )
+        # Selected before the handler is connected, so reopening the app on the
+        # grouping it was left in does not count as a change and repaint a grid
+        # that has not been filled yet.
+        self.group_mode.set_selected(GROUP_MODES.index(self._saved_group_mode))
+        self.group_mode.connect("notify::selected", self._on_group_mode_changed)
         self.library_controls.append(self.group_mode)
 
         modes = Gtk.Box()
@@ -70,7 +95,7 @@ class LibraryViewMixin:
             button.connect("toggled", self._on_view_mode_toggled, mode)
             modes.append(button)
             self.mode_buttons[mode] = button
-        self.mode_buttons["grid"].set_active(True)
+        self.mode_buttons[self.view_mode].set_active(True)
         self.library_controls.append(modes)
         return self.library_controls
 
@@ -137,9 +162,39 @@ class LibraryViewMixin:
         box.append(self.library_modes)
 
         self.library_status = label("Reading your music folders…", "sf-body")
+        self.library_status.set_wrap(True)
+        self.library_status.set_max_width_chars(60)
         box.append(self.library_status)
         self._library_ready = True
+
+        # The header, and the mode restored onto its buttons, were built before
+        # this stack existed, so the toggle that ran then had nothing to switch.
+        self.library_modes.set_visible_child_name(self.view_mode)
+        self.group_mode.set_sensitive(self.view_mode == "grid")
         return scroller
+
+    def _group_mode_name(self):
+        # Read off the one index, so the order lives in GROUP_MODE_CHOICES and
+        # nowhere else. Nothing selected answers Gtk.INVALID_LIST_POSITION
+        # rather than a usable position, which is the default grouping here.
+        selected = self.group_mode.get_selected()
+        if selected >= len(GROUP_MODES):
+            return GROUP_MODES[0]
+        return GROUP_MODES[selected]
+
+    def _grouped_by_artist(self):
+        return self._group_mode_name() == "artist"
+
+    def _on_group_mode_changed(self, *_args):
+        # The header is built before the grid it groups, so the selection
+        # restored above arrives before there is anything to repaint.
+        if not self._library_ready:
+            return
+        self._populate_albums()
+        self._save_library_layout()
+
+    def _save_library_layout(self):
+        save_library_layout(self._group_mode_name(), self.view_mode)
 
     def _on_view_mode_toggled(self, button, mode):
         if not button.get_active():
@@ -159,6 +214,7 @@ class LibraryViewMixin:
         # Grouping is a property of the grid; the table is always every track.
         self.group_mode.set_sensitive(mode == "grid")
         self._populate_albums()
+        self._save_library_layout()
 
     def _on_filter_toggled(self, button, key):
         if not button.get_active():
@@ -210,6 +266,11 @@ class LibraryViewMixin:
         self.album_heading = label("", "sf-album-title", ellipsize=ELLIPSIZE_END)
         meta.append(self.album_heading)
         self.album_subheading = label("", "sf-body")
+        # Six facts joined into one sentence, and a long artist name makes it
+        # the widest thing on the page. Wrapped rather than ellipsised: the
+        # track count and what is already on the iPod are the reason to read
+        # the line at all, and they sit at the end of it.
+        self.album_subheading.set_wrap(True)
         meta.append(self.album_subheading)
         self.album_actions = Gtk.Box(spacing=8)
         meta.append(self.album_actions)
@@ -232,6 +293,8 @@ class LibraryViewMixin:
         previous_tracks = list(self.library.tracks)
         self._library_scan_tracks = {}
         self.library_status.set_text("Reading your music folders…")
+        self._library_scan_running = True
+        self._update_refresh_spinner()
 
         def worker():
             batch = []
@@ -305,7 +368,7 @@ class LibraryViewMixin:
                 merged[track.path] = track
         self.library.previews = list(merged.values())
         self._populate_cache_card()
-        self._refresh_current_view(scan_complete=False)
+        self._request_refresh()
         return False
 
     def _apply_library_batch(self, generation, tracks):
@@ -315,12 +378,14 @@ class LibraryViewMixin:
             self._library_scan_tracks[track.path] = track
         self.library.tracks = list(self._library_scan_tracks.values())
         self._merge_states()
-        self._refresh_current_view(scan_complete=False)
+        self._request_refresh()
         return False
 
     def _finish_library_scan(self, generation):
         if generation != self.scan_generation:
             return False
+        self._library_scan_running = False
+        self._update_refresh_spinner()
         self.library.tracks = list(self._library_scan_tracks.values())
         self._merge_states()
         if self.mount_point:
@@ -332,6 +397,8 @@ class LibraryViewMixin:
     def _fail_library_scan(self, generation, previous_tracks):
         if generation != self.scan_generation:
             return False
+        self._library_scan_running = False
+        self._update_refresh_spinner()
         self.library.tracks = previous_tracks
         self._library_scan_tracks = {track.path: track for track in previous_tracks}
         self._merge_states()
@@ -348,7 +415,7 @@ class LibraryViewMixin:
     def _resolve_current_album(self):
         if self.current_album is None:
             return None
-        by_artist = self.group_mode.get_selected() == 1
+        by_artist = self._grouped_by_artist()
         for collection in self.library.collections(by_artist):
             if by_artist:
                 matches = collection.title.lower() == self.current_album.title.lower()
@@ -364,7 +431,81 @@ class LibraryViewMixin:
                 return collection
         return None
 
+    def _popover_is_open(self):
+        """Whether a popover currently holds the focus.
+
+        Repainting rebuilds the grid, which destroys the widget the focus is
+        on, and GTK moves the focus out of the popup when that happens, so a
+        repaint landing while a menu is open churns the widgets that menu is
+        standing over. A scan does that several times a second; holding its
+        batches back until the menu closes takes the rebuilds under one from
+        19 to 0.
+
+        Not the reason the Album/Artist control could not be opened on a 2x
+        display: that one is the compositor dismissing any popup a floating
+        window maps there, reproduced in stock GTK with no repaints of any
+        kind, and it is recorded in the goal
+        `stop-startup-repaints-from-dismissing`.
+        """
+        widget = self.get_focus()
+        while widget is not None:
+            if isinstance(widget, Gtk.Popover):
+                return True
+            widget = widget.get_parent()
+        return False
+
+    def _request_refresh(self, scan_complete=False):
+        """Repaint soon, rather than once per batch.
+
+        A library scan publishes every 25 tracks, and each of those batches
+        used to rebuild every card in the grid and every row in the table.
+        Coalescing them costs the grid nothing - it is filling in either way -
+        and takes the repaint rate from several a second down to one per
+        interval. The device walk is the other caller and never needed it: it
+        collects its reads and asks for a single repaint at the end, which is
+        the request that is never coalesced away.
+
+        The final repaint is not coalesced away: it is the one that says what
+        the library actually holds, so it replaces whatever is queued rather
+        than being dropped into it. It still waits out an interval, and still
+        waits for an open menu, because a repaint that skipped either of those
+        would close the menu it was avoiding.
+        """
+        if scan_complete:
+            self._cancel_refresh()
+        elif self._refresh_timer is not None:
+            return
+        self._refresh_timer = GLib.timeout_add(
+            REFRESH_COALESCE_MS, self._flush_refresh, scan_complete
+        )
+
+    def _flush_refresh(self, scan_complete):
+        if self._popover_is_open():
+            # Wait rather than repaint underneath it. Returning True keeps
+            # this timer running, so the repaint lands as soon as the menu is
+            # closed instead of being dropped.
+            return True
+        self._refresh_timer = None
+        self._refresh_current_view(scan_complete=scan_complete)
+        return False
+
+    def _cancel_refresh(self):
+        if self._refresh_timer is not None:
+            GLib.source_remove(self._refresh_timer)
+            self._refresh_timer = None
+
     def _refresh_current_view(self, scan_complete=True):
+        """Repaint now, and let this be the last word.
+
+        A caller reaching straight for this has state the coalesced queue does
+        not know about - the end of a scan, a device appearing, a track being
+        queued - so anything still waiting on the timer is describing a library
+        that no longer exists. Left armed it lands up to an interval later and
+        undoes the caller: a failed scan sets its status line here and then
+        watches the stale repaint hide it again, leaving a library that looks
+        like it read fine.
+        """
+        self._cancel_refresh()
         self._populate_albums()
         visible = self.current_view()
         if visible == "album":
@@ -443,7 +584,7 @@ class LibraryViewMixin:
             return
         clear_children(self.album_flow)
 
-        by_artist = self.group_mode.get_selected() == 1
+        by_artist = self._grouped_by_artist()
         collections = self.library.collections(by_artist)
         # The table is every track, so in list mode the heading, the counts on
         # the pills and what they filter are all track-shaped. Counting

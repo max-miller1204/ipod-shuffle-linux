@@ -307,6 +307,7 @@ class CommandsMixin:
         # worse thing to say than the figure from just before it ran.
         self.tag_generation += 1
         self._device_scan_active = bool(self.mount_point)
+        self._update_refresh_spinner()
         self._device_snapshot_ready = False
         self._device_scan_tracks = {}
         self.device_tracks = []

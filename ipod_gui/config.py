@@ -77,22 +77,84 @@ AUDIO_EXTENSIONS = {".mp3", ".m4a", ".m4b", ".m4p", ".aa", ".wav"}
 PLAYLIST_EXTENSIONS = {".m3u", ".pls"}
 
 
+# How the library grid was last being read. Stored as words rather than as the
+# dropdown's index and the stack's child name, so the file stays readable and a
+# renamed widget cannot silently change what an old config means.
+#
+# Each grouping is paired with the label its control shows, rather than kept in
+# a second list beside this one: the control is read by index, so two lists
+# could be reordered apart and choosing one grouping would then save the other.
+GROUP_MODE_CHOICES = (("album", "Album"), ("artist", "Artist"))
+GROUP_MODES = tuple(mode for mode, _label in GROUP_MODE_CHOICES)
+GROUP_MODE_LABELS = tuple(label for _mode, label in GROUP_MODE_CHOICES)
+VIEW_MODES = ("grid", "list")
+
+
+def _read_config():
+    """Everything in the config file, or nothing if it cannot be read."""
+    try:
+        stored = json.loads(CONFIG_FILE.read_text())
+    except (OSError, ValueError):
+        return {}
+    return stored if isinstance(stored, dict) else {}
+
+
+def _write_config(**changes):
+    """Merge changes in, leaving every other setting alone.
+
+    Read-modify-write rather than a plain dump, because each setting is saved
+    by whichever widget owns it: writing only what that widget knows about
+    would drop the music folders the moment the grouping changed.
+
+    Written beside itself and renamed into place, the way a playlist is. Every
+    save now carries the music folders, and every click of the grouping and
+    view controls is a save - so a rewrite in place would put the only record
+    of where the user's music lives through a truncate several times a
+    session. A file left half written reads as no file at all: _read_config
+    answers unparseable JSON with the defaults, silently, which would be the
+    configured folders gone with nothing on screen to say so.
+    """
+    stored = _read_config()
+    stored.update(changes)
+    temporary = CONFIG_FILE.with_name(f".{CONFIG_FILE.name}.tmp")
+    try:
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temporary.write_text(json.dumps(stored, indent=2))
+        os.replace(temporary, CONFIG_FILE)
+    except OSError:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+
+
 def music_roots():
     """Folders searched for local music, newest configuration winning."""
-    try:
-        stored = json.loads(CONFIG_FILE.read_text()).get("music_roots")
-    except (OSError, ValueError, AttributeError):
-        stored = None
+    stored = _read_config().get("music_roots")
     if isinstance(stored, list) and stored:
         return [Path(p).expanduser() for p in stored]
     return [Path.home() / "Music"]
 
 
 def save_music_roots(roots):
-    try:
-        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-        CONFIG_FILE.write_text(
-            json.dumps({"music_roots": [str(p) for p in roots]}, indent=2)
-        )
-    except OSError:
-        pass
+    _write_config(music_roots=[str(p) for p in roots])
+
+
+def library_layout():
+    """The grouping and grid/table the library was last left showing.
+
+    Anything unrecognised falls back to the default rather than being repaired
+    in place, so a hand-edited or newer config cannot leave the window pointing
+    at a view that does not exist.
+    """
+    stored = _read_config()
+    group = stored.get("group_mode")
+    view = stored.get("view_mode")
+    return (
+        group if group in GROUP_MODES else GROUP_MODES[0],
+        view if view in VIEW_MODES else VIEW_MODES[0],
+    )
+
+
+def save_library_layout(group_mode, view_mode):
+    _write_config(group_mode=group_mode, view_mode=view_mode)

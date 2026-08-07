@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 76,
+  "revision": 85,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -136,10 +136,11 @@
     {
       "id": "add-top-bar-to-maximize-minimize-close",
       "title": "Add top bar to maximize/minimize/close the window",
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-04T20:00:24.363Z",
-      "updatedAt": "2026-08-05T04:01:15.102Z",
-      "group": "UI"
+      "updatedAt": "2026-08-07T06:34:22.961Z",
+      "group": "UI",
+      "completedAt": "2026-08-07T06:34:22.961Z"
     },
     {
       "id": "wipe-the-ipod-and-redownload-everything",
@@ -165,14 +166,6 @@
       "updatedAt": "2026-08-05T16:06:26.195Z"
     },
     {
-      "id": "fix-unknown-album-on-every-song-import",
-      "title": "Add new library filter possibly \"Individual\"?",
-      "status": "open",
-      "createdAt": "2026-08-05T16:10:59.459Z",
-      "updatedAt": "2026-08-07T00:12:27.771Z",
-      "description": "Let's add a new filter to the Library Page. Currently, the two views are Author and Album. We should add a new one that displays every song individually.\n\nAlso, why do the sync options not apply when i add a song from youtube? they keep resetting.\n\nFor example,\n\nI try to set playlist grouping and it always goes back to none (in the Device & Settings page)"
-    },
-    {
       "id": "delete-from-library-button",
       "title": "delete from library button",
       "status": "open",
@@ -186,9 +179,19 @@
       "status": "open",
       "createdAt": "2026-08-06T23:00:08.764Z",
       "updatedAt": "2026-08-06T23:00:20.579Z"
+    },
+    {
+      "id": "stop-startup-repaints-from-dismissing",
+      "title": "Get the grouping drop-down working again on a 2x display",
+      "description": "DONE 2026-08-07. Not this app's code and not a GTK bug: mutter refused to place the popup and dismissed it. The refusal is in the journal, 491 times in one boot, bursty and clustered on exactly the sessions where the drop-down was being clicked: 'Buggy client caused popup to be placed outside of parent window'. That message has one source in mutter 46, the rect check closing meta_wayland_xdg_popup_post_apply_state, which calls dismiss_invalid_popup and so sends xdg_popup.popup_done when the popup's buffer rect neither overlaps nor touches its parent's. The check runs on the commit that attaches the popup's first buffer, which is the popup_done arriving about 10ms after the map. It also explains the one asymmetry nothing else did: maximised, the parent covers the screen and a mis-placed popup still lands on it; floating, the parent is a small target and the popup misses.\n\nThe mis-placement came from the session's layout mode rather than from the widget. DisplayConfig reported layout-mode 2 (physical) with legacy-ui-scaling-factor 2, so mutter was on the legacy HiDPI path, where scale_placement_rule multiplies every positioner coordinate by the window's monitor scale. get_window_geometry_scale_for_logical_monitor returns 1 instead when meta_backend_is_stage_views_scaled is true, which is exactly when scale-monitor-framebuffer is on.\n\nFIXED by turning on Fractional Scaling for the built-in display in Settings, which sets org.gnome.mutter experimental-features to ['scale-monitor-framebuffer'] and moves the session to layout-mode 1 with legacy-ui-scaling-factor 1. The last refusal was logged at 05:04, the display configuration was applied at 05:06:58, and there have been none since. No code changed and the Gtk.DropDown stays. To re-check at any time: journalctl --user -b | grep -c 'outside of parent window' should stay flat while clicking the control.\n\nCOST ACCEPTED, and it does not depend on the external monitor being attached: with stage views scaled, mutter hardcodes the UI scaling factor for X11 clients to 1 (meta-settings.c, update_ui_scaling_factor). Measured, X11 clients are told eDP-1 is 1536x960 at scale 1 with Xft.dpi 96, so XWayland apps draw at 1x and are upscaled on the 2x panel where the legacy path had them drawing at 2x; Wayland clients are told scale 2 and stay sharp. GNOME 46 has no xwayland-native-scaling to avoid that. Both displays are on integer scales, 2.0 and 1.0, so nothing is resampled and the power, speed and sharpness warnings on the Settings toggle do not apply to this configuration. The setting is session-wide and stays on undocked, which is what is wanted, because this is a floating-on-a-2x-display bug rather than a two-monitor one and the laptop alone is still 2x.\n\nCORRECTS the earlier reading of the WAYLAND_DEBUG trace: the reactive positioner and the mid-map wp_fractional_scale change are upstream of the mis-placement, not the dismissal itself. The routes listed before are moot - GTK did not need updating past 4.14.5, the Gtk.MenuButton replacement was not needed, and the layered minimal.py reproduction is not needed to verify this.",
+      "status": "done",
+      "createdAt": "2026-08-07T03:49:20.462Z",
+      "updatedAt": "2026-08-07T09:28:23.260Z",
+      "completedAt": "2026-08-07T09:28:23.260Z"
     }
   ],
   "retiredIds": [
-    "test"
+    "test",
+    "fix-unknown-album-on-every-song-import"
   ]
 }
