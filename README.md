@@ -631,6 +631,11 @@ Close it and retry, and never pull the cable to force the issue, since a half-wr
 Confirm it appears in `lsusb` as `05ac:1303`.
 A shuffle with a fully flat battery will not enumerate until it has charged for a few minutes.
 
+**The Album/Artist list flashes open and shut while the window is floating.**
+On a HiDPI display GNOME's legacy scaling path multiplies the list's placement coordinates by the monitor scale, so mutter dismisses the list for landing outside the window it belongs to.
+That is the compositor rather than this app or GTK, and it is why maximising helps: the window then covers the screen, so even a mis-placed list lands on it.
+Maximise the window or move it to a 1x monitor, or turn on Fractional Scaling for the HiDPI display under Settings > Displays, which moves the session off the legacy path for good.
+
 ## Recovering from a bad state
 
 The firmware lives in flash separate from the FAT volume, so a broken database is not fatal.

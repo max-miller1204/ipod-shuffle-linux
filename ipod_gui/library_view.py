@@ -173,11 +173,17 @@ class LibraryViewMixin:
         self.group_mode.set_sensitive(self.view_mode == "grid")
         return scroller
 
-    def _grouped_by_artist(self):
-        return self.group_mode.get_selected() == GROUP_MODES.index("artist")
-
     def _group_mode_name(self):
-        return GROUP_MODES[1] if self._grouped_by_artist() else GROUP_MODES[0]
+        # Read off the one index, so the order lives in GROUP_MODE_CHOICES and
+        # nowhere else. Nothing selected answers Gtk.INVALID_LIST_POSITION
+        # rather than a usable position, which is the default grouping here.
+        selected = self.group_mode.get_selected()
+        if selected >= len(GROUP_MODES):
+            return GROUP_MODES[0]
+        return GROUP_MODES[selected]
+
+    def _grouped_by_artist(self):
+        return self._group_mode_name() == "artist"
 
     def _on_group_mode_changed(self, *_args):
         # The header is built before the grid it groups, so the selection

@@ -576,6 +576,7 @@ class RefreshWindow:
     # differently would be checking itself.
     current_view = gui.IpodWindow.current_view
     _grouped_by_artist = gui.IpodWindow._grouped_by_artist
+    _group_mode_name = gui.IpodWindow._group_mode_name
     # A repaint clears the coalesced queue behind it, so the real one is here
     # too rather than a stand-in that would not.
     _cancel_refresh = gui.IpodWindow._cancel_refresh
