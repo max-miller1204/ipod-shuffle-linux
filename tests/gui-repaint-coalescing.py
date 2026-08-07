@@ -135,6 +135,48 @@ check(
     f"repainted as {finished.repaints}, expected a single completed-scan repaint",
 )
 
+
+class DirectWindow(Window):
+    """The real repaint, over a library view with nothing else to paint.
+
+    The one above stands in for it to count what the queue dispatches; this
+    one runs it, because what a direct repaint does to the queue behind it is
+    the repaint's own business.
+    """
+
+    _refresh_current_view = gui.IpodWindow._refresh_current_view
+
+    def __init__(self):
+        super().__init__()
+        self.current_playlist = None
+
+    def _populate_albums(self):
+        self.repaints.append(True)
+
+    def current_view(self):
+        return "library"
+
+
+# A caller that repaints directly is the last word, and a batch's queued
+# repaint does not get to answer after it. _fail_library_scan repaints, then
+# puts "Could not finish reading your music folders" under the grid; a repaint
+# left armed by an earlier batch rebuilt the grid an interval later and hid
+# that line again, leaving a scan that failed looking like one that worked.
+direct = DirectWindow()
+direct._request_refresh()
+direct._refresh_current_view()
+check(
+    "a direct repaint",
+    direct._refresh_timer is None,
+    "a batch's repaint was still queued behind a direct one",
+)
+run([(gui.REFRESH_COALESCE_MS * 3, lambda: None)])
+check(
+    "a superseded batch",
+    len(direct.repaints) == 1,
+    f"a direct repaint was followed by {len(direct.repaints) - 1} stale ones",
+)
+
 # A window on its way out leaves no repaint queued behind it.
 closing = Window()
 closing._request_refresh()

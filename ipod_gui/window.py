@@ -346,7 +346,11 @@ class IpodWindow(
         An Adw.ApplicationWindow has no titlebar of its own: whatever the
         content puts at the top is it. A plain box there leaves the window with
         nothing to drag it by and no minimise, maximise or close button, so
-        this is an Adw.HeaderBar, which carries all three and the drag gesture.
+        this is a box that is given both explicitly - a Gtk.WindowControls for
+        the buttons, wrapped in a Gtk.WindowHandle for the drag. An
+        Adw.HeaderBar would carry the two of them for free but lays its
+        children out in a way this row cannot use, for the reason recorded
+        below where the controls are added.
 
         Everything in it is allowed to shrink. The window offers a 640px
         minimum, and a header that cannot go that narrow makes the whole window

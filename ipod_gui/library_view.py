@@ -461,8 +461,10 @@ class LibraryViewMixin:
         from several a second down to one per interval.
 
         The final repaint is not coalesced away: it is the one that says what
-        the library actually holds, so it goes in at the front of the queue
-        rather than the back.
+        the library actually holds, so it replaces whatever is queued rather
+        than being dropped into it. It still waits out an interval, and still
+        waits for an open menu, because a repaint that skipped either of those
+        would close the menu it was avoiding.
         """
         if scan_complete:
             self._cancel_refresh()
@@ -488,6 +490,17 @@ class LibraryViewMixin:
             self._refresh_timer = None
 
     def _refresh_current_view(self, scan_complete=True):
+        """Repaint now, and let this be the last word.
+
+        A caller reaching straight for this has state the coalesced queue does
+        not know about - the end of a scan, a device appearing, a track being
+        queued - so anything still waiting on the timer is describing a library
+        that no longer exists. Left armed it lands up to an interval later and
+        undoes the caller: a failed scan sets its status line here and then
+        watches the stale repaint hide it again, leaving a library that looks
+        like it read fine.
+        """
+        self._cancel_refresh()
         self._populate_albums()
         visible = self.current_view()
         if visible == "album":

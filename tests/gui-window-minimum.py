@@ -13,9 +13,11 @@ the window being unusable at a width it offered.
 So this measures rather than looks: every page, and every bar that spans the
 window, has to fit the minimum the window advertises.
 
-The sidebar is deliberately not counted. It folds away into an overlay below
-780px, which is above the advertised minimum, so at any width where the
-minimum matters the sidebar is not taking space from the content.
+The sidebar is deliberately not counted. It folds away into an overlay at and
+below gui.SIDEBAR_COLLAPSE_WIDTH, which is well above the advertised minimum,
+so at any width where the minimum matters the sidebar is not taking space from
+the content. The widths just above that breakpoint are checked separately, at
+the end of measure().
 
 Needs a display, like tests/gui-window-build.py, and fails rather than skips
 without one for the same reason.

@@ -576,8 +576,12 @@ class RefreshWindow:
     # differently would be checking itself.
     current_view = gui.IpodWindow.current_view
     _grouped_by_artist = gui.IpodWindow._grouped_by_artist
+    # A repaint clears the coalesced queue behind it, so the real one is here
+    # too rather than a stand-in that would not.
+    _cancel_refresh = gui.IpodWindow._cancel_refresh
 
     def __init__(self, visible):
+        self._refresh_timer = None
         old_track = gui.Track("old.mp3", {"album": "Album"}, gui.STATE_LIBRARY)
         new_track = gui.Track("new.mp3", {"album": "Album"}, gui.STATE_LIBRARY)
         self.current_album = gui.Album("Album", "Unknown artist")
