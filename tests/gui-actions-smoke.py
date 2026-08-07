@@ -120,6 +120,10 @@ class FakeLibrary:
 class FakeWindow:
     """Records the commands the window would have run."""
 
+    def _update_refresh_spinner(self):
+        # Chrome the real window spins while a scan runs; nothing to show here.
+        pass
+
     def __init__(self):
         self.mount_point = "/media/alex/Alex's iPod"
         self.device_identity = "uuid:test-ipod"
@@ -547,12 +551,14 @@ callback(*callback_args)
 assert enrichment_window.pending_records[str(pending_only)]["artist"] == "Artist"
 
 
-class Selected:
-    def __init__(self, value):
-        self.value = value
+class Toggle:
+    """One of the two grouping buttons, as much of it as the code reads."""
 
-    def get_selected(self):
-        return self.value
+    def __init__(self, active):
+        self.active = active
+
+    def get_active(self):
+        return self.active
 
 
 class VisibleView:
@@ -569,6 +575,7 @@ class RefreshWindow:
     # decides whether a repaint reopens album detail, so a fake that answered
     # differently would be checking itself.
     current_view = gui.IpodWindow.current_view
+    _grouped_by_artist = gui.IpodWindow._grouped_by_artist
 
     def __init__(self, visible):
         old_track = gui.Track("old.mp3", {"album": "Album"}, gui.STATE_LIBRARY)
@@ -578,7 +585,7 @@ class RefreshWindow:
         replacement = gui.Album("Album", "Unknown artist")
         replacement.add(new_track)
         self.library = type("Library", (), {"collections": lambda _self, _mode: [replacement]})()
-        self.group_mode = Selected(0)
+        self.group_buttons = {"album": Toggle(True), "artist": Toggle(False)}
         self.views = VisibleView(visible)
         self.current_playlist = None
         self.repaints = 0
@@ -670,6 +677,10 @@ assert merge_library.device_only == [other_album]
 
 
 class SelectionWindow:
+    def _update_refresh_spinner(self):
+        # Chrome the real window spins while a scan runs; nothing to show here.
+        pass
+
     def __init__(self):
         queued = gui.Track("/music/queued.mp3", common, gui.STATE_LIBRARY)
         self.mount_point = "/media/A"
@@ -2981,6 +2992,12 @@ class PreviewWindow:
 
     def _refresh_current_view(self, scan_complete=True):
         self.repaints += 1
+
+    def _request_refresh(self, scan_complete=False):
+        # The real one waits out a coalescing interval on the main loop, which
+        # these checks do not run. Painting straight away keeps them counting
+        # repaints rather than counting timers.
+        self._refresh_current_view(scan_complete=scan_complete)
 
     def _populate_device_summary(self):
         pass

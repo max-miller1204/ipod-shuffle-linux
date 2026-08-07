@@ -62,11 +62,12 @@ EXPECTED = {
     "window": [
         "toasts", "stack", "views", "view_title", "nav_buttons", "split",
         "sidebar_toggle", "refresh_button", "empty_page", "mount_button",
-        "library_controls", "monitor",
+        "library_controls", "monitor", "window_controls",
     ],
     "library_view": [
         "album_flow", "album_filters", "library_table", "library_modes",
-        "library_status", "collection_heading", "group_mode", "mode_buttons",
+        "library_status", "collection_heading", "group_mode", "group_buttons",
+        "mode_buttons",
         "album_view", "album_tracks", "album_heading", "album_subheading",
         "album_actions", "album_art_holder", "library_view",
     ],

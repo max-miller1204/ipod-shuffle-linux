@@ -179,7 +179,11 @@ class PlaylistViewMixin:
         self.playlists_view = outer
 
         rail_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        rail_box.set_size_request(240, -1)
+        # The stack hands every page the width of its widest one, so this rail
+        # sets the floor for the whole window: at 240 it put the content pane's
+        # minimum above the 640 the window advertises, and a window narrower
+        # than its own contents lays out wrong rather than clipping.
+        rail_box.set_size_request(200, -1)
         # Explicitly, because both the heading and every row expand to push
         # something to their right edge, and GTK propagates that upwards: the
         # rail would take a share of every extra pixel the window gained and

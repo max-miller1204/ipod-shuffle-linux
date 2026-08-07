@@ -52,7 +52,12 @@ class SearchViewMixin:
             placeholder_text="Search your library and YouTube"
         )
         self.search_entry.add_css_class("sf-search")
-        self.search_entry.set_size_request(260, -1)
+        # A natural width rather than a hard floor. set_size_request pinned the
+        # field at 260px in a header the window promises can reach 640px wide,
+        # which made the content's real minimum wider than the window's own and
+        # left GTK painting widgets outside the space it had allocated them.
+        self.search_entry.set_width_chars(8)
+        self.search_entry.set_max_width_chars(26)
         self.search_entry.set_valign(Gtk.Align.CENTER)
         self.search_entry.connect("search-changed", self._on_search_changed)
         self.search_entry.connect("stop-search", lambda _e: self._clear_search())

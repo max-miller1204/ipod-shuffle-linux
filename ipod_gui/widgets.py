@@ -159,6 +159,53 @@ def playable_cover(window, track, view):
     return overlay
 
 
+def _open_popover(widget):
+    """The popover this widget is currently showing, or None.
+
+    A menu button hands its one over. A drop-down keeps its list in a popover
+    it has no accessor for, so that one is found by walking: it is a child of
+    the widget like anything else it draws.
+    """
+    if isinstance(widget, Gtk.MenuButton):
+        popover = widget.get_popover()
+        return popover if popover is not None and popover.get_visible() else None
+    stack = [widget]
+    while stack:
+        current = stack.pop()
+        child = current.get_first_child()
+        while child is not None:
+            if isinstance(child, Gtk.Popover) and child.get_visible():
+                return child
+            stack.append(child)
+            child = child.get_next_sibling()
+    return None
+
+
+def tooltip_beside_popover(widget, text):
+    """A tooltip that gets out of the way of the menu it sits on.
+
+    A tooltip is its own surface, and GTK goes on showing it while the widget
+    under the pointer opens a popover. The tip is then drawn over the list it
+    was describing and takes the click meant for the option beneath it, so the
+    menu closes having selected nothing - the control reads as simply not
+    working, and the tip blinking in and out as the pointer moves reads as the
+    window flickering.
+
+    Withheld while the popover is up rather than dropped altogether: that is
+    the one moment it is not wanted, because whatever it would have explained
+    is already open and on screen.
+    """
+    widget.set_has_tooltip(True)
+
+    def query(target, _x, _y, _keyboard, tooltip):
+        if _open_popover(target) is not None:
+            return False
+        tooltip.set_text(text)
+        return True
+
+    widget.connect("query-tooltip", query)
+
+
 def row_menu_button(build_popover, tooltip, dim=True):
     """The ⋯ that opens a row's menu.
 
@@ -176,7 +223,7 @@ def row_menu_button(build_popover, tooltip, dim=True):
     if dim:
         button.add_css_class("sf-row-menu")
     button.set_valign(Gtk.Align.CENTER)
-    button.set_tooltip_text(tooltip)
+    tooltip_beside_popover(button, tooltip)
     button.set_create_popup_func(lambda menu: menu.set_popover(build_popover()))
     return button
 

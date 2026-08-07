@@ -51,12 +51,27 @@ jobs:
           python3 -m py_compile ipod-gui.py ipod_gui/*.py tests/*.py tools/*.py
           python3 -c 'import ipod_gui'
 
+      # Needs a main loop but no display. A scan used to rebuild the whole
+      # grid per batch, which destroys the focused widget - and a popup that
+      # loses the focus is dismissed by the compositor, so an open menu could
+      # not survive the first seconds after launch.
+      - name: GUI repaints coalesce
+        run: python3 tests/gui-repaint-coalescing.py
+
       # The only check that constructs the window. Every other GUI check runs
       # methods unbound against a stand-in, so none of them would notice a
       # builder that stopped being called or a widget that never reached the
       # stack. -a picks a free display number rather than assuming :99 is free.
       - name: GUI window builds
         run: xvfb-run -a python3 tests/gui-window-build.py
+
+      # A window narrower than its own contents does not clip: GTK paints
+      # widgets outside the space it allocated them, so clicks stop landing on
+      # what is under the pointer. This measures every page against the
+      # minimum size the window advertises, which is the only way that gap
+      # shows up before somebody drags the window narrow.
+      - name: GUI window fits its minimum
+        run: xvfb-run -a python3 tests/gui-window-minimum.py
 
       # The suite's playlist check runs the real upstream builder against the
       # rewritten list a sync produces, which the fake builder cannot vouch

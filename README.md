@@ -120,6 +120,7 @@ Queueing an album or a track shows it as pending space in the storage meter, and
 The copy reports each file as it lands, which a 2GB device over USB 2.0 badly needed: the progress bar, the file list and the raw script output all sit in a bar above the player.
 
 The grid groups by album or by artist, and swaps for a sortable table of every track: click a column to sort by title, album, state or length.
+Both choices are remembered, so the app reopens on the view you left it in rather than back on the album grid.
 The state pills count and filter the collections shown in the grid, or the individual tracks shown in the table, so their totals always describe the active view.
 
 Local music folders are configurable under **Device & Settings**, which is also where the sync options, **Rebuild database**, **Wipe** and **Eject** live.
@@ -230,7 +231,7 @@ None of it reaches the iPod.
 `ipod-fetch.sh` still passes `--no-embed-thumbnail`, because cover art is pure waste on a 2GB device with no screen; artwork exists only in the cache on this computer.
 Thumbnails are 16:9 and covers are square, so they are centre-cropped to fill, which is what happens to any embedded cover that is not square either.
 
-The interface follows the system light and dark preference, and folds its sidebar away below 780px.
+The interface follows the system light and dark preference, and folds its sidebar away below 940px - the width beneath which there is no longer room for the sidebar and the content side by side, rather than a matter of taste.
 
 Device-changing actions run the same scripts documented below, so their copy and database rules are shared with the command line.
 
@@ -721,12 +722,19 @@ Thumbnail fetching is checked against a local HTTP server rather than YouTube, s
 Symlinked sources are checked on both sides of the same folder, because the script and the GUI walk it separately and the count the GUI produces is what drives the sync progress bar: `tests/gui-scan-paths.py` prints what the scan finds, and the suite holds it against what the sync actually copied.
 That folder carries every case the walk has to survive - a linked track, a linked folder, a link out of the tree, a dangling link, and a folder that links back to its own parent - since `os.walk` has no loop detection of its own and would otherwise recurse through the last one forever.
 
+`tests/gui-repaint-coalescing.py` covers the repaint queue, which needs a main loop but no display: a scan publishes a batch every 25 tracks and a device read publishes one per read, and each of those used to rebuild every card in the grid.
+That was not only wasted work - rebuilding destroys the widget the focus is on, GTK moves the focus out of a popup when that happens, and a Wayland compositor treats a popup that has lost the focus as dismissed, so an open menu was closed about ten milliseconds after it appeared and the grouping drop-down could not be used until the first scan had finished.
+The check holds a burst of batches to one repaint, holds repaints back entirely while a popover has the focus, and asserts the deferred repaint still lands once the menu closes.
+
 `tests/gui-window-build.py` is the display-backed exception: it constructs the real window so a missing builder call, bad widget parent, or incomplete view stack cannot pass behind the stand-ins. Run it under a desktop session or with `xvfb-run -a`; it fails instead of skipping when no display is available.
+`tests/gui-window-minimum.py` is the other one, and it measures rather than looks: it fills the window with long names and holds every page and bar to the minimum size the window advertises.
+A window whose contents do not fit the minimum it asked for is not merely cramped - GTK allocates widgets a rectangle smaller than they asked for and then paints them at the size they wanted, so clicks land beside the control under the pointer, hover flickers, and a tooltip can open over the menu it belongs to.
+Nothing in a screenshot says which page is one long album title away from that, so the widths are asserted instead.
 `tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the Xephyr recipe that brings the window up at exactly 1180x760 on any machine.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, and the real-window check under xvfb on every push and pull request.
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, and both real-window checks under xvfb on every push and pull request.
 
 ## Credits
 

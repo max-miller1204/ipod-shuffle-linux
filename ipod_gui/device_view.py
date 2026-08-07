@@ -482,6 +482,7 @@ class DeviceViewMixin:
         self.device_track_count = 0
         self.device_usage = None
         self._device_scan_active = False
+        self._update_refresh_spinner()
         self._device_snapshot_ready = False
         if (
             mount_point is not None
@@ -704,6 +705,7 @@ class DeviceViewMixin:
         previous_ready = self._device_snapshot_ready
         self._device_scan_tracks = {}
         self._device_scan_active = True
+        self._update_refresh_spinner()
         self._update_device_controls()
         if self.pending_sources and not self._device_snapshot_ready:
             self.queued_label.set_text(
@@ -779,9 +781,10 @@ class DeviceViewMixin:
             }
             if scan_complete:
                 self._device_scan_active = False
+                self._update_refresh_spinner()
                 self._device_snapshot_ready = True
             self._merge_states()
-            self._refresh_current_view(scan_complete=scan_complete)
+            self._request_refresh(scan_complete=scan_complete)
         return False
 
     def _finish_device_scan(self, generation, mount_point):
@@ -799,6 +802,7 @@ class DeviceViewMixin:
         if generation != self.tag_generation or mount_point != self.mount_point:
             return False
         self._device_scan_active = False
+        self._update_refresh_spinner()
         self._device_snapshot_ready = previous_ready
         self.device_tracks = previous_tracks if previous_ready else []
         self._device_scan_tracks = {
