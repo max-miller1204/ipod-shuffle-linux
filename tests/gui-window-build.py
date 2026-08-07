@@ -314,6 +314,39 @@ def inspect(window):
                 )
         dialog.force_close()
 
+    # The Album/Artist pair, clicked the way the user clicks it. It is a
+    # choice of two with no third state, and the grouping it carries is not
+    # held anywhere but in the buttons - so clicking the lit one has to leave
+    # it lit rather than switch the grid to a grouping neither button shows.
+    # Only the real widgets answer this: which button is active when the
+    # handler runs is Gtk.ToggleButton's own ordering.
+    for chosen in ("artist", "album", "artist", "artist", "album", "album"):
+        window.group_buttons[chosen].emit("clicked")
+        lit = [
+            name
+            for name, button in window.group_buttons.items()
+            if button.get_active()
+        ]
+        if lit != [chosen]:
+            failures.append(
+                f"clicking {chosen!r} left {lit} lit in the grouping control"
+            )
+            break
+        if window._grouped_by_artist() != (chosen == "artist"):
+            failures.append(
+                f"clicking {chosen!r} left the grid grouped the other way"
+            )
+            break
+        # What the next launch reopens on. The user's report was that this
+        # never survived being closed, so the write is read back rather than
+        # assumed from the button.
+        saved, _view = gui.library_layout()
+        if saved != chosen:
+            failures.append(
+                f"clicking {chosen!r} saved the grouping as {saved!r}"
+            )
+            break
+
     # Closing stops the player and disowns any download; it is a mixin's job
     # now, so a split that lost the wiring would leave audio playing.
     window._on_close_request(window)

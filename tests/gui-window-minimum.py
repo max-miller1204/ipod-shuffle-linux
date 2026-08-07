@@ -55,11 +55,17 @@ gui.find_ipods = lambda: []
 failures = []
 measured = []
 
-# How much wider a real library's content pane runs than the fixture below can
-# make it: cover art, a shelf of playlists, a device that has been probed. The
-# sidebar threshold is held this far clear of what is measured here so that
-# clearing it in CI means clearing it on a machine with music on it too.
-FIXTURE_ALLOWANCE = 150
+# How much wider the same window runs on a machine that is not this one. The
+# fixture below builds every page's content, so what is left over is font
+# metrics: the pages that set the pane's width are lists of text, and the
+# widest of them moves about twenty pixels either side of the default across
+# the font sizes a desktop offers. This is that spread with room over it, so
+# clearing the sidebar threshold in CI means clearing it on the user's screen.
+#
+# It does not stand in for content any more. It used to, and it was set from a
+# pane the playlist fixture never reached - so keep it below what the fixture
+# leaves unmeasured, or a page that stops being built goes back to passing.
+FIXTURE_ALLOWANCE = 50
 
 
 def walk(widget):
@@ -128,15 +134,15 @@ def populate(window):
     ]
     window.library.tracks = tracks
 
+    # Written to the sandbox rather than assigned onto the window: the files
+    # are the playlists, and every paint here starts by re-reading the folder,
+    # so a list handed straight to the attribute is gone before it is measured.
     name = "A Playlist With A Long Name"
-    window.local_playlists = [
-        gui.Playlist(
-            title,
-            f"/music/Playlists/{index}.m3u",
+    for title in (name, "Another Long Playlist Name"):
+        gui.write_playlist_entries(
+            gui.local_playlist_file(gui.PLAYLIST_LIBRARY, title),
             [track.path for track in tracks],
         )
-        for index, title in enumerate((name, "Another Long Playlist Name"))
-    ]
 
     # A device, because the settings page is the widest of them and most of
     # what it shows is only there once one is attached: its name, its mount
@@ -243,11 +249,8 @@ def check(window):
     pane = minimum_width(window.split.get_content())
     together = sidebar_width + pane
     measured.append(("sidebar + pane", together))
-    # With room to spare, because the fixture above is thinner than a real
-    # library: no cover art, a couple of playlists, one album open. Measured
-    # against a real one the same pane is around 100px wider, so a threshold
-    # that only just clears what this file can build would still be too low on
-    # a machine with music on it.
+    # With room to spare, so the threshold is not sitting on the exact number
+    # this machine's fonts happen to produce.
     if together + FIXTURE_ALLOWANCE > gui.SIDEBAR_COLLAPSE_WIDTH:
         failures.append(
             f"the sidebar is shown from {gui.SIDEBAR_COLLAPSE_WIDTH + 1}px up, "

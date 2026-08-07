@@ -65,7 +65,7 @@ class LibraryViewMixin:
         # maps - so the menu could not be used at all unless the window was
         # maximised or on a 1x monitor. Reproduced in twenty-five lines of
         # stock GTK with no code of this app's involved; see the goal
-        # `grouping-menu-is-dismissed-on-a-floating`. Two buttons show both
+        # `stop-startup-repaints-from-dismissing`. Two buttons show both
         # choices at once, need no popup, and cannot fail that way.
         self.group_mode = Gtk.Box()
         self.group_mode.add_css_class("linked")
@@ -182,8 +182,13 @@ class LibraryViewMixin:
     def _on_group_mode_toggled(self, button, name):
         if not button.get_active():
             # Refuse to leave neither selected; this is a choice of two, the
-            # same as the grid and table toggles beside it.
-            if self._group_mode_name() == name:
+            # same as the grid and table toggles beside it. Asked of the pair
+            # rather than of the button that just went out: the grouping is
+            # not held anywhere else, so mid-toggle the only honest answer to
+            # "which one is on" is whichever one still is.
+            if not any(
+                widget.get_active() for widget in self.group_buttons.values()
+            ):
                 button.set_active(True)
             return
         for other, widget in self.group_buttons.items():
