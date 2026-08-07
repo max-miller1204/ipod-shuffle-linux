@@ -266,6 +266,18 @@ def check(window):
     # widths just above the breakpoint, where the sidebar comes back. The
     # window is legal at every size from its minimum upwards, so the moment the
     # sidebar is shown there has to be room for it beside the content.
+    #
+    # Measured with the view title shown, which it is not at the moment. The
+    # window is up at its own minimum here, so the narrowest breakpoint is the
+    # one applied and it hides that title - and a hidden child measures as
+    # nothing. But the band being asked about is the one where the sidebar is
+    # back, hundreds of pixels above where the title goes away, so up there the
+    # title is on screen and takes its own width plus the header's spacing out
+    # of the pane. Left hidden it comes out about thirty pixels light, and a
+    # heading that stopped ellipsising would put the real figure over the
+    # threshold with this check still green.
+    was_titled = window.view_title.get_visible()
+    window.view_title.set_visible(True)
     sidebar_width = minimum_width(window.split.get_sidebar())
     pane = minimum_width(window.split.get_content())
     together = sidebar_width + pane
@@ -281,6 +293,7 @@ def check(window):
             f"for. Raise SIDEBAR_COLLAPSE_WIDTH, or make the pane narrower; "
             f"widest thing in the pane: {widest(window.split.get_content())}"
         )
+    window.view_title.set_visible(was_titled)
 
 
 def on_activate(app):

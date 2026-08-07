@@ -40,11 +40,11 @@ from .commands import CommandsMixin
 # is what tests/gui-window-minimum.py checks it against.
 #
 # 940 rather than something rounder. A library with a device attached needs
-# around 860 of it, measured with every page built, and the rest is the margin
-# that keeps the same window clear of this on a desktop whose fonts are not
-# the ones the check ran against. Above 960 would also take the sidebar away
-# from a window tiled to half of a 1920px screen, which is the most ordinary
-# way this app is ever half-sized.
+# around 860 of it, measured with every page built and the view title counted,
+# and the rest is the margin that keeps the same window clear of this on a
+# desktop whose fonts are not the ones the check ran against. Above 960 would
+# also take the sidebar away from a window tiled to half of a 1920px screen,
+# which is the most ordinary way this app is ever half-sized.
 SIDEBAR_COLLAPSE_WIDTH = 940
 TITLE_HIDE_WIDTH = 700
 

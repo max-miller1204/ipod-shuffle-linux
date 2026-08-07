@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 80,
+  "revision": 81,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -136,10 +136,11 @@
     {
       "id": "add-top-bar-to-maximize-minimize-close",
       "title": "Add top bar to maximize/minimize/close the window",
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-04T20:00:24.363Z",
-      "updatedAt": "2026-08-05T04:01:15.102Z",
-      "group": "UI"
+      "updatedAt": "2026-08-07T06:34:22.961Z",
+      "group": "UI",
+      "completedAt": "2026-08-07T06:34:22.961Z"
     },
     {
       "id": "wipe-the-ipod-and-redownload-everything",
