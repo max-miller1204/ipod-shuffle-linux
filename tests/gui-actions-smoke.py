@@ -551,14 +551,14 @@ callback(*callback_args)
 assert enrichment_window.pending_records[str(pending_only)]["artist"] == "Artist"
 
 
-class Toggle:
-    """One of the two grouping buttons, as much of it as the code reads."""
+class Grouping:
+    """The Album/Artist drop-down, as much of it as the code reads."""
 
-    def __init__(self, active):
-        self.active = active
+    def __init__(self, selected):
+        self.selected = selected
 
-    def get_active(self):
-        return self.active
+    def get_selected(self):
+        return self.selected
 
 
 class VisibleView:
@@ -589,7 +589,7 @@ class RefreshWindow:
         replacement = gui.Album("Album", "Unknown artist")
         replacement.add(new_track)
         self.library = type("Library", (), {"collections": lambda _self, _mode: [replacement]})()
-        self.group_buttons = {"album": Toggle(True), "artist": Toggle(False)}
+        self.group_mode = Grouping(gui.GROUP_MODES.index("album"))
         self.views = VisibleView(visible)
         self.current_playlist = None
         self.repaints = 0

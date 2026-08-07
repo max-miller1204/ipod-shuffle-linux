@@ -20,6 +20,7 @@ from gi.repository import Adw, GLib, Gtk
 
 from .config import (
     AUDIO_EXTENSIONS,
+    GROUP_MODES,
     PREVIEW_CACHE,
     STATE_IPOD,
     STATE_LABELS,
@@ -58,29 +59,25 @@ class LibraryViewMixin:
         """
         self.library_controls = Gtk.Box(spacing=8, valign=Gtk.Align.CENTER)
 
-        # Two linked toggles rather than a drop-down, matching the grid/table
-        # pair beside them. A Gtk.DropDown opens its list as a popup surface
-        # whose positioner is reactive, and on a 2x display a floating window's
-        # popup is dismissed by the compositor about ten milliseconds after it
-        # maps - so the menu could not be used at all unless the window was
-        # maximised or on a 1x monitor. Reproduced in twenty-five lines of
-        # stock GTK with no code of this app's involved; see the goal
-        # `stop-startup-repaints-from-dismissing`. Two buttons show both
-        # choices at once, need no popup, and cannot fail that way.
-        self.group_mode = Gtk.Box()
-        self.group_mode.add_css_class("linked")
+        # Known broken on one arrangement, and deliberately kept anyway: a
+        # Gtk.DropDown opens its list as a popup whose positioner is reactive,
+        # and on a 2x display a floating window's popup is dismissed by the
+        # compositor about ten milliseconds after it maps, so the list flashes
+        # open and shut. Maximised, or on a 1x monitor, it is fine. That is not
+        # this app's code - it reproduces in twenty-five lines of stock GTK
+        # with a bare window and nothing else in it, and every GTK app on such
+        # a display behaves the same way. The goal
+        # `stop-startup-repaints-from-dismissing` holds the trace and the
+        # routes to a real fix; swapping the control out here would only have
+        # hidden a compositor bug behind app code.
+        self.group_mode = Gtk.DropDown.new_from_strings(["Album", "Artist"])
+        self.group_mode.add_css_class("flat")
         self.group_mode.set_tooltip_text("Group the library by album or by artist")
-        self.group_buttons = {}
-        for name, text in (("album", "Album"), ("artist", "Artist")):
-            button = Gtk.ToggleButton(label=text)
-            button.set_valign(Gtk.Align.CENTER)
-            # Set before the handler is connected, so reopening the app on the
-            # grouping it was left in does not count as a change and repaint a
-            # grid that has not been filled yet.
-            button.set_active(name == self._saved_group_mode)
-            button.connect("toggled", self._on_group_mode_toggled, name)
-            self.group_mode.append(button)
-            self.group_buttons[name] = button
+        # Selected before the handler is connected, so reopening the app on the
+        # grouping it was left in does not count as a change and repaint a grid
+        # that has not been filled yet.
+        self.group_mode.set_selected(GROUP_MODES.index(self._saved_group_mode))
+        self.group_mode.connect("notify::selected", self._on_group_mode_changed)
         self.library_controls.append(self.group_mode)
 
         modes = Gtk.Box()
@@ -174,26 +171,14 @@ class LibraryViewMixin:
         return scroller
 
     def _grouped_by_artist(self):
-        return self.group_buttons["artist"].get_active()
+        return self.group_mode.get_selected() == GROUP_MODES.index("artist")
 
     def _group_mode_name(self):
-        return "artist" if self._grouped_by_artist() else "album"
+        return GROUP_MODES[1] if self._grouped_by_artist() else GROUP_MODES[0]
 
-    def _on_group_mode_toggled(self, button, name):
-        if not button.get_active():
-            # Refuse to leave neither selected; this is a choice of two, the
-            # same as the grid and table toggles beside it. Asked of the pair
-            # rather than of the button that just went out: the grouping is
-            # not held anywhere else, so mid-toggle the only honest answer to
-            # "which one is on" is whichever one still is.
-            if not any(
-                widget.get_active() for widget in self.group_buttons.values()
-            ):
-                button.set_active(True)
-            return
-        for other, widget in self.group_buttons.items():
-            if other != name:
-                widget.set_active(False)
+    def _on_group_mode_changed(self, *_args):
+        # The header is built before the grid it groups, so the selection
+        # restored above arrives before there is anything to repaint.
         if not self._library_ready:
             return
         self._populate_albums()

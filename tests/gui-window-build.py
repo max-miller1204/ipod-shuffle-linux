@@ -66,7 +66,7 @@ EXPECTED = {
     ],
     "library_view": [
         "album_flow", "album_filters", "library_table", "library_modes",
-        "library_status", "collection_heading", "group_mode", "group_buttons",
+        "library_status", "collection_heading", "group_mode",
         "mode_buttons",
         "album_view", "album_tracks", "album_heading", "album_subheading",
         "album_actions", "album_art_holder", "library_view",
@@ -314,27 +314,23 @@ def inspect(window):
                 )
         dialog.force_close()
 
-    # The Album/Artist pair, clicked the way the user clicks it. It is a
-    # choice of two with no third state, and the grouping it carries is not
-    # held anywhere but in the buttons - so clicking the lit one has to leave
-    # it lit rather than switch the grid to a grouping neither button shows.
-    # Only the real widgets answer this: which button is active when the
-    # handler runs is Gtk.ToggleButton's own ordering.
+    # The Album/Artist drop-down, moved the way the user moves it. The grouping
+    # is not held anywhere but in the widget, so what the grid draws and what
+    # the next launch reopens on both have to follow the selection rather than
+    # a copy of it kept beside it. Repeats are in the sequence on purpose:
+    # re-choosing what is already chosen emits no notify at all, and must
+    # leave both of those where they were rather than reading as a change.
     for chosen in ("artist", "album", "artist", "artist", "album", "album"):
-        window.group_buttons[chosen].emit("clicked")
-        lit = [
-            name
-            for name, button in window.group_buttons.items()
-            if button.get_active()
-        ]
-        if lit != [chosen]:
+        window.group_mode.set_selected(gui.GROUP_MODES.index(chosen))
+        if window.group_mode.get_selected() != gui.GROUP_MODES.index(chosen):
             failures.append(
-                f"clicking {chosen!r} left {lit} lit in the grouping control"
+                f"choosing {chosen!r} left the grouping control showing "
+                f"{gui.GROUP_MODES[window.group_mode.get_selected()]!r}"
             )
             break
         if window._grouped_by_artist() != (chosen == "artist"):
             failures.append(
-                f"clicking {chosen!r} left the grid grouped the other way"
+                f"choosing {chosen!r} left the grid grouped the other way"
             )
             break
         # What the next launch reopens on. The user's report was that this
@@ -343,7 +339,7 @@ def inspect(window):
         saved, _view = gui.library_layout()
         if saved != chosen:
             failures.append(
-                f"clicking {chosen!r} saved the grouping as {saved!r}"
+                f"choosing {chosen!r} saved the grouping as {saved!r}"
             )
             break
 
@@ -361,7 +357,7 @@ def inspect(window):
             f"saving the music folders turned the grouping from "
             f"{before_group!r} into {after_group!r}"
         )
-    window.group_buttons["artist"].emit("clicked")
+    window.group_mode.set_selected(gui.GROUP_MODES.index("artist"))
     if gui.music_roots() != roots:
         failures.append(
             f"saving the grouping dropped the music folders: {gui.music_roots()}"
