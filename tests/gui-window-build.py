@@ -75,6 +75,8 @@ EXPECTED = {
         "search_entry", "search_view", "search_local_table",
         "search_youtube_rows", "search_local_note", "search_youtube_note",
         "search_local_count", "search_youtube_count",
+        "search_playlist_row", "search_playlist_label", "search_playlist_add",
+        "clipboard_offer", "clipboard_offer_label",
     ],
     "playlist_view": [
         "playlist_rail", "playlist_list", "playlist_shelf", "shelf_section",
@@ -136,6 +138,22 @@ def find_button(widget, text):
         ):
             return found
     return None
+
+
+class FakeClipboard:
+    """A clipboard holding one string, answered the async way GTK answers.
+
+    The real read is a Gio async call, and driving one from here would mean
+    pumping the loop from inside the callback that is already running on it.
+    What the window does with the answer is the subject, so the answer is
+    handed over directly.
+    """
+
+    def __init__(self, text):
+        self.text = text
+
+    def read_text_finish(self, _result):
+        return self.text
 
 
 def menu_text(widget):
@@ -457,6 +475,115 @@ def inspect(window):
             f"a config save that could not finish still moved the layout from "
             f"{layout_before} to {gui.library_layout()}"
         )
+
+    # The one field that reaches YouTube has to say that a link goes in it.
+    # Pasting one has worked since the search shipped and nobody would know:
+    # the placeholder only offered to search, which is why a dialog on the
+    # settings page went on being reached for instead.
+    placeholder = window.search_entry.get_placeholder_text() or ""
+    if "paste" not in placeholder.lower():
+        failures.append(
+            f"the search field's placeholder never mentions pasting a link: "
+            f"{placeholder!r}"
+        )
+    # The field is far too narrow for the whole sentence, so the tooltip is
+    # where both sources and the link are actually named - and it is what a
+    # screen reader reads out, since the field carries no label of its own.
+    tip = window.search_entry.get_tooltip_text() or ""
+    for word in ("library", "YouTube", "link"):
+        if word.lower() not in tip.lower():
+            failures.append(f"the search field's tooltip never says {word}: {tip!r}")
+
+    # The strip offering a link off the clipboard, driven the way the user
+    # drives it. Built at construction and revealed later, so nothing else
+    # here would notice a label appended to the wrong box or a button whose
+    # handler cannot run.
+    window._offered_links.clear()
+    window._offer_clipboard_link(FakeClipboard("  https://youtu.be/abc  "), None)
+    if not window.clipboard_offer.get_reveal_child():
+        failures.append("a link on the clipboard was never offered")
+    if "youtu.be/abc" not in window.clipboard_offer_label.get_text():
+        failures.append(
+            f"the offer does not name the link: "
+            f"{window.clipboard_offer_label.get_text()!r}"
+        )
+    # Offered rather than typed in: nothing has run until the offer is taken.
+    if window.search_entry.get_text():
+        failures.append(
+            f"a clipboard link filled the field by itself: "
+            f"{window.search_entry.get_text()!r}"
+        )
+    use = find_button(window.clipboard_offer, "Look it up")
+    if use is None:
+        failures.append("the clipboard offer has no button to take it up")
+    else:
+        use.emit("clicked")
+        if window.search_entry.get_text() != "https://youtu.be/abc":
+            failures.append(
+                f"taking the offer left the field reading "
+                f"{window.search_entry.get_text()!r}"
+            )
+        if window.clipboard_offer.get_reveal_child():
+            failures.append("the offer stayed up after it had been taken")
+    window.search_entry.set_text("")
+    # And the same link is not offered a second time: the field is empty again
+    # every time the window is come back to, so an offer that returned after
+    # being turned down would be back on every visit.
+    window._offer_clipboard_link(FakeClipboard("https://youtu.be/abc"), None)
+    if window.clipboard_offer.get_reveal_child():
+        failures.append("a link that had already been offered came back")
+
+    # The header above the YouTube results, which is the whole of what tells
+    # three rows of a forty-track playlist from a three-track playlist.
+    window.search_results = [result]
+    window.search_playlist = gui.LinkedPlaylist(
+        "Road Trip", 40, "https://www.youtube.com/playlist?list=PL1", 3
+    )
+    window._paint_youtube_section()
+    if not window.search_playlist_row.get_visible():
+        failures.append("a resolved playlist showed no header above its rows")
+    said = window.search_playlist_label.get_text()
+    if "Road Trip" not in said or "40 tracks" not in said:
+        failures.append(f"the playlist header reads {said!r}")
+    if not window.search_playlist_add.get_visible():
+        failures.append("a playlist of a stated length offered no Add all")
+    if window.search_playlist_add not in window.search_add_buttons:
+        failures.append(
+            "Add all is not one of the buttons a device appearing makes "
+            "sensitive, so it would stay disabled with an iPod plugged in"
+        )
+
+    # A Mix, a channel or a /videos tab reports no length, because it is
+    # paginated rather than finite. The header still names it - that is what
+    # explains the three rows - but there is no whole of it to offer in one
+    # press onto a device with two gigabytes on it, and each row keeps its Add.
+    window.search_playlist = gui.LinkedPlaylist(
+        "Bohemian Rhapsody Radio",
+        0,
+        "https://www.youtube.com/watch?v=fJ9rUzIMcZQ&list=RDfJ9rUzIMcZQ",
+        3,
+    )
+    window._paint_youtube_section()
+    if not window.search_playlist_row.get_visible():
+        failures.append("a listing of no stated length showed no header at all")
+    said = window.search_playlist_label.get_text()
+    if "Bohemian Rhapsody Radio" not in said:
+        failures.append(f"the header did not name the listing: {said!r}")
+    if window.search_playlist_add.get_visible():
+        failures.append(
+            "Add all was offered for a listing yt-dlp gave no length for, "
+            "which is one press to fetch a mix or a channel with no end to it"
+        )
+    if window.search_playlist_add in window.search_add_buttons:
+        failures.append(
+            "a hidden Add all is still on the list a device appearing makes "
+            "sensitive, so plugging in would light up a button that is not there"
+        )
+
+    window.search_playlist = None
+    window._paint_youtube_section()
+    if window.search_playlist_row.get_visible():
+        failures.append("the playlist header outlived the playlist it named")
 
     # Closing stops the player and disowns any download; it is a mixin's job
     # now, so a split that lost the wiring would leave audio playing.

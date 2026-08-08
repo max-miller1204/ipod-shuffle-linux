@@ -1,0 +1,46 @@
+What pressing Add all actually ran, read off the process table
+==============================================================
+
+Independent re-run of the Add all press, in the Xephyr recipe
+tools/demo-library.py prints, against the real playlist
+PL0-84-yl1fUnRuXGFe_F7qSH1LEnn9LkW (fifteen videos) over the network, with
+yt-dlp 2026.07.04 from install.sh's virtualenv.
+
+Read with `ps -eo pid,args` while the press was still running, rather than off
+the log pane, so the flags are the ones the process was given.
+
+  ipod-fetch.sh
+    --output /tmp/shuffle-demo/home/Music/youtube
+    --new-tracks /tmp/ipod-fetch-j1vc3dkh.list
+    https://www.youtube.com/playlist?list=PL0-84-yl1fUnRuXGFe_F7qSH1LEnn9LkW
+
+No --single, so no --no-playlist reaches yt-dlp, which is what the Add from
+YouTube dialog's Whole playlist switch produced:
+
+  yt-dlp --format bestaudio[audio_channels<=2] --extract-audio
+    --audio-format mp3 --audio-quality 256k
+    --postprocessor-args ExtractAudio:-ac 2 -af alimiter=... ,aresample=...
+    --embed-metadata --no-embed-thumbnail --windows-filenames
+    --replace-in-metadata uploader " - Topic$" ""
+    --output /tmp/shuffle-demo/home/Music/youtube/%(artist,uploader)s/%(track,title)s [%(id)s].%(ext)s
+    --download-archive /tmp/shuffle-demo/home/Music/youtube/.fetched
+    --js-runtimes bun
+    --print-to-file after_move:filepath /tmp/ipod-fetch-j1vc3dkh.list
+    -- https://www.youtube.com/playlist?list=PL0-84-yl1fUnRuXGFe_F7qSH1LEnn9LkW
+
+It was left to finish rather than stopped. All fifteen streams came down from
+the one press - three is what the section showed - and the download archive
+ended with fifteen lines:
+
+  Lesson 1  [1F_OgqRuSdI]     Lesson 9   [WB4hJJkfhLU]
+  Lesson 2  [7qHMXu99d88]     Lesson 10  [M-CoVBK_bLE]
+  Lesson 3  [buMTH6ICnqk]     Lesson 11  [qS0UkqaYmfU]
+  Lesson 4  [4XA9CKJJbr4]     Lesson 12  [48WXHT0dfEY]
+  Lesson 5  [lWeCgEbk-Ro]     Lesson 13  [5n6o1MaXDoE]
+  Lesson 6  [885qKiiKisI]     Lesson 14  [umTnflPbYww]
+  Lesson 7  [HFQGxh1jY3g]     Lesson 15  [Z9IxxW7428A]
+  Lesson 8  [xJLj6fWfw6k]
+
+test-06-add-all-queued.png is the window at the end of it: the storage meter
+reads "+266.3 MB queued to sync", which is the whole list staged for the
+device, not the three rows that were on screen.

@@ -157,6 +157,37 @@ def populate(window):
     window.device_track_count = len(tracks)
     window._populate_device_summary()
 
+    # The search page, which measures as an empty heading until a search has
+    # run in it. Both halves, because they are two lists of the same kind of
+    # long title and either one can be the wider.
+    window.search_query = "track"
+    window.search_results = [
+        gui.SearchResult(
+            "A Reasonably Long Video Title (Official Audio)",
+            "A Channel With A Long Name",
+            245,
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "dQw4w9WgXcQ",
+        )
+    ]
+    # Two strips nothing produces at rest, and a hidden child measures as
+    # nothing: the header naming the playlist a pasted link resolved to, and
+    # the clipboard offer under the window's own header. Left as they are, the
+    # first time either appeared in a narrow window would be the first time
+    # anything measured whether it fitted.
+    window.search_playlist = gui.LinkedPlaylist(
+        "A Playlist With A Long Name",
+        40,
+        "https://www.youtube.com/playlist?list=PLAnUnaBFhOM0Y3nVQFwq6b3lFm0",
+        len(window.search_results),
+    )
+    window._paint_local_results()
+    window._paint_youtube_section()
+    window.clipboard_offer_label.set_text(
+        "On your clipboard: youtube.com/playlist?list=PLAnUnaBFhOM0Y3nVQFwq6b3lFm0"
+    )
+    window.clipboard_offer.set_reveal_child(True)
+
     window._populate_albums()
     window._populate_playlist_rail()
     # The shelf along the top of the library page, which carries a tile per
@@ -189,6 +220,18 @@ def check(window):
                 f"{limit}px wide; widest thing in it: {widest(page)}"
             )
 
+    # Named on its own as well as counted inside the search page. It is hidden
+    # at rest like the clipboard offer, so a paint that stopped putting it up
+    # would leave that page's number vouching for a strip it had never
+    # included, and the check above would pass by measuring nothing.
+    header = minimum_width(window.search_playlist_row)
+    measured.append(("playlist header", header))
+    if header <= 0:
+        failures.append(
+            "the playlist header measured nothing while shown, so nothing here "
+            "has checked that it fits the window's minimum"
+        )
+
     # The bars along the bottom, which span the window rather than sitting
     # inside a page. Taken from the toolbar view's own children rather than by
     # style class: a class names one bar, so the sync bar went unmeasured for
@@ -199,6 +242,18 @@ def check(window):
     # The header is not here because it is not a toolbar-view bar: it sits at
     # the top of the split's content, so the content pane already carries it.
     spanning = [("content pane", window.split.get_content())]
+    # Named on its own as well as counted inside the pane. It is the one thing
+    # here that is hidden at rest, so a revealer that measured as nothing while
+    # revealed would leave the pane's number vouching for a strip it had never
+    # included, and this check would pass by measuring nothing at all.
+    offer = minimum_width(window.clipboard_offer)
+    if offer <= 0:
+        failures.append(
+            "the clipboard offer measured nothing while revealed, so nothing "
+            "here has checked that it fits the window's minimum"
+        )
+    else:
+        spanning.append(("clipboard offer", window.clipboard_offer))
     bars = next(
         (found for found in walk(window) if isinstance(found, Adw.ToolbarView)),
         None,

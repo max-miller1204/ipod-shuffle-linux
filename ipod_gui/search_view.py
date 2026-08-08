@@ -1,9 +1,11 @@
 """One search field over two sources: the local library and YouTube.
 
-Owns the search field in the header, both result sections, the skeleton rows
-that hold the YouTube half's space while it loads, `search_generation` and the
-debounce timeout that keep an older query from landing on a newer one, and the
-thumbnail fetch behind the rows.
+Owns the search field in the header, the strip under it that offers a link the
+clipboard already holds, both result sections, the skeleton rows that hold the
+YouTube half's space while it loads, the header naming the playlist a pasted
+link resolved to, `search_generation` and the debounce timeout that keep an
+older query from landing on a newer one, and the thumbnail fetch behind the
+rows.
 
 Borrows from the window: `library` to match against, `mount_point`,
 `device_identity`, `busy` and `youtube_unavailable` to decide whether a result
@@ -14,7 +16,7 @@ act on a result.
 
 import threading
 
-from gi.repository import GLib, Gtk
+from gi.repository import Gdk, GLib, Gtk
 
 from .config import ART_CACHE, PREVIEW_CACHE
 from .text import human_duration, plural
@@ -24,7 +26,10 @@ from .youtube import (
     YOUTUBE_SEARCH_RESULTS,
     cache_thumbnail,
     cached_thumbnail_for,
+    is_downloadable_url,
+    linked_playlist,
     search_youtube,
+    short_link,
     youtube_art_path,
 )
 from .previews import cached_preview_path
@@ -42,14 +47,24 @@ from .widgets import (
 
 class SearchViewMixin:
     def _build_search_entry(self):
-        """The one field in the header, over both sources.
+        """The one field in the header, over both sources and over links.
 
         Which source a result came from is said by the section it lands in,
         not by asking the user to choose a source before they have typed
         anything.
+
+        The placeholder names pasting because a field that only offers to
+        search reads as a field that only searches, and looking a pasted link
+        up here is the whole of what the Add from YouTube dialog was for. The
+        sentence naming both sources does not fit in a 26-character field and
+        a placeholder is clipped rather than ellipsised, so it goes in the
+        tooltip - which is also what a screen reader reads out.
         """
         self.search_entry = Gtk.SearchEntry(
-            placeholder_text="Search your library and YouTube"
+            placeholder_text="Search or paste a link"
+        )
+        self.search_entry.set_tooltip_text(
+            "Search your library and YouTube, or paste a link to look it up"
         )
         self.search_entry.add_css_class("sf-search")
         # A natural width rather than a hard floor. set_size_request pinned the
@@ -61,7 +76,133 @@ class SearchViewMixin:
         self.search_entry.set_valign(Gtk.Align.CENTER)
         self.search_entry.connect("search-changed", self._on_search_changed)
         self.search_entry.connect("stop-search", lambda _e: self._clear_search())
+        # Any text at all takes the clipboard offer away: what is being typed
+        # is what the search is about, and a strip under the field suggesting
+        # something else is then in the way of reading the results.
+        self.search_entry.connect("changed", lambda _e: self._hide_clipboard_offer())
+        # Focus rather than startup, because that is the moment the offer
+        # answers: the user has come back from wherever they copied the link
+        # and reached for the field they would paste it into.
+        focus = Gtk.EventControllerFocus()
+        focus.connect("enter", lambda _c: self._read_clipboard_link())
+        self.search_entry.add_controller(focus)
         return self.search_entry
+
+    # ----------------------------------------------------- clipboard offer
+
+    def _build_clipboard_offer(self):
+        """The strip under the header offering a link already on the clipboard.
+
+        Offered rather than typed into the field: a clipboard that happens to
+        hold a link must never silently change what the next search is about.
+
+        A strip rather than a popover over the field. A popover is placed by
+        the compositor, and the one drop-down this window already has is
+        dismissed on sight under GNOME's legacy HiDPI scaling; a suggestion
+        that appears and vanishes would read as the window flickering.
+        """
+        row = Gtk.Box(spacing=10)
+        row.add_css_class("sf-clipboard-offer")
+        row.set_margin_start(18)
+        row.set_margin_end(12)
+        row.set_margin_top(7)
+        row.set_margin_bottom(7)
+
+        icon = Gtk.Image.new_from_icon_name("edit-paste-symbolic")
+        icon.set_valign(Gtk.Align.CENTER)
+        row.append(icon)
+
+        # Full contrast at the body size, rather than the dim sf-body: the
+        # strip is asking to be read and decided on, and this is the sentence
+        # that says which link is being offered.
+        self.clipboard_offer_label = label(
+            "",
+            hexpand=True,
+            ellipsize=ELLIPSIZE_END,
+            valign=Gtk.Align.CENTER,
+        )
+        row.append(self.clipboard_offer_label)
+
+        use = Gtk.Button(label="Look it up")
+        use.add_css_class("sf-button")
+        use.add_css_class("accent")
+        use.set_valign(Gtk.Align.CENTER)
+        use.connect("clicked", lambda _b: self._use_clipboard_link())
+        row.append(use)
+
+        dismiss = Gtk.Button(icon_name="window-close-symbolic")
+        dismiss.add_css_class("flat")
+        dismiss.set_valign(Gtk.Align.CENTER)
+        dismiss.set_tooltip_text("Dismiss this suggestion")
+        dismiss.connect("clicked", lambda _b: self._hide_clipboard_offer())
+        row.append(dismiss)
+
+        self.clipboard_offer = Gtk.Revealer(
+            transition_type=Gtk.RevealerTransitionType.SLIDE_DOWN
+        )
+        strip = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        strip.append(row)
+        strip.append(Gtk.Separator())
+        self.clipboard_offer.set_child(strip)
+        return self.clipboard_offer
+
+    def _read_clipboard_link(self):
+        """Ask what is on the clipboard, now that the field has been reached."""
+        # Nothing to offer if the link could not be looked up: yt-dlp is what
+        # turns a URL into the row saying what it is.
+        if self.youtube_search_unavailable:
+            return
+        if self.search_entry.get_text().strip():
+            return
+        display = Gdk.Display.get_default()
+        if display is None:
+            return
+        display.get_clipboard().read_text_async(None, self._offer_clipboard_link)
+
+    def _offer_clipboard_link(self, clipboard, result):
+        try:
+            text = clipboard.read_text_finish(result)
+        except GLib.Error:
+            return
+        link = self._link_worth_offering(text)
+        if link is None:
+            return
+        self._offered_links.add(link)
+        self.clipboard_offer_url = link
+        self.clipboard_offer_label.set_text(f"On your clipboard: {short_link(link)}")
+        self.clipboard_offer.set_reveal_child(True)
+
+    def _link_worth_offering(self, text):
+        """The clipboard link to suggest, or None.
+
+        Once per link. The field is empty every time the window is come back
+        to, so an offer that returns after being turned down would be back on
+        every visit, and a suggestion that cannot be got rid of is nagging.
+        """
+        text = (text or "").strip()
+        if not is_downloadable_url(text):
+            return None
+        if self.search_entry.get_text().strip():
+            return None
+        if text in self._offered_links:
+            return None
+        return text
+
+    def _use_clipboard_link(self):
+        """Put the offered link in the field, which searches for it."""
+        link = self.clipboard_offer_url
+        self._hide_clipboard_offer()
+        if not link:
+            return
+        # Typed into the field rather than looked up behind it, so what ran is
+        # written where every other search the user runs is written, and can
+        # be edited or cleared like one.
+        self.search_entry.set_text(link)
+        self.focus_search()
+
+    def _hide_clipboard_offer(self):
+        self.clipboard_offer_url = ""
+        self.clipboard_offer.set_reveal_child(False)
 
     # ---------------------------------------------------------- search view
 
@@ -108,12 +249,44 @@ class SearchViewMixin:
         remote.append(head)
         self.search_youtube_note = label("", "sf-body", wrap=True)
         remote.append(self.search_youtube_note)
+        remote.append(self._build_playlist_header())
         self.search_youtube_rows = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=2
         )
         remote.append(self.search_youtube_rows)
         box.append(remote)
         return scroller
+
+    def _build_playlist_header(self):
+        """What a pasted playlist link actually is, above its first few rows.
+
+        Three rows of a forty-track playlist look exactly like a forty-track
+        playlist with three tracks in it. Capping the rows is right - an album
+        link must not flood the section - but presenting what the cap left out
+        as the whole thing is not, and Add all is what puts the rest back
+        within reach, at the moment the playlist is on screen rather than
+        behind a switch on a settings page.
+        """
+        self.search_playlist_row = Gtk.Box(spacing=12)
+        self.search_playlist_row.add_css_class("sf-playlist-header")
+        # Hidden until a link resolves to a list. Built visible, the page
+        # would carry an empty tinted bar for as long as nothing had been
+        # searched for, which is every state but the one it belongs to.
+        self.search_playlist_row.set_visible(False)
+        self.search_playlist_label = label(
+            "", "sf-row-title", hexpand=True, wrap=True, valign=Gtk.Align.CENTER
+        )
+        self.search_playlist_row.append(self.search_playlist_label)
+
+        self.search_playlist_add = Gtk.Button(label="Add all")
+        self.search_playlist_add.add_css_class("sf-button")
+        self.search_playlist_add.add_css_class("accent")
+        self.search_playlist_add.set_valign(Gtk.Align.CENTER)
+        self.search_playlist_add.connect(
+            "clicked", lambda _b: self._download_playlist()
+        )
+        self.search_playlist_row.append(self.search_playlist_add)
+        return self.search_playlist_row
 
     @staticmethod
     def _skeleton_row():
@@ -327,6 +500,7 @@ class SearchViewMixin:
         """
         self.search_add_buttons = []
         clear_children(self.search_youtube_rows)
+        self._paint_playlist_header()
 
         if self.search_loading:
             for _ in range(YOUTUBE_SEARCH_RESULTS):
@@ -353,6 +527,32 @@ class SearchViewMixin:
             )
         self.search_youtube_note.set_text(note)
         self.search_youtube_note.set_visible(bool(note))
+
+    def _paint_playlist_header(self):
+        """Show the header whenever a link resolved to a list of tracks.
+
+        Add all joins search_add_buttons like the Add on a row, so a device
+        appearing or a script starting reaches it too: it is the same download
+        against the same iPod, and a button left sensitive through a sync is
+        one that starts a second script over the first.
+
+        Only a list yt-dlp gave a length for is offered whole, though. A Mix or
+        a channel reports none because there is no end to report, and one press
+        would put a listing of no stated size onto a player with two gigabytes
+        on it. The header still names it, which is what explains the three
+        rows, and each row keeps its own Add.
+        """
+        playlist = None if self.search_loading else self.search_playlist
+        self.search_playlist_row.set_visible(playlist is not None)
+        if playlist is None:
+            return
+        self.search_playlist_label.set_text(playlist.summary())
+        self.search_playlist_add.set_visible(playlist.length_known())
+        if not playlist.length_known():
+            return
+        self.search_playlist_add.set_sensitive(self._can_download())
+        self.search_playlist_add.set_tooltip_text(self._youtube_download_tooltip())
+        self.search_add_buttons.append(self.search_playlist_add)
 
     def _set_search_note(self, text):
         self.search_note = text
@@ -382,6 +582,7 @@ class SearchViewMixin:
         self._paint_local_results()
 
         self.search_results = []
+        self.search_playlist = None
         if self.youtube_search_unavailable:
             self.search_loading = False
             self._set_search_note(
@@ -424,6 +625,10 @@ class SearchViewMixin:
             return False
         self.search_loading = False
         self.search_results = results
+        # Read from the query rather than passed in: only a link can resolve
+        # to a playlist, and the query that ran is the one this generation
+        # belongs to, which the check above has already established.
+        self.search_playlist = linked_playlist(self.search_query, results)
         if not reached:
             self._set_search_note(
                 "Could not reach YouTube. Check the connection, or wait a "
@@ -496,6 +701,7 @@ class SearchViewMixin:
         self.search_query = ""
         self.search_loading = False
         self.search_results = []
+        self.search_playlist = None
         self.search_note = ""
         # Emptied last, so the search-changed this fires finds the state it
         # would have set already in place and stops rather than recursing.
@@ -514,23 +720,42 @@ class SearchViewMixin:
             result.url,
             single=True,
             busy_message=f"Downloading {result.title}",
-            on_failure=lambda: self._report_download_failure(result),
+            on_failure=lambda: self._report_download_failure(result.title),
         )
 
-    def _report_download_failure(self, result):
+    def _download_playlist(self):
+        """Fetch the whole list a pasted link named, not the rows shown.
+
+        The same download the link dialog's Whole playlist switch ran: without
+        --single, yt-dlp takes the list rather than the first video of it.
+        """
+        playlist = self.search_playlist
+        if playlist is None or not self._can_download():
+            return
+        self._set_search_note("")
+        name = playlist.title or "playlist"
+        self._start_youtube_download(
+            playlist.url,
+            single=False,
+            busy_message=f"Downloading {name}",
+            on_failure=lambda: self._report_download_failure(name),
+        )
+
+    def _report_download_failure(self, name):
         """Say in the section that this particular download did not finish.
 
-        The toast is gone by the time the eye returns to the row that was being
-        added, and that row is what the user is looking at - unless the press
-        was Add to a new playlist, which takes the window to the Playlists view
-        while the download runs. Nothing else reports this failure, so somewhere
-        it is not on screen the toast is the only word there would be.
+        The toast is gone by the time the eye returns to what was being added,
+        and that row or header is what the user is looking at - unless the
+        press was Add to a new playlist, which takes the window to the
+        Playlists view while the download runs. Nothing else reports this
+        failure, so somewhere it is not on screen the toast is the only word
+        there would be.
         """
         if self.current_view() != "search":
-            self._toast(f"Could not finish downloading {result.title}")
+            self._toast(f"Could not finish downloading {name}")
             return
         self._set_search_note(
-            f"Could not finish downloading {result.title}. Details has what "
+            f"Could not finish downloading {name}. Details has what "
             "yt-dlp reported; ./ipod-fetch.sh --update is the usual fix when "
             "downloads stop working."
         )

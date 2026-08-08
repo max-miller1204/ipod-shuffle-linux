@@ -261,6 +261,21 @@ window.shuffle.light .sf-skeleton { background: alpha(#000000, 0.05); }
 
 .sf-search { border-radius: 8px; font-size: 12.5px; min-height: 30px; }
 
+/* The strip offering a link the clipboard holds, and the header naming the
+   playlist a pasted link resolved to. Both are the same thing to read: a line
+   of context above the list it is about, tinted just enough to separate it
+   from the rows without competing with them for attention. */
+.sf-clipboard-offer { background: alpha(#ff6b3d, 0.09); }
+window.shuffle.light .sf-clipboard-offer { background: alpha(#e0521f, 0.08); }
+/* The strip's own sentence, at the body size but not the body's dim colour:
+   it is what the offer is, and the buttons beside it are what to do about it.
+   Direct children only, so the buttons keep their own type. */
+.sf-clipboard-offer > label { font-size: 12.5px; }
+.sf-playlist-header {
+  background: alpha(#ff6b3d, 0.09); border-radius: 9px; padding: 8px 8px 8px 12px;
+}
+window.shuffle.light .sf-playlist-header { background: alpha(#e0521f, 0.08); }
+
 .sf-new-tile {
   border: 1px dashed #33333a; border-radius: 10px;
   background: transparent; color: #8b8884; box-shadow: none;

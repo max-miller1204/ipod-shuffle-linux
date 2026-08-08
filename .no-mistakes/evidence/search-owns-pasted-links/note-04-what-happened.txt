@@ -1,0 +1,105 @@
+What the window did, and what yt-dlp said, for the two claims the note now makes
+===============================================================================
+
+yt-dlp 2026.07.04 from install.sh's virtualenv, reached over the network.
+The window is the real IpodWindow with the real CSS, driven by putting each
+link in the search field and letting the field's own search-changed signal
+run the search. Rendered on the broadway backend, because this machine has
+no X display to nest a Xephyr inside; the frames are GTK's own render nodes.
+
+--- the command the search builds, and what came back --------------------
+
+a link carrying a playlist, pasted from the list's first video
+  $ /home/max/ipod-tools/venv/bin/yt-dlp --flat-playlist --dump-json --no-warnings --playlist-items 1-3 -- https://www.youtube.com/watch?v=1F_OgqRuSdI&list=PL0-84-yl1fUnRuXGFe_F7qSH1LEnn9LkW
+    {"id": "1F_OgqRuSdI", "title": "Lesson 1 - Python Programming (Automate the Boring Stuff with Python)", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 1}
+    {"id": "7qHMXu99d88", "title": "Lesson 2 - Python Programming (Automate the Boring Stuff with Python)", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 2}
+    {"id": "buMTH6ICnqk", "title": "Lesson 3 - Python Programming (Automate the Boring Stuff with Python)", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 3}
+    header    Playlist: Automate the Boring Stuff with Python, 15 tracks, showing the first 3
+    Add all   offered
+
+the same list, pasted from its eighth video
+  $ /home/max/ipod-tools/venv/bin/yt-dlp --flat-playlist --dump-json --no-warnings --playlist-items 1-3 -- https://www.youtube.com/watch?v=xJLj6fWfw6k&list=PL0-84-yl1fUnRuXGFe_F7qSH1LEnn9LkW
+    {"id": "1F_OgqRuSdI", "title": "Lesson 1 - Python Programming (Automate the Boring Stuff with Python)", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 1}
+    {"id": "7qHMXu99d88", "title": "Lesson 2 - Python Programming (Automate the Boring Stuff with Python)", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 2}
+    {"id": "buMTH6ICnqk", "title": "Lesson 3 - Python Programming (Automate the Boring Stuff with Python)", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 3}
+    header    Playlist: Automate the Boring Stuff with Python, 15 tracks, showing the first 3
+    Add all   offered
+
+a Mix
+  $ /home/max/ipod-tools/venv/bin/yt-dlp --flat-playlist --dump-json --no-warnings --playlist-items 1-3 -- https://www.youtube.com/watch?v=fJ9rUzIMcZQ&list=RDfJ9rUzIMcZQ
+    {"id": "fJ9rUzIMcZQ", "title": "Queen \u2013 Bohemian Rhapsody (Official Video Remastered)", "playlist_title": "Mix - Queen \u2013 Bohemian Rhapsody (Official Video Remastered)", "playlist_count": null, "n_entries": 3, "playlist_index": 1}
+    {"id": "kijpcUv-b8M", "title": "Queen - Somebody To Love (Official Video)", "playlist_title": "Mix - Queen \u2013 Bohemian Rhapsody (Official Video Remastered)", "playlist_count": null, "n_entries": 3, "playlist_index": 2}
+    {"id": "2ZBtPf7FOoM", "title": "Queen - Killer Queen (Top Of The Pops, 1974)", "playlist_title": "Mix - Queen \u2013 Bohemian Rhapsody (Official Video Remastered)", "playlist_count": null, "n_entries": 3, "playlist_index": 3}
+    header    Playlist: Mix - Queen – Bohemian Rhapsody (Official Video Remastered), showing the first 3 tracks
+    Add all   not offered
+
+a bare @handle
+  $ /home/max/ipod-tools/venv/bin/yt-dlp --flat-playlist --dump-json --no-warnings --playlist-items 1-3 -- https://www.youtube.com/@3blue1brown
+    {"id": "GlYgs6v2YfU", "title": "But what is cross-entropy? | Compression is Intelligence Part 2", "playlist_title": "3Blue1Brown - Videos", "playlist_count": null, "n_entries": 3, "playlist_index": 1}
+    {"id": "l6DKRf-fAAM", "title": "Reinventing Entropy | Compression is Intelligence Part 1", "playlist_title": "3Blue1Brown - Videos", "playlist_count": null, "n_entries": 3, "playlist_index": 2}
+    {"id": "ldxFjLJ3rVY", "title": "How (and why) to take a logarithm of an image", "playlist_title": "3Blue1Brown - Videos", "playlist_count": null, "n_entries": 3, "playlist_index": 3}
+    header    Playlist: 3Blue1Brown - Videos, showing the first 3 tracks
+    Add all   not offered
+
+
+--- what the window then showed ------------------------------------------
+
+window 1024x760
+
+pasted      https://www.youtube.com/watch?v=1F_OgqRuSdI&list=PL0-84-yl1fUnRuXGFe_F7qSH1LEnn9LkW
+    header      'Playlist: Automate the Boring Stuff with Python, 15 tracks, showing the first 3'
+    header up   True
+    Add all up  True
+    length      15 (yt-dlp named one)
+    Adds live   4
+    row         Lesson 1 - Python Programming (Automate the Boring Stuff with Python)
+    row         Lesson 2 - Python Programming (Automate the Boring Stuff with Python)
+    row         Lesson 3 - Python Programming (Automate the Boring Stuff with Python)
+    frame       note-01-watch-with-list.png (1024x760)
+
+pasted      https://www.youtube.com/watch?v=xJLj6fWfw6k&list=PL0-84-yl1fUnRuXGFe_F7qSH1LEnn9LkW
+    header      'Playlist: Automate the Boring Stuff with Python, 15 tracks, showing the first 3'
+    header up   True
+    Add all up  True
+    length      15 (yt-dlp named one)
+    Adds live   4
+    row         Lesson 1 - Python Programming (Automate the Boring Stuff with Python)
+    row         Lesson 2 - Python Programming (Automate the Boring Stuff with Python)
+    row         Lesson 3 - Python Programming (Automate the Boring Stuff with Python)
+    frame       note-04-mid-playlist-link.png (1024x760)
+
+pasted      https://www.youtube.com/watch?v=fJ9rUzIMcZQ&list=RDfJ9rUzIMcZQ
+    header      'Playlist: Mix - Queen – Bohemian Rhapsody (Official Video Remastered), showing the first 3 tracks'
+    header up   True
+    Add all up  False
+    length      not stated by yt-dlp
+    Adds live   3
+    row         Queen – Bohemian Rhapsody (Official Video Remastered)
+    row         Queen - Somebody To Love (Official Video)
+    row         Aerosmith - Dream On (Audio)
+    frame       note-02-mix-no-add-all.png (1024x760)
+
+pasted      https://www.youtube.com/@3blue1brown
+    header      'Playlist: 3Blue1Brown - Videos, showing the first 3 tracks'
+    header up   True
+    Add all up  False
+    length      not stated by yt-dlp
+    Adds live   3
+    row         But what is cross-entropy? | Compression is Intelligence Part 2
+    row         Reinventing Entropy | Compression is Intelligence Part 1
+    row         How (and why) to take a logarithm of an image
+    frame       note-03-handle-no-add-all.png (1024x760)
+
+
+--- two things worth saying about the run --------------------------------
+
+The mid-playlist link and the playlist-first link produced the same frame,
+byte for byte, so only one of the two is kept as a PNG. That identity is
+the point: the pasted video was Lesson 8, and what came up was Lessons 1
+to 3 under a header naming the whole list, exactly as it does for a link
+that names no video at all.
+
+The Mix's third row differs between the two sections above - Killer Queen
+in the yt-dlp one, Dream On in the window one - because a Mix is
+regenerated per request. That is the same property that makes it report
+no playlist_count, which is what withholds Add all.
