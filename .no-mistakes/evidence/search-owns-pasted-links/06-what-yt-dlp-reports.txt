@@ -1,5 +1,6 @@
 What yt-dlp reports, and why the header is gated on the query being a link
-=========================================================================
+and Add all on a length yt-dlp named
+==========================================================================
 
 yt-dlp 2026.07.04, the same --flat-playlist --dump-json --playlist-items 1-3
 the search always runs. Only the fields the header is built from are shown.
@@ -38,3 +39,31 @@ the search always runs. Only the fields the header is built from are shown.
    {"id": "1F_OgqRuSdI", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 1}
    {"id": "7qHMXu99d88", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 2}
    {"id": "buMTH6ICnqk", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 3}
+
+5. Listings with no end to them. A Mix, a channel's videos tab and a
+   bare @handle each answer with a playlist_title and with
+   playlist_count null, which is what LinkedPlaylist.length_known()
+   reads as no stated length: the header names the list and stops
+   there, Add all is not offered, and every row keeps its own Add.
+   https://www.youtube.com/watch?v=fJ9rUzIMcZQ&list=RDfJ9rUzIMcZQ
+   {"id": "fJ9rUzIMcZQ", "playlist_title": "Mix - Queen \u2013 Bohemian Rhapsody (Official Video Remastered)", "playlist_count": null, "n_entries": 3, "playlist_index": 1}
+   {"id": "HgzGwKwLmgM", "playlist_title": "Mix - Queen \u2013 Bohemian Rhapsody (Official Video Remastered)", "playlist_count": null, "n_entries": 3, "playlist_index": 2}
+   {"id": "kijpcUv-b8M", "playlist_title": "Mix - Queen \u2013 Bohemian Rhapsody (Official Video Remastered)", "playlist_count": null, "n_entries": 3, "playlist_index": 3}
+   https://www.youtube.com/@3blue1brown/videos
+   {"id": "GlYgs6v2YfU", "playlist_title": "3Blue1Brown - Videos", "playlist_count": null, "n_entries": 3, "playlist_index": 1}
+   {"id": "l6DKRf-fAAM", "playlist_title": "3Blue1Brown - Videos", "playlist_count": null, "n_entries": 3, "playlist_index": 2}
+   {"id": "ldxFjLJ3rVY", "playlist_title": "3Blue1Brown - Videos", "playlist_count": null, "n_entries": 3, "playlist_index": 3}
+   The bare handle is the one worth spelling out: it answers with
+   three tabs in one run - Videos, Live and Shorts - each restarting
+   at playlist_index 1. parse_search_results caps at three, so only
+   the Videos rows survive.
+   https://www.youtube.com/@3blue1brown
+   {"id": "GlYgs6v2YfU", "playlist_title": "3Blue1Brown - Videos", "playlist_count": null, "n_entries": 3, "playlist_index": 1}
+   {"id": "l6DKRf-fAAM", "playlist_title": "3Blue1Brown - Videos", "playlist_count": null, "n_entries": 3, "playlist_index": 2}
+   {"id": "ldxFjLJ3rVY", "playlist_title": "3Blue1Brown - Videos", "playlist_count": null, "n_entries": 3, "playlist_index": 3}
+   {"id": "QvuQH4_05LI", "playlist_title": "3Blue1Brown - Live", "playlist_count": null, "n_entries": 3, "playlist_index": 1}
+   {"id": "pq9LcwC7CoY", "playlist_title": "3Blue1Brown - Live", "playlist_count": null, "n_entries": 3, "playlist_index": 2}
+   {"id": "elQVZLLiod4", "playlist_title": "3Blue1Brown - Live", "playlist_count": null, "n_entries": 3, "playlist_index": 3}
+   {"id": "6XPlmCDNLNc", "playlist_title": "3Blue1Brown - Shorts", "playlist_count": null, "n_entries": 3, "playlist_index": 1}
+   {"id": "wGffBCfrAsE", "playlist_title": "3Blue1Brown - Shorts", "playlist_count": null, "n_entries": 3, "playlist_index": 2}
+   {"id": "-7etvZSBxlk", "playlist_title": "3Blue1Brown - Shorts", "playlist_count": null, "n_entries": 3, "playlist_index": 3}

@@ -48,14 +48,16 @@ which is case 4 of `06`. No screenshot here is of that form: `03` is the
 playlist's own `playlist?list=` link, case 1, which answers with the same
 title and count, so the header reads the same either way.
 
-`06-what-yt-dlp-reports.txt` - the four cases as yt-dlp actually answers
-them, under the same flags the search runs. Two findings are load-bearing.
+`06-what-yt-dlp-reports.txt` - the five cases as yt-dlp actually answers
+them, under the same flags the search runs. Three findings are load-bearing.
 `playlist_count` is the real length while `n_entries` is what
 `--playlist-items` left behind, so a header built on `n_entries` would report
 the truncation as the length. And `ytsearchN:` is a playlist to yt-dlp too:
 every entry of a plain search comes back with `playlist_title` set to the
 query, which is why `linked_playlist()` refuses to answer unless the query is
-a link, and why `04` shows what it shows.
+a link, and why `04` shows what it shows. And a Mix, a channel and a bare
+`@handle` report no `playlist_count` at all, which is what keeps **Add all**
+off a listing yt-dlp never named an end for.
 
 `07-add-all-downloading.png` - **Add all** pressed. The bar reads *Downloading
 Automate the Boring Stuff with Python* and the window is busy.
