@@ -220,6 +220,18 @@ def check(window):
                 f"{limit}px wide; widest thing in it: {widest(page)}"
             )
 
+    # Named on its own as well as counted inside the search page. It is hidden
+    # at rest like the clipboard offer, so a paint that stopped putting it up
+    # would leave that page's number vouching for a strip it had never
+    # included, and the check above would pass by measuring nothing.
+    header = minimum_width(window.search_playlist_row)
+    measured.append(("playlist header", header))
+    if header <= 0:
+        failures.append(
+            "the playlist header measured nothing while shown, so nothing here "
+            "has checked that it fits the window's minimum"
+        )
+
     # The bars along the bottom, which span the window rather than sitting
     # inside a page. Taken from the toolbar view's own children rather than by
     # style class: a class names one bar, so the sync bar went unmeasured for

@@ -39,9 +39,12 @@ rows were the whole of what a forty-track playlist looked like.
 `04-typed-query-no-header.png` - a typed query, *bohemian rhapsody*, with no
 header at all. This is the case the feature turns on, and `06` is why.
 
-`05-linked-video-no-header.png` - a link to one video that sits inside that
-same playlist. One result, no header: yt-dlp's own default reading of such a
-link is the video, and so is this. Paste the playlist's own link for the rest.
+`05-linked-video-no-header.png` - a bare `watch?v=1F_OgqRuSdI`, with no
+`list=` on it, for a video that does sit inside that same playlist. One
+result, no header: a link with no list on it carries none of the three fields
+a header is built from, which is case 3 of `06`. A link that does carry the
+list is the other case entirely - it resolves to the playlist, header and all,
+which is case 4 of `06` and what `03` shows.
 
 `06-what-yt-dlp-reports.txt` - the four cases as yt-dlp actually answers
 them, under the same flags the search runs. Two findings are load-bearing.
