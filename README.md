@@ -171,7 +171,7 @@ The two halves fail independently and each explains problems inline in its own s
 | No JavaScript runtime, or no `ffmpeg` | Results are still listed, while **Add** is disabled and explains which piece the download needs |
 | Offline, or rate-limited | The section says it could not reach YouTube, which is not the same as finding nothing |
 | Nothing matched | Each half says so on its own, since one can find something when the other does not |
-| A download stopped part-way | The section says which track, and points at **Details** for what `yt-dlp` reported |
+| A download stopped part-way | The section says which track or playlist, and points at **Details** for what `yt-dlp` reported |
 | A preview would not download | The now-playing bar says so in place of its controls, since that is where the track you asked for was named |
 
 Searching needs only `yt-dlp`, because reading a title is not the part YouTube protects.
@@ -467,7 +467,7 @@ The nano supported ALAC; the shuffle never did.
 ./ipod-fetch.sh 'https://www.youtube.com/watch?v=...'
 ```
 
-The GUI's **Add from YouTube** button and the **Add** on a search result both run this script, so all three share every setting below.
+The GUI's **Add from YouTube** button, the **Add** on a search result and the **Add all** beside a pasted playlist all run this script, so all four share every setting below.
 
 This wraps `yt-dlp` with the settings the shuffle needs, saving into `~/Music/youtube` with one folder per artist so the result is ready for `--dir-playlists`.
 Downloaded video IDs are recorded in `<output>/.fetched` and skipped on later runs, so re-running a playlist URL collects only what is new.

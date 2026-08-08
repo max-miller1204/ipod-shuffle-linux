@@ -1952,6 +1952,75 @@ offering._offered_links.add("https://youtu.be/abc")
 assert offering._link_worth_offering("https://youtu.be/abc") is None
 assert offering._link_worth_offering("https://youtu.be/other") is not None
 
+
+class RecordingClipboard:
+    """Counts the reads rather than answering them.
+
+    Whether the clipboard is asked at all is the subject: the decision not to
+    offer is made before the read, so a check that only looked at what came
+    back would pass however often the window reached for it.
+    """
+
+    def __init__(self):
+        self.reads = 0
+
+    def read_text_async(self, _cancellable, _callback):
+        self.reads += 1
+
+
+class FakeDisplay:
+    """The one display, holding the one clipboard the reads are counted on."""
+
+    clipboard = RecordingClipboard()
+
+    @classmethod
+    def get_default(cls):
+        return cls()
+
+    def get_clipboard(self):
+        return type(self).clipboard
+
+
+class FakeGdk:
+    Display = FakeDisplay
+
+
+class OfferingWindow:
+    """Enough of the window to decide whether to reach for the clipboard."""
+
+    _read_clipboard_link = gui.IpodWindow._read_clipboard_link
+    # The callback the read hands its answer to, which the read passes along
+    # even though nothing here ever answers.
+    _offer_clipboard_link = gui.IpodWindow._offer_clipboard_link
+
+    def __init__(self, unavailable=None, typed=""):
+        self.youtube_search_unavailable = unavailable
+        self.search_entry = SearchEntry(typed)
+
+
+# Reaching the field is what asks, and there is a real display under that ask.
+# Substituted here so the reads can be counted, and so the checks below fail on
+# the gate rather than on a headless machine having no clipboard at all - which
+# is the vacuous pass they would otherwise be.
+clipboard = FakeDisplay.clipboard
+real_gdk = gui.Gdk
+gui.Gdk = FakeGdk
+try:
+    OfferingWindow()._read_clipboard_link()
+    assert clipboard.reads == 1, "an empty field never asked what was on the clipboard"
+    # Nothing to offer if the link could not be looked up. yt-dlp is what turns
+    # a URL into the row saying what it is, so a suggestion made without it
+    # leads to a search that can only report that it cannot search.
+    unable = OfferingWindow(unavailable="yt-dlp is not installed - run ./install.sh")
+    unable._read_clipboard_link()
+    assert clipboard.reads == 1, "a link was offered with nothing able to look it up"
+    # And a field already being typed in is a search in the middle of being
+    # run, which the clipboard has no business interrupting.
+    OfferingWindow(typed="queen")._read_clipboard_link()
+    assert clipboard.reads == 1, "a field already typed in reached for the clipboard"
+finally:
+    gui.Gdk = real_gdk
+
 # --------------------------------------------------------------- staged sync
 #
 # Adding queues a track rather than copying it, so the command that finally

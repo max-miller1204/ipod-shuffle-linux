@@ -1,0 +1,61 @@
+Each new check, against the change it exists to catch
+=====================================================
+
+Ten mutations, each reversing one behaviour the change introduced. Every one
+was applied to the source, the check run, and the file restored. A check that
+passed with its mutation applied would be a check of nothing.
+
+  caught by tests/gui-window-build.py
+    placeholder no longer mentions pasting
+    -> FAIL: the search field's placeholder never mentions pasting a link:
+       'Search your library and YouTube'
+
+  caught by tests/gui-actions-smoke.py
+    playlist length read off n_entries (the truncation) instead of
+    playlist_count
+    -> AssertionError: 3        (the cap, reported as the list's length)
+
+  caught by tests/gui-actions-smoke.py
+    header no longer gated on the query being a link
+    -> AssertionError: a typed query was announced as a playlist of its own
+       name
+
+  caught by tests/gui-actions-smoke.py
+    Add all downloads only the first video (--single)
+    -> AssertionError: ['.../ipod-fetch.sh', '--output', ..., '--single', ...]
+
+  caught by tests/gui-actions-smoke.py
+    a finished search stops resolving its query to a playlist
+    -> AssertionError: a pasted playlist link grew no header
+
+  caught by tests/gui-window-build.py
+    clipboard link autofills the field instead of being offered
+    -> FAIL: a clipboard link filled the field by itself:
+       'https://youtu.be/abc'
+
+  caught by tests/gui-window-build.py
+    the same link is offered again every time the empty field is reached for
+    -> FAIL: a link that had already been offered came back
+
+  caught by tests/gui-window-build.py
+    Add all offered for a listing yt-dlp gave no length for
+    -> FAIL: Add all was offered for a listing yt-dlp gave no length for,
+       which is one press to fetch a mix or a channel with no end to it
+
+  caught by tests/gui-playlists.py
+    download failure reports the result object instead of the track title
+    -> AssertionError: 'Could not finish downloading
+       <ipod_gui.youtube.SearchResult object at 0x...>'
+
+  caught by tests/gui-actions-smoke.py   (check added by this test pass)
+    the clipboard is read even when nothing can look the link up
+    -> AssertionError: a link was offered with nothing able to look it up
+
+The last one covers a rule the change states and nothing held: the offer is
+gated on yt-dlp being available, since a suggestion made without it leads to a
+search that can only report that it cannot search. The gate lives in
+_read_clipboard_link, which the existing checks entered below - they call
+_offer_clipboard_link and _link_worth_offering directly. The new check runs
+_read_clipboard_link itself and counts whether the clipboard was reached for
+at all, against a stand-in display, so it fails on the gate rather than
+passing vacuously on a headless machine that has no clipboard to read.
