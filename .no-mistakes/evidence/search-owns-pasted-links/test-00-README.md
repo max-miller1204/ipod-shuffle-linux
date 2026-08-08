@@ -42,8 +42,9 @@ would carry a header reading *Playlist: bohemian rhapsody*.
 link, the form the address bar gives you partway through a playlist.
 It resolves to the playlist, header and **Add all** and all, exactly as the
 README says it does.
-Recorded here because the change's own goal note in `.pi/worklist.json` says
-the opposite - see the finding from this test pass.
+Recorded here because the change's own goal note in `.pi/worklist.json` said
+the opposite when this pass ran - see the finding from this test pass.
+The note was corrected in 25378bd.
 
 `test-06-add-all-queued.png` - the window after **Add all** finished.
 The storage meter reads *+266.3 MB queued to sync*: the whole fifteen-track
