@@ -1,0 +1,57 @@
+The corrected note, read back through the CLI that wrote it
+===========================================================
+
+The goal note is prose stored in .pi/worklist.json, and the pi-worklist
+CLI is what reads and writes it. Reading it back through the CLI is what
+shows the file is still a worklist the CLI can parse and that the two
+corrected paragraphs are what a Pi session now sees on this goal.
+
+  $ bunx pi-worklist@latest project show let-the-search-box-own-pasted-youtube
+
+  let-the-search-box-own-pasted-youtube: Let the search box own pasted YouTube links
+  status: done
+  group: Search
+  created: 2026-08-07T21:49:20.937Z
+  updated: 2026-08-08T21:07:07.879Z
+  completed: 2026-08-08T18:41:46.571Z
+  blocks:
+    drop-the-sync-options-card-and-the
+  description:
+  Pasting a YouTube link into the search field already works and almost nobody would know: youtube_search_target (ipod_gui/youtube.py:83) detects a link and looks it up as itself rather than searching for the text as a phrase. Two gaps keep it from being the real home for the feature.
+
+  It is undiscoverable. The search entry's placeholder is "Search your library and YouTube" (search_view.py:52) and never mentions links, which is why the Add from YouTube dialog on the Device page still gets reached for.
+
+  A pasted playlist link is silently truncated. youtube_search_command caps every query with --playlist-items 1-<limit> (youtube.py:103) and YOUTUBE_SEARCH_RESULTS is 3 (youtube.py:36), so pasting a 40 track playlist shows three results and reads as the whole thing. The cap is right for keeping an album link from flooding the section, but presenting the first three as if they were all of it is wrong on its own terms, separate from anything to do with the dialog.
+
+  The work: say so in the placeholder, and when the query resolves to a playlist show a header above the YouTube section naming it and its real length, along the lines of "Playlist: Name, 40 tracks, showing first 3", with an Add all action beside it. That puts the whole playlist download at the moment it is relevant instead of behind a switch on a settings page, and it fixes the truncation at the same time. parse_search_results (youtube.py:110) currently drops the playlist_title, playlist_count and n_entries that --flat-playlist --dump-json emits for a playlist URL, and SearchResult (youtube.py:53) has no field to carry them, so both need to keep that metadata for the header to exist.
+
+  Add all needs no new download path: _start_youtube_download(url, single=False) is exactly what the dialog's Whole playlist switch did (queue.py:676).
+
+  Carry over the clipboard convenience too. _offer_clipboard_url (queue.py:663) pre-filled the dialog from the clipboard and is removed along with it, so when the search field is empty and the clipboard holds a downloadable URL, offer it as a suggestion. Offer rather than autofill, so a clipboard that happens to hold a link never silently changes what a search is about to run.
+
+  Rationale for not simply moving the dialog somewhere else: a dedicated entry point made sense when search could not resolve links, and it can. A second one duplicates a working path and puts the capability on a settings page rather than the page actually in use.
+
+  This must land before "Drop the Sync options card and the three add buttons from Device and settings", because it is what keeps whole playlist downloading alive once that dialog goes.
+
+  Done 2026-08-08. The placeholder reads "Search or paste a link", with the sentence naming both sources moved to the field's tooltip: it does not fit in a 26-character field, and a placeholder is clipped rather than ellipsised. The tooltip is also what a screen reader reads out, since the field carries no label.
+
+  A pasted link that resolves to a list now gets a header above the rows - "Playlist: Name, 15 tracks, showing the first 3" - with Add all beside it, which is _start_youtube_download(url, single=False), the dialog's Whole playlist switch by another name. Add all joins search_add_buttons, so a device appearing or a script starting reaches it like any row's Add.
+
+  SearchResult carries playlist_title and playlist_count. n_entries is deliberately not carried: measured against real yt-dlp output, playlist_count is the whole list while n_entries is what --playlist-items left, so reading n_entries would report the truncation as the length, which is the bug. The other finding from that output decides the design: ytsearchN: is a playlist to yt-dlp too, and every entry of a plain search comes back with playlist_title set to the query, so linked_playlist() refuses to answer unless the query is a link. Without that gate every search would announce itself as a playlist named after what was typed.
+
+  A link carrying a playlist - the watch?v=...&list=... form the address bar gives you mid-playlist - resolves to the playlist rather than to the single video, so the header names it and Add all takes the whole thing. The three rows are the playlist's first three, which need not include the video the link was of. Measured rather than assumed: an earlier draft of this note and of the README both claimed the opposite, from reasoning about yt-dlp instead of running it, and the review caught it. Case 4 of 06-what-yt-dlp-reports.txt is that measurement.
+
+  Add all is offered only for a list yt-dlp gave a length for. A Mix, a channel and an @handle report none, because they are paginated rather than finite, so the header names the list and stops there and each row keeps its own Add: a one-press fetch of a listing with no stated end onto a player with two gigabytes on it is not something to offer. Case 5 of 06-what-yt-dlp-reports.txt is that measurement.
+
+  The clipboard convenience is a strip under the header rather than a popover over the field, because a popover is placed by the compositor and this window's one drop-down is already dismissed on sight under GNOME's legacy HiDPI scaling. It appears when the empty field is focused, offers the link rather than typing it in, and offers each link once so a turned-down suggestion does not come back on every visit.
+
+  Verified against real YouTube in the Xephyr recipe from tools/demo-library.py, with xdotool clicks and a real X clipboard: Add all was read off the process table, not the log pane, and fetched all fifteen streams of a fifteen-track playlist. Evidence in .no-mistakes/evidence/search-owns-pasted-links. Ten mutations of the new checks were each caught. tests/gui-window-minimum.py now reveals the strip and paints the header before measuring, since a hidden child measures as nothing and neither would ever have been checked against the window's minimum.
+
+  --- what changed in the record, as a parsed worklist rather than as text ---
+
+  goals before 28, after 28, same ids: True
+  order unchanged: True
+  revision 118 -> 121
+  let-the-search-box-own-pasted-youtube: description, updatedAt
+  status done -> done, completedAt unchanged: True
+  paragraphs 14 -> 15, removed 2, added 3
