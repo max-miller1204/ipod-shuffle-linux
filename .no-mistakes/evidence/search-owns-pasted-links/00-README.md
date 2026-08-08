@@ -44,7 +44,9 @@ header at all. This is the case the feature turns on, and `06` is why.
 result, no header: a link with no list on it carries none of the three fields
 a header is built from, which is case 3 of `06`. A link that does carry the
 list is the other case entirely - it resolves to the playlist, header and all,
-which is case 4 of `06` and what `03` shows.
+which is case 4 of `06`. No screenshot here is of that form: `03` is the
+playlist's own `playlist?list=` link, case 1, which answers with the same
+title and count, so the header reads the same either way.
 
 `06-what-yt-dlp-reports.txt` - the four cases as yt-dlp actually answers
 them, under the same flags the search runs. Two findings are load-bearing.

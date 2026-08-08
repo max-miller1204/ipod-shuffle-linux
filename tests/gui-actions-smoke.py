@@ -1894,6 +1894,35 @@ assert navigating.views.name == "playlists", navigating.shown
 assert navigating.search_entry.get_text() == "", "the field kept a spent query"
 assert navigating.search_query == "" and navigating.search_results == []
 
+# The one step that turns a finished search into the header. The entries alone
+# cannot say whether they came from a link, so the query that ran is read
+# beside them, and a search that lands without doing it leaves a pasted
+# playlist looking like three tracks again.
+pasted = SearchWindow()
+pasted.search_entry.set_text(playlist_link)
+pasted._on_search_changed(pasted.search_entry)
+pasted._finish_youtube_search(
+    pasted.search_generation, gui.parse_search_results(playlist_entries(15)), True
+)
+assert pasted.search_playlist is not None, "a pasted playlist link grew no header"
+assert pasted.search_playlist.count == 15, pasted.search_playlist.count
+assert pasted.search_playlist.url == playlist_link, pasted.search_playlist.url
+
+# A typed query lands the same entries and grows no header, which is the whole
+# reason the query is read at all: ytsearchN: hands every entry of a plain
+# search a playlist_title of the phrase that was typed.
+phrase = SearchWindow()
+phrase.search_entry.set_text("automate the boring stuff")
+phrase._on_search_changed(phrase.search_entry)
+phrase._finish_youtube_search(
+    phrase.search_generation,
+    gui.parse_search_results(playlist_entries(15, title="automate the boring stuff")),
+    True,
+)
+assert phrase.search_playlist is None, (
+    f"a typed query grew a header reading {phrase.search_playlist.summary()!r}"
+)
+
 
 class OfferWindow:
     """Enough of the window to decide whether a clipboard link is worth it."""
