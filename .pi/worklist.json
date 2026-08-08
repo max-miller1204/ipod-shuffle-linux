@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 85,
+  "revision": 115,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -11,6 +11,18 @@
       "updatedAt": "2026-08-05T04:01:14.045Z",
       "previousIds": [
         "goal-msdncj32-4e24ddce"
+      ],
+      "group": "Search"
+    },
+    {
+      "id": "search-ui-polish-deferred-from-the",
+      "title": "Search UI polish deferred from the redesign",
+      "description": "Small things the phase-1 redesign left, all in ipod-gui.py. The library filter pills count collections but the heading and counts stay collection-shaped while the list mode shows tracks, which reads slightly off. The album detail's state, duration and action cluster sits hard against the right edge with a wide gap after the title column. The playlist rail and the shelf both render the same playlists with different tile sizes. None of these block anything; fold them into whichever phase touches those views next.\n\nDone 2026-08-04. The library heading, its pill counts and what those pills filter now follow the mode: list mode reads Tracks over per-track counts, and filters the tracks themselves, so a synced track is no longer hidden by its album still counting as In library. LibraryIndex gained track_counts() for that, which counts() cannot answer.\n\nThe album page is held to TRACK_PAGE_WIDTH in an Adw.Clamp, header and table together. Unclamped it had been the worst case in the app: on a 1900px window the title ended at x=460 and the state, duration and action cluster sat at x=1680. The playlists detail took the same clamp, since its rows are the same rows and it stretches further still.\n\nPlaylist artwork is now three named sizes rather than four arbitrary ones: the shelf tile takes ALBUM_COVER so the two sections of the library page use one artwork size, and both rails take PLAYLIST_ROW_COVER so a playlist row looks the same in the sidebar and in the Playlists view. Shelf tiles were also ragged - each sized to its own name - and are now uniform, with the card inset left to the button's own padding so four playlists and the New tile still fit at the opening window size.\n\nTwo defects surfaced while looking at these views and were fixed with them: the Playlists rail took a share of every extra pixel of window, because the heading and every row expand and GTK propagates that up, so at 1900px a 240px list held half the view; and the playlist's spoken-name line wrapped at 34 characters however much room it had.\n\nVerified by rendering each view offscreen at 1180 and 1900 and reading the result, since x11grab sees black under Wayland and a WidgetPaintable holds nothing when the compositor is not sending the window frames: forcing the layout with Gtk.Widget.allocate and snapshotting into a Cairo renderer makes the size a parameter of the shot rather than whatever the window manager gave.",
+      "status": "done",
+      "createdAt": "2026-08-03T20:12:13.620Z",
+      "updatedAt": "2026-08-05T04:01:14.720Z",
+      "previousIds": [
+        "goal-msdo10ac-55740acf"
       ],
       "group": "Search"
     },
@@ -75,6 +87,19 @@
       "group": "Architecture"
     },
     {
+      "id": "break-up-the-4368-line-ipod-gui-window",
+      "title": "Break up the 4368-line ipod_gui/window.py",
+      "description": "The package split left IpodWindow as one module, deliberately: the goal named 'the window itself' as one seam, and splitting a single Adw.ApplicationWindow subclass across files needs mixins, which was too much to combine with the split and its test-harness rewrite in one change.\n\nIt is now by far the largest module - 4368 lines against 457 for the next one, player.py - and it holds every view plus the work behind each. Natural seams inside it: the library grid and album detail, the playlist views and their drag reordering, the search field and its two result sections, the Device & Settings page, and the sync/remove/wipe command plumbing with its busy-state bookkeeping.\n\nMixin classes are the only split that keeps one Adw.ApplicationWindow, so the question to settle first is whether the shared self.* state between those groups is small enough for mixins to be honest rather than a filing system over one namespace. tests/harness.py makes the mechanics safe: it writes a replacement to every module holding a name, so moving methods between modules cannot silently unpatch a check the way it would have before.\n\nDone 2026-08-05. Split into seven mixins over one Adw.ApplicationWindow: library_view, search_view, playlist_view, playback_view, device_view, queue and commands, with window.py keeping the chrome, the state and the assembly order. The largest module is now device_view.py at 929 lines against 4438 before, in line with device.py at 527 and player.py at 457.\n\nThe question the goal asked first was settled by measuring rather than by judgement. Counting __init__ makes every attribute look shared, because it is the one place all of them are born; excluding it, 33 of 152 attributes are touched by more than one module, and two thirds of those by exactly two. What is genuinely window-wide is small: the device the window is pointed at, whether a script is running, and the library and the player. So mixins are honest here - but only after the seams were redrawn. The first cut had device and sync sharing twelve attributes, which said they were one concern wearing two names; commands and queue is the cut that works.\n\nSixteen shared attributes went away rather than being written down, because they were shared only for being built in one module and painted in another. The sidebar's device card, the header's search field and library controls, the playlist rail and the shelf at the top of the library page now belong to whichever mixin repaints them, and the window appends what they return without naming it. Closing the window reached into playback's lock and process handle and now calls one verb; reading the visible view became current_view() for the same reason, since a verb is a declared interface and a widget reached into is not. window.py is left touching exactly one attribute another mixin owns.\n\ndevice_view.py stayed the largest deliberately. Splitting its page from its probe was measured too, and makes it worse: 33 shared attributes become 36, with 12 shared between the two halves, because painting a device summary and probing the device are one concern.\n\ntools/mixin-contract.py is what keeps this from rotting back. It pins the shared table and checks it in both directions, so a new sharer fails and an entry the code has left behind fails too - adding to it is allowed, doing it by accident is not. It also catches a method defined in two mixins, an attribute read but never assigned, and state assigned but never read. That last check found three dead attributes: now_playing_bar, settings_view and sync_files, all written and never consulted, now gone.\n\ntests/gui-window-build.py builds the real window under xvfb, which nothing did before. Every other GUI check runs methods unbound against a stand-in, deliberately, so none would notice a builder that stopped being called or a widget that never reached the stack - exactly what a mixin split risks. CI gained xvfb for it.\n\nEvery one of the 159 methods moved with an identical AST, checked against the pre-split file, so the move could not reword anything; the 11 call sites that did change are the seven extracted builders and the four dead-attribute removals. Both new checks were mutation-tested - removing a builder call, dropping a view from the stack, reaching into another mixin's state, defining a method twice, and mistyping an attribute each fail the check that should catch them. Writing gui-window-build.py surfaced a defect in itself: an exception escaping a GLib idle callback does not end the main loop, so it hung rather than failed, and it now has a watchdog and its own try/except. Full product-e2e.sh passes, 66 checks.",
+      "status": "done",
+      "createdAt": "2026-08-04T04:26:07.240Z",
+      "updatedAt": "2026-08-05T05:12:59.705Z",
+      "previousIds": [
+        "goal-mse5o5qg-49bb037d"
+      ],
+      "group": "Architecture",
+      "completedAt": "2026-08-05T05:12:59.705Z"
+    },
+    {
       "id": "move-blocking-device-work-in-refresh",
       "title": "Move blocking device work in refresh() off the main loop",
       "description": "count_tracks, list_tracks, list_playlists, spoken_playlists and shutil.disk_usage all run synchronously inside IpodWindow.refresh(), over USB. Tag reading and the library scan are already threaded via scan_tracks with a generation counter to discard stale results; extend the same pattern to the rest. This is the largest remaining responsiveness win and it grows with the number of tracks on the device.\n\nDone 2026-08-04. device.py gained probe_device(), which reads detection, identity, saved options, playlists, spoken names, the track count and free space in one pass and returns a DeviceProbe built complete or not at all. refresh() bumps a probe_generation, hands the read to a worker thread and returns; _apply_probe paints what comes back, and drops a result whose generation was superseded or that landed while a script was changing the device. count_tracks takes the same cancelled callback as scan_tracks, so a superseded walk stops competing for the bus. _populate_device_summary and the wipe dialog read the cached figures rather than the device, so a repaint costs nothing.\n\nlist_tracks turned out not to be called from window.py at all, so only the other four moved. Two states came out of it that the old code could not express: a device that stops answering mid-read is now reported as that, rather than as a connected iPod holding nothing, and the first paint says it is looking rather than claiming there is no iPod - which matters because findmnt alone waits five seconds on a device that has stopped answering.",
@@ -85,18 +110,6 @@
         "goal-msdnd336-8c15233f"
       ],
       "group": "Architecture"
-    },
-    {
-      "id": "search-ui-polish-deferred-from-the",
-      "title": "Search UI polish deferred from the redesign",
-      "description": "Small things the phase-1 redesign left, all in ipod-gui.py. The library filter pills count collections but the heading and counts stay collection-shaped while the list mode shows tracks, which reads slightly off. The album detail's state, duration and action cluster sits hard against the right edge with a wide gap after the title column. The playlist rail and the shelf both render the same playlists with different tile sizes. None of these block anything; fold them into whichever phase touches those views next.\n\nDone 2026-08-04. The library heading, its pill counts and what those pills filter now follow the mode: list mode reads Tracks over per-track counts, and filters the tracks themselves, so a synced track is no longer hidden by its album still counting as In library. LibraryIndex gained track_counts() for that, which counts() cannot answer.\n\nThe album page is held to TRACK_PAGE_WIDTH in an Adw.Clamp, header and table together. Unclamped it had been the worst case in the app: on a 1900px window the title ended at x=460 and the state, duration and action cluster sat at x=1680. The playlists detail took the same clamp, since its rows are the same rows and it stretches further still.\n\nPlaylist artwork is now three named sizes rather than four arbitrary ones: the shelf tile takes ALBUM_COVER so the two sections of the library page use one artwork size, and both rails take PLAYLIST_ROW_COVER so a playlist row looks the same in the sidebar and in the Playlists view. Shelf tiles were also ragged - each sized to its own name - and are now uniform, with the card inset left to the button's own padding so four playlists and the New tile still fit at the opening window size.\n\nTwo defects surfaced while looking at these views and were fixed with them: the Playlists rail took a share of every extra pixel of window, because the heading and every row expand and GTK propagates that up, so at 1900px a 240px list held half the view; and the playlist's spoken-name line wrapped at 34 characters however much room it had.\n\nVerified by rendering each view offscreen at 1180 and 1900 and reading the result, since x11grab sees black under Wayland and a WidgetPaintable holds nothing when the compositor is not sending the window frames: forcing the layout with Gtk.Widget.allocate and snapshotting into a Cairo renderer makes the size a parameter of the shot rather than whatever the window manager gave.",
-      "status": "done",
-      "createdAt": "2026-08-03T20:12:13.620Z",
-      "updatedAt": "2026-08-05T04:01:14.720Z",
-      "previousIds": [
-        "goal-msdo10ac-55740acf"
-      ],
-      "group": "Search"
     },
     {
       "id": "let-ipod-sync-sh-copy-symlinked-music",
@@ -111,17 +124,13 @@
       "group": "Sync"
     },
     {
-      "id": "break-up-the-4368-line-ipod-gui-window",
-      "title": "Break up the 4368-line ipod_gui/window.py",
-      "description": "The package split left IpodWindow as one module, deliberately: the goal named 'the window itself' as one seam, and splitting a single Adw.ApplicationWindow subclass across files needs mixins, which was too much to combine with the split and its test-harness rewrite in one change.\n\nIt is now by far the largest module - 4368 lines against 457 for the next one, player.py - and it holds every view plus the work behind each. Natural seams inside it: the library grid and album detail, the playlist views and their drag reordering, the search field and its two result sections, the Device & Settings page, and the sync/remove/wipe command plumbing with its busy-state bookkeeping.\n\nMixin classes are the only split that keeps one Adw.ApplicationWindow, so the question to settle first is whether the shared self.* state between those groups is small enough for mixins to be honest rather than a filing system over one namespace. tests/harness.py makes the mechanics safe: it writes a replacement to every module holding a name, so moving methods between modules cannot silently unpatch a check the way it would have before.\n\nDone 2026-08-05. Split into seven mixins over one Adw.ApplicationWindow: library_view, search_view, playlist_view, playback_view, device_view, queue and commands, with window.py keeping the chrome, the state and the assembly order. The largest module is now device_view.py at 929 lines against 4438 before, in line with device.py at 527 and player.py at 457.\n\nThe question the goal asked first was settled by measuring rather than by judgement. Counting __init__ makes every attribute look shared, because it is the one place all of them are born; excluding it, 33 of 152 attributes are touched by more than one module, and two thirds of those by exactly two. What is genuinely window-wide is small: the device the window is pointed at, whether a script is running, and the library and the player. So mixins are honest here - but only after the seams were redrawn. The first cut had device and sync sharing twelve attributes, which said they were one concern wearing two names; commands and queue is the cut that works.\n\nSixteen shared attributes went away rather than being written down, because they were shared only for being built in one module and painted in another. The sidebar's device card, the header's search field and library controls, the playlist rail and the shelf at the top of the library page now belong to whichever mixin repaints them, and the window appends what they return without naming it. Closing the window reached into playback's lock and process handle and now calls one verb; reading the visible view became current_view() for the same reason, since a verb is a declared interface and a widget reached into is not. window.py is left touching exactly one attribute another mixin owns.\n\ndevice_view.py stayed the largest deliberately. Splitting its page from its probe was measured too, and makes it worse: 33 shared attributes become 36, with 12 shared between the two halves, because painting a device summary and probing the device are one concern.\n\ntools/mixin-contract.py is what keeps this from rotting back. It pins the shared table and checks it in both directions, so a new sharer fails and an entry the code has left behind fails too - adding to it is allowed, doing it by accident is not. It also catches a method defined in two mixins, an attribute read but never assigned, and state assigned but never read. That last check found three dead attributes: now_playing_bar, settings_view and sync_files, all written and never consulted, now gone.\n\ntests/gui-window-build.py builds the real window under xvfb, which nothing did before. Every other GUI check runs methods unbound against a stand-in, deliberately, so none would notice a builder that stopped being called or a widget that never reached the stack - exactly what a mixin split risks. CI gained xvfb for it.\n\nEvery one of the 159 methods moved with an identical AST, checked against the pre-split file, so the move could not reword anything; the 11 call sites that did change are the seven extracted builders and the four dead-attribute removals. Both new checks were mutation-tested - removing a builder call, dropping a view from the stack, reaching into another mixin's state, defining a method twice, and mistyping an attribute each fail the check that should catch them. Writing gui-window-build.py surfaced a defect in itself: an exception escaping a GLib idle callback does not end the main loop, so it hung rather than failed, and it now has a watchdog and its own try/except. Full product-e2e.sh passes, 66 checks.",
+      "id": "wipe-the-ipod-and-redownload-everything",
+      "title": "wipe the ipod and redownload everything",
       "status": "done",
-      "createdAt": "2026-08-04T04:26:07.240Z",
-      "updatedAt": "2026-08-05T05:12:59.705Z",
-      "previousIds": [
-        "goal-mse5o5qg-49bb037d"
-      ],
-      "group": "Architecture",
-      "completedAt": "2026-08-05T05:12:59.705Z"
+      "createdAt": "2026-08-04T20:00:44.881Z",
+      "updatedAt": "2026-08-05T16:35:46.838Z",
+      "group": "Sync",
+      "completedAt": "2026-08-05T16:35:46.838Z"
     },
     {
       "id": "make-it-easier-to-create-a-new-playlist",
@@ -143,34 +152,23 @@
       "completedAt": "2026-08-07T06:34:22.961Z"
     },
     {
-      "id": "wipe-the-ipod-and-redownload-everything",
-      "title": "wipe the ipod and redownload everything",
+      "id": "stop-startup-repaints-from-dismissing",
+      "title": "Get the grouping drop-down working again on a 2x display",
+      "description": "DONE 2026-08-07. Not this app's code and not a GTK bug: mutter refused to place the popup and dismissed it. The refusal is in the journal, 491 times in one boot, bursty and clustered on exactly the sessions where the drop-down was being clicked: 'Buggy client caused popup to be placed outside of parent window'. That message has one source in mutter 46, the rect check closing meta_wayland_xdg_popup_post_apply_state, which calls dismiss_invalid_popup and so sends xdg_popup.popup_done when the popup's buffer rect neither overlaps nor touches its parent's. The check runs on the commit that attaches the popup's first buffer, which is the popup_done arriving about 10ms after the map. It also explains the one asymmetry nothing else did: maximised, the parent covers the screen and a mis-placed popup still lands on it; floating, the parent is a small target and the popup misses.\n\nThe mis-placement came from the session's layout mode rather than from the widget. DisplayConfig reported layout-mode 2 (physical) with legacy-ui-scaling-factor 2, so mutter was on the legacy HiDPI path, where scale_placement_rule multiplies every positioner coordinate by the window's monitor scale. get_window_geometry_scale_for_logical_monitor returns 1 instead when meta_backend_is_stage_views_scaled is true, which is exactly when scale-monitor-framebuffer is on.\n\nFIXED by turning on Fractional Scaling for the built-in display in Settings, which sets org.gnome.mutter experimental-features to ['scale-monitor-framebuffer'] and moves the session to layout-mode 1 with legacy-ui-scaling-factor 1. The last refusal was logged at 05:04, the display configuration was applied at 05:06:58, and there have been none since. No code changed and the Gtk.DropDown stays. To re-check at any time: journalctl --user -b | grep -c 'outside of parent window' should stay flat while clicking the control.\n\nCOST ACCEPTED, and it does not depend on the external monitor being attached: with stage views scaled, mutter hardcodes the UI scaling factor for X11 clients to 1 (meta-settings.c, update_ui_scaling_factor). Measured, X11 clients are told eDP-1 is 1536x960 at scale 1 with Xft.dpi 96, so XWayland apps draw at 1x and are upscaled on the 2x panel where the legacy path had them drawing at 2x; Wayland clients are told scale 2 and stay sharp. GNOME 46 has no xwayland-native-scaling to avoid that. Both displays are on integer scales, 2.0 and 1.0, so nothing is resampled and the power, speed and sharpness warnings on the Settings toggle do not apply to this configuration. The setting is session-wide and stays on undocked, which is what is wanted, because this is a floating-on-a-2x-display bug rather than a two-monitor one and the laptop alone is still 2x.\n\nCORRECTS the earlier reading of the WAYLAND_DEBUG trace: the reactive positioner and the mid-map wp_fractional_scale change are upstream of the mis-placement, not the dismissal itself. The routes listed before are moot - GTK did not need updating past 4.14.5, the Gtk.MenuButton replacement was not needed, and the layered minimal.py reproduction is not needed to verify this.",
       "status": "done",
-      "createdAt": "2026-08-04T20:00:44.881Z",
-      "updatedAt": "2026-08-05T16:35:46.838Z",
-      "group": "Sync",
-      "completedAt": "2026-08-05T16:35:46.838Z"
+      "createdAt": "2026-08-07T03:49:20.462Z",
+      "updatedAt": "2026-08-07T22:20:09.326Z",
+      "completedAt": "2026-08-07T09:28:23.260Z",
+      "group": "UI"
     },
     {
-      "id": "add-queued-filter-and-symbol-on-library",
-      "title": "add queued filter and symbol on library page",
+      "id": "let-the-search-box-own-pasted-youtube",
+      "title": "Let the search box own pasted YouTube links",
+      "description": "Pasting a YouTube link into the search field already works and almost nobody would know: youtube_search_target (ipod_gui/youtube.py:83) detects a link and looks it up as itself rather than searching for the text as a phrase. Two gaps keep it from being the real home for the feature.\n\nIt is undiscoverable. The search entry's placeholder is \"Search your library and YouTube\" (search_view.py:52) and never mentions links, which is why the Add from YouTube dialog on the Device page still gets reached for.\n\nA pasted playlist link is silently truncated. youtube_search_command caps every query with --playlist-items 1-<limit> (youtube.py:103) and YOUTUBE_SEARCH_RESULTS is 3 (youtube.py:36), so pasting a 40 track playlist shows three results and reads as the whole thing. The cap is right for keeping an album link from flooding the section, but presenting the first three as if they were all of it is wrong on its own terms, separate from anything to do with the dialog.\n\nThe work: say so in the placeholder, and when the query resolves to a playlist show a header above the YouTube section naming it and its real length, along the lines of \"Playlist: Name, 40 tracks, showing first 3\", with an Add all action beside it. That puts the whole playlist download at the moment it is relevant instead of behind a switch on a settings page, and it fixes the truncation at the same time. parse_search_results (youtube.py:110) currently drops the playlist_title, playlist_count and n_entries that --flat-playlist --dump-json emits for a playlist URL, and SearchResult (youtube.py:53) has no field to carry them, so both need to keep that metadata for the header to exist.\n\nAdd all needs no new download path: _start_youtube_download(url, single=False) is exactly what the dialog's Whole playlist switch did (queue.py:676).\n\nCarry over the clipboard convenience too. _offer_clipboard_url (queue.py:663) pre-filled the dialog from the clipboard and is removed along with it, so when the search field is empty and the clipboard holds a downloadable URL, offer it as a suggestion. Offer rather than autofill, so a clipboard that happens to hold a link never silently changes what a search is about to run.\n\nRationale for not simply moving the dialog somewhere else: a dedicated entry point made sense when search could not resolve links, and it can. A second one duplicates a working path and puts the capability on a settings page rather than the page actually in use.\n\nThis must land before \"Drop the Sync options card and the three add buttons from Device and settings\", because it is what keeps whole playlist downloading alive once that dialog goes.",
+      "group": "Search",
       "status": "open",
-      "createdAt": "2026-08-05T16:04:11.221Z",
-      "updatedAt": "2026-08-05T16:04:11.221Z"
-    },
-    {
-      "id": "add-covers-to-playlists",
-      "title": "Add covers to playlists",
-      "status": "open",
-      "createdAt": "2026-08-05T16:06:26.195Z",
-      "updatedAt": "2026-08-05T16:06:26.195Z"
-    },
-    {
-      "id": "delete-from-library-button",
-      "title": "delete from library button",
-      "status": "open",
-      "createdAt": "2026-08-05T16:38:43.375Z",
-      "updatedAt": "2026-08-05T16:38:43.375Z"
+      "createdAt": "2026-08-07T21:49:20.937Z",
+      "updatedAt": "2026-08-07T21:49:20.937Z"
     },
     {
       "id": "answer-a-deleted-playlist-apart-from",
@@ -178,20 +176,146 @@
       "description": "playlist_contents catches every OSError alike, so a playlist another program deleted while its rows are on screen answers complete=False and the window says it could not write - sending the user to check permissions on a folder that is perfectly writable, while the rail keeps showing a playlist that is gone. Making playlist_contents answer FileNotFoundError apart from a genuine read failure closes it for add_entries, remove_entry and move_entry at once, rather than at each of the three edit sites. A deleted playlist should repaint, the way a vanished row already does; a real read failure should keep saying so. Raised by review on playlist-edit-failure-wording, which fixed the shortened-file half of the same symptom. Deliberate and module-wide today: tests/gui-playlists.py asserts the current answer for add_entries on a deleted file, so those assertions move with the change.",
       "status": "open",
       "createdAt": "2026-08-06T23:00:08.764Z",
-      "updatedAt": "2026-08-06T23:00:20.579Z"
+      "updatedAt": "2026-08-07T22:20:08.959Z",
+      "group": "UI"
     },
     {
-      "id": "stop-startup-repaints-from-dismissing",
-      "title": "Get the grouping drop-down working again on a 2x display",
-      "description": "DONE 2026-08-07. Not this app's code and not a GTK bug: mutter refused to place the popup and dismissed it. The refusal is in the journal, 491 times in one boot, bursty and clustered on exactly the sessions where the drop-down was being clicked: 'Buggy client caused popup to be placed outside of parent window'. That message has one source in mutter 46, the rect check closing meta_wayland_xdg_popup_post_apply_state, which calls dismiss_invalid_popup and so sends xdg_popup.popup_done when the popup's buffer rect neither overlaps nor touches its parent's. The check runs on the commit that attaches the popup's first buffer, which is the popup_done arriving about 10ms after the map. It also explains the one asymmetry nothing else did: maximised, the parent covers the screen and a mis-placed popup still lands on it; floating, the parent is a small target and the popup misses.\n\nThe mis-placement came from the session's layout mode rather than from the widget. DisplayConfig reported layout-mode 2 (physical) with legacy-ui-scaling-factor 2, so mutter was on the legacy HiDPI path, where scale_placement_rule multiplies every positioner coordinate by the window's monitor scale. get_window_geometry_scale_for_logical_monitor returns 1 instead when meta_backend_is_stage_views_scaled is true, which is exactly when scale-monitor-framebuffer is on.\n\nFIXED by turning on Fractional Scaling for the built-in display in Settings, which sets org.gnome.mutter experimental-features to ['scale-monitor-framebuffer'] and moves the session to layout-mode 1 with legacy-ui-scaling-factor 1. The last refusal was logged at 05:04, the display configuration was applied at 05:06:58, and there have been none since. No code changed and the Gtk.DropDown stays. To re-check at any time: journalctl --user -b | grep -c 'outside of parent window' should stay flat while clicking the control.\n\nCOST ACCEPTED, and it does not depend on the external monitor being attached: with stage views scaled, mutter hardcodes the UI scaling factor for X11 clients to 1 (meta-settings.c, update_ui_scaling_factor). Measured, X11 clients are told eDP-1 is 1536x960 at scale 1 with Xft.dpi 96, so XWayland apps draw at 1x and are upscaled on the 2x panel where the legacy path had them drawing at 2x; Wayland clients are told scale 2 and stay sharp. GNOME 46 has no xwayland-native-scaling to avoid that. Both displays are on integer scales, 2.0 and 1.0, so nothing is resampled and the power, speed and sharpness warnings on the Settings toggle do not apply to this configuration. The setting is session-wide and stays on undocked, which is what is wanted, because this is a floating-on-a-2x-display bug rather than a two-monitor one and the laptop alone is still 2x.\n\nCORRECTS the earlier reading of the WAYLAND_DEBUG trace: the reactive positioner and the mid-map wp_fractional_scale change are upstream of the mis-placement, not the dismissal itself. The routes listed before are moot - GTK did not need updating past 4.14.5, the Gtk.MenuButton replacement was not needed, and the layered minimal.py reproduction is not needed to verify this.",
-      "status": "done",
-      "createdAt": "2026-08-07T03:49:20.462Z",
-      "updatedAt": "2026-08-07T09:28:23.260Z",
-      "completedAt": "2026-08-07T09:28:23.260Z"
+      "id": "add-covers-to-playlists",
+      "title": "Add covers to playlists",
+      "status": "open",
+      "createdAt": "2026-08-05T16:06:26.195Z",
+      "updatedAt": "2026-08-07T22:20:08.222Z",
+      "group": "UI"
+    },
+    {
+      "id": "add-queued-filter-and-symbol-on-library",
+      "title": "add queued filter and symbol on library page",
+      "status": "open",
+      "createdAt": "2026-08-05T16:04:11.221Z",
+      "updatedAt": "2026-08-07T22:20:07.838Z",
+      "group": "UI"
+    },
+    {
+      "id": "delete-from-library-button",
+      "title": "delete from library button",
+      "status": "open",
+      "createdAt": "2026-08-05T16:38:43.375Z",
+      "updatedAt": "2026-08-07T22:20:08.603Z",
+      "group": "UI"
+    },
+    {
+      "id": "drop-the-sync-options-card-and-the",
+      "title": "Drop the Sync options card and the three add buttons from Device and settings",
+      "description": "Everything under Sync options on the Device and settings page is now reachable elsewhere in the GUI, so the card and the three action buttons beside it go.\n\nRemove the Playlist grouping ComboRow and the Speak track names / Speak playlist names switches from _build_sync_options (ipod_gui/device_view.py:203). Syncing should always use no automatic grouping with both spoken names on, so _sync_options (device_view.py:884) returns [\"--voiceover\", \"--playlist-voiceover\"], falling back to [\"--forget-options\"] when has_speech_engine() is false, because spoken names cannot be generated without an engine. Keep the warning card that explains a missing engine. Passing explicit flags is also what clears stale state rather than needing a migration: ipod-sync.sh replays a device's saved .sync-options only when DB_ARGS is empty (ipod-sync.sh:130), so a device that already has --auto-dir-playlists written into iPod_Control/.sync-options stops grouping on its next sync.\n\nRemove the three buttons at device_view.py:287-309 (Add music folder..., Import playlist file..., Add from YouTube...) along with the dialog plumbing only they reach: on_add_music (queue.py:551), on_import_playlist (playlist_view.py:1099), on_add_youtube (queue.py:622), _on_youtube_response and _offer_clipboard_url. Keep _discover_music_folder, _import_playlist and _start_youtube_download. Those take a path or a URL directly instead of opening a chooser, they are where the actual work lives, and they are the seam the headless CLI and Gio actions goals under Agent interfaces would drive. _start_youtube_download already has three other callers, and _import_playlist is a thin wrapper over import_playlist_file (playlists.py:274), which stays regardless.\n\nThe home page already covers what the buttons did. youtube_search_target (youtube.py:83) detects a pasted link and looks it up as itself rather than searching for the text as a phrase, so a URL pasted into search resolves to that video. Folders are added under Music folders and their tracks queued from the Library. Playlists are made with the New button. The Whole playlist toggle is the one thing search does not yet cover, which is why \"Let the search box own pasted YouTube links\" is a prerequisite rather than this goal accepting the loss: that goal moves whole playlist downloading into the search results, and this one must not land first.\n\nAlso update the button list in window.py:187-189, the sensitivity rules in _update_device_controls (device_view.py:626-633), _load_sync_options (device_view.py:871) and its probe call at device_view.py:460, and saved_sync_options (device.py:105, called at device.py:485), which decodes the grouping mode out of .sync-options and would be left with no reader. Tests that touch this surface: tests/gui-window-build.py, tests/gui-state-smoke.py, tests/gui-actions-smoke.py, tests/gui-playlists.py.\n\nWorth landing before \"A headless CLI over the ipod_gui package\" so the CLI does not wrap controls that are about to disappear.",
+      "group": "UI",
+      "status": "open",
+      "createdAt": "2026-08-07T21:41:30.889Z",
+      "updatedAt": "2026-08-07T21:49:36.292Z",
+      "dependsOn": [
+        "let-the-search-box-own-pasted-youtube"
+      ]
+    },
+    {
+      "id": "json-output-and-stable-exit-codes-for",
+      "title": "JSON output and stable exit codes for the shell scripts",
+      "description": "The read-only surface first. ipod-remove.sh --list is the only report of what is on the device and it prints prose; nothing in the repository emits machine-readable output at all, and the only --json in the tree is the GUI consuming findmnt's in lib.sh and device.py. Add --json to the paths that report rather than act, covering the mount point, device identity, free space, track count, track paths, playlists, spoken names and the saved sync options - which is the same set probe_device() already assembles for the window. Give the states a caller has to branch on distinct exit codes rather than English: no iPod, several iPods, the device stopped answering mid-operation, a missing dependency, and a declined prompt. install.sh's capability probes should be able to report the same way, so a caller can find out what is installed without running an install. The standard to meet is already in the tree: ipod-fetch.sh --new-tracks FILE deletes the file rather than leaving it stale when yt-dlp cannot fill it, because a stale file reads as a definite answer to whoever picks it up next. Every JSON path here owes the same guarantee - a definite answer or no answer, never a stale one.",
+      "group": "Agent interfaces",
+      "status": "open",
+      "createdAt": "2026-08-07T21:37:54.443Z",
+      "updatedAt": "2026-08-07T21:37:54.443Z"
+    },
+    {
+      "id": "structured-sync-progress-replacing-the",
+      "title": "Structured sync progress, replacing the GUI's regex scrape",
+      "description": "text.py holds COPIED_LINE, a regex that parses '+ name -> dest' out of ipod-sync.sh's coloured human output, and that scrape is what drives the sync bar; strip_ansi sits beside it because the escape sequences otherwise arrived in the log view as literal noise. Rewording one line of the script silently breaks the progress bar, and nothing fails when it does. Emit one JSON object per line on a separate stream, either fd 3 or behind --progress-json, covering the planned total, each file copied, the database rebuild starting and finishing, playlist writes, and the terminal result. Then have commands.py consume that instead of the regex. The human output stays exactly as it is: this is an additional stream, not a replacement, because the scripts are the product and they have to keep reading well in a terminal. The same protocol should cover ipod-remove.sh and ipod-wipe.sh, since commands.py runs all three through one _run and shows them in the same bar.",
+      "group": "Agent interfaces",
+      "dependsOn": [
+        "json-output-and-stable-exit-codes-for"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-07T21:37:54.443Z",
+      "updatedAt": "2026-08-07T21:37:54.443Z"
+    },
+    {
+      "id": "rails-for-destructive-operations-run",
+      "title": "Rails for destructive operations run non-interactively",
+      "description": "This has to land with the first machine interface rather than after it, because the first JSON path into ipod-wipe.sh is also the first way an agent wipes someone's iPod by accident. Three parts. A --dry-run on sync, remove and wipe that prints the exact plan as JSON and touches nothing. An --expect-device <identity> that promotes the check commands.py already makes into something a caller can demand: every device-changing action there holds the write side of DEVICE_IO_LOCK and re-resolves the mount to confirm the iPod under it is still the one the action was aimed at, and that guarantee currently stops at the GUI's edge. And a refusal to run a destructive action non-interactively without an explicit token, even when --yes is passed, since --yes today means a human already decided and a caller passing it programmatically means nothing of the kind. The suite already covers a track path escaping the music folder through ../ on the way into an rm -rf, and a wipe destroying Apple's Speakable prompts, which nothing in the open-source toolchain can regenerate. These rails belong under the same coverage, and the e2e suite is where they get it.",
+      "group": "Agent interfaces",
+      "dependsOn": [
+        "json-output-and-stable-exit-codes-for"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-07T21:37:54.443Z",
+      "updatedAt": "2026-08-07T21:37:54.443Z"
+    },
+    {
+      "id": "a-headless-cli-over-the-ipod-gui-package",
+      "title": "A headless CLI over the ipod_gui package",
+      "description": "Everything worth asking the app lives in ipod_gui/ and is reachable only by building a GTK window, even though most of those modules never touch a widget. Expose them as python3 -m ipod_gui.cli with subcommands: library for the LibraryIndex (tracks, albums, artists, counts and each track's state), device for one probe_device() pass, search for local_search_matches plus search_youtube, playlists for the M3U folder (list, create, add, remove, reorder), cache for the preview cache (size, prune, clear), and config for the music roots and layout. The logic already exists and is display-free; the work is the command surface and the output shape, which follows the conventions the shell scripts get. One constraint to respect: ipod_gui/__init__.py imports gi and pins Gtk 4.0 and Adw 1 eagerly, and tests/harness.py depends on that declared ordering to know which binding a stand-in has to replace, so the CLI enters through the package rather than around it and must not become a second import path the harness cannot reach. It needs PyGObject installed but no display. Extend the CI Python gate, which today only compiles the package and tests/*.py.",
+      "group": "Agent interfaces",
+      "dependsOn": [
+        "json-output-and-stable-exit-codes-for",
+        "drop-the-sync-options-card-and-the"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-07T21:37:54.443Z",
+      "updatedAt": "2026-08-07T21:43:35.619Z"
+    },
+    {
+      "id": "gio-actions-and-a-state-dump-on-the",
+      "title": "Gio actions and a state dump on the running window",
+      "description": "The app already owns a D-Bus name and exports nothing on it: IpodApp is an Adw.Application constructed with APP_ID and DEFAULT_FLAGS, and GtkApplication publishes org.gtk.Actions on that name for free. Adding actions makes a running window drivable by gdbus call, with no synthetic input events and no AT-SPI. Add navigate(page), search(query), queue(path) and refresh, and a dump-state that returns JSON of what is actually on screen: the current page, the visible counts, what is staged for the next sync, the now-playing state, the sync bar's state, and any inline error a view is showing in place of content - which the search design in particular requires be stated inline rather than as a toast, so it is only visible in the widget tree. That last field is what lets a check assert on the app's state instead of interpreting a screenshot. DEFAULT_FLAGS makes the app single-instance, so a second launch activates the existing window rather than opening a second one: that is the hook this depends on, not a problem to work around. Serialise the library and device objects with the same code the headless CLI uses, so there is one shape for them rather than two that drift.",
+      "group": "Agent interfaces",
+      "dependsOn": [
+        "a-headless-cli-over-the-ipod-gui-package"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-07T21:37:54.443Z",
+      "updatedAt": "2026-08-07T21:37:54.443Z"
+    },
+    {
+      "id": "a-deterministic-screenshot-harness-for",
+      "title": "A deterministic screenshot harness for the window",
+      "description": "Verifying this window visually has been hand-rolled every time it was needed, and the reason is already recorded in the search UI polish goal: x11grab sees black under Wayland and a WidgetPaintable holds nothing when the compositor is not sending window frames, so the approach that worked was forcing the layout with Gtk.Widget.allocate and snapshotting into a Cairo renderer, which makes the size a parameter of the shot rather than whatever the window manager happened to give. Promote that into tools/shoot.py, taking a page, a width, a scale factor and an output path, driven through the navigate action rather than by reaching into the widget tree. Run it against the fixture tools/demo-library.py builds, so the shots are deterministic and show the same four albums and two playlists every time. The scale factor is not optional: the most recent fix in this repository was a grouping drop-down that only misbehaved on a 2x display, and no 1x shot would have shown it. Consider running a small set of shots in CI and keeping them as artifacts, beside the two real-window checks that already run under xvfb.",
+      "group": "Agent interfaces",
+      "dependsOn": [
+        "gio-actions-and-a-state-dump-on-the"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-07T21:37:54.443Z",
+      "updatedAt": "2026-08-07T21:37:54.443Z"
+    },
+    {
+      "id": "an-mcp-server-over-the-headless-cli",
+      "title": "An MCP server over the headless CLI",
+      "description": "So the app is reachable from a client that is not sitting in this checkout with a shell. A thin server over the headless CLI's subcommands, adding no logic of its own: library, device, search, playlists and cache as read-only tools, and the device-changing ones only behind the rails, which means every destructive tool takes the expected device identity and offers the dry run first. Keep the two sets visibly separate in the tool listing rather than relying on a description to carry the difference, since the failure mode here is a caller that cannot see the boundary reaching across it. Ship it under tools/ and document it in the README. This is the last piece and the most optional: it is worth doing only once the CLI beneath it is the real interface rather than a wrapper around scraped output.",
+      "group": "Agent interfaces",
+      "dependsOn": [
+        "rails-for-destructive-operations-run",
+        "a-headless-cli-over-the-ipod-gui-package"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-07T21:37:54.443Z",
+      "updatedAt": "2026-08-07T21:37:54.443Z"
+    },
+    {
+      "id": "a-repo-skill-and-claude-md-so-an-agent",
+      "title": "A repo skill and CLAUDE.md so an agent starts from the right facts",
+      "description": "There is no .claude/ in this repository and no repo-level CLAUDE.md, so the entry point for anyone arriving without context is a 54,000 character README. Write the short version of what has to be known before touching anything: that the shell scripts are the product and the GUI drives them rather than reimplementing their device-changing logic; which actions are destructive and what the rails around them require; the mixin boundary and that tools/mixin-contract.py checks it; the import ordering ipod_gui/__init__.py declares and tests/harness.py depends on; how to run the suite, including xvfb for the two real-window checks, IPOD_REAL_DB_TOOL for the upstream database builder and EVIDENCE_DIR for the artefacts; and the demo library recipe. Then document the machine interfaces the other goals in this group add, so they are found rather than rediscovered. It lands after them for that reason.",
+      "group": "Agent interfaces",
+      "dependsOn": [
+        "structured-sync-progress-replacing-the",
+        "rails-for-destructive-operations-run",
+        "a-deterministic-screenshot-harness-for"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-07T21:37:54.443Z",
+      "updatedAt": "2026-08-07T21:37:54.443Z"
     }
   ],
   "retiredIds": [
     "test",
-    "fix-unknown-album-on-every-song-import"
+    "fix-unknown-album-on-every-song-import",
+    "add-interfaces-so-agents-can-interact"
   ]
 }
