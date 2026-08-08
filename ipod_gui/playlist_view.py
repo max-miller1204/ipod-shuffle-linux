@@ -902,7 +902,7 @@ class PlaylistViewMixin:
             result.url,
             single=True,
             busy_message=f"Downloading {result.title}",
-            on_failure=lambda: self._report_download_failure(result),
+            on_failure=lambda: self._report_download_failure(result.title),
             playlist=name,
             video_id=result.video_id,
         )

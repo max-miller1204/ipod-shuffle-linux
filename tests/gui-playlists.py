@@ -1265,6 +1265,13 @@ url, asked = download_window.downloads[-1]
 assert url == result.url, url
 assert asked["playlist"] == "Fresh", asked
 assert asked["video_id"] == "fJ9rUzIMcZQ", asked
+# And if that download fails, what it says names the track. The press left the
+# search behind for the Playlists view, so the toast is the only word there is
+# and the title has to survive the trip through the reporter.
+asked["on_failure"]()
+assert download_window.toasts[-1] == "Could not finish downloading Bohemian Rhapsody", (
+    download_window.toasts
+)
 # A playlist deleted since the menu was painted says so, rather than closing
 # the menu on nothing: a press that starts no download and shows no message is
 # indistinguishable from one the app never received.
