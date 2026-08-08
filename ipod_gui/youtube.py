@@ -230,6 +230,16 @@ class LinkedPlaylist:
         self.url = url
         self.shown = shown
 
+    def length_known(self):
+        """Whether this list has an end yt-dlp was willing to name.
+
+        A Mix, a channel and a /videos tab all come back with a title and no
+        count, because they are paginated rather than finite. Nothing can be
+        said about how much of one a whole-list download would fetch, so the
+        header names it and stops there.
+        """
+        return self.count > 0
+
     def summary(self):
         """What the header says: which list this is, and what is left out."""
         named = f"Playlist: {self.title}" if self.title else "Playlist"

@@ -545,11 +545,41 @@ def inspect(window):
     said = window.search_playlist_label.get_text()
     if "Road Trip" not in said or "40 tracks" not in said:
         failures.append(f"the playlist header reads {said!r}")
+    if not window.search_playlist_add.get_visible():
+        failures.append("a playlist of a stated length offered no Add all")
     if window.search_playlist_add not in window.search_add_buttons:
         failures.append(
             "Add all is not one of the buttons a device appearing makes "
             "sensitive, so it would stay disabled with an iPod plugged in"
         )
+
+    # A Mix, a channel or a /videos tab reports no length, because it is
+    # paginated rather than finite. The header still names it - that is what
+    # explains the three rows - but there is no whole of it to offer in one
+    # press onto a device with two gigabytes on it, and each row keeps its Add.
+    window.search_playlist = gui.LinkedPlaylist(
+        "Bohemian Rhapsody Radio",
+        0,
+        "https://www.youtube.com/watch?v=fJ9rUzIMcZQ&list=RDfJ9rUzIMcZQ",
+        3,
+    )
+    window._paint_youtube_section()
+    if not window.search_playlist_row.get_visible():
+        failures.append("a listing of no stated length showed no header at all")
+    said = window.search_playlist_label.get_text()
+    if "Bohemian Rhapsody Radio" not in said:
+        failures.append(f"the header did not name the listing: {said!r}")
+    if window.search_playlist_add.get_visible():
+        failures.append(
+            "Add all was offered for a listing yt-dlp gave no length for, "
+            "which is one press to fetch a mix or a channel with no end to it"
+        )
+    if window.search_playlist_add in window.search_add_buttons:
+        failures.append(
+            "a hidden Add all is still on the list a device appearing makes "
+            "sensitive, so plugging in would light up a button that is not there"
+        )
+
     window.search_playlist = None
     window._paint_youtube_section()
     if window.search_playlist_row.get_visible():

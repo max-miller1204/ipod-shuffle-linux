@@ -26,3 +26,15 @@ the search always runs. Only the fields the header is built from are shown.
    linked video gets no header even though it is a link.
    https://www.youtube.com/watch?v=1F_OgqRuSdI
    {"id": "1F_OgqRuSdI", "playlist_title": null, "playlist_count": null, "n_entries": null, "playlist_index": null}
+
+4. A link that carries a playlist - the form the address bar gives you
+   partway through one. It answers as the playlist, not as the video
+   named in it: same title, same count, and the rows are the
+   playlist's first three rather than the pasted video's. Here the
+   pasted video is the list's first, so it is among them; pasted from
+   further in it would not be, which is what makes the header the
+   thing that explains the rows.
+   https://www.youtube.com/watch?v=1F_OgqRuSdI&list=PL0-84-yl1fUnRuXGFe_F7qSH1LEnn9LkW
+   {"id": "1F_OgqRuSdI", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 1}
+   {"id": "7qHMXu99d88", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 2}
+   {"id": "buMTH6ICnqk", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 3}

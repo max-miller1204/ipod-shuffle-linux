@@ -43,7 +43,7 @@ header at all. This is the case the feature turns on, and `06` is why.
 same playlist. One result, no header: yt-dlp's own default reading of such a
 link is the video, and so is this. Paste the playlist's own link for the rest.
 
-`06-what-yt-dlp-reports.txt` - the three cases as yt-dlp actually answers
+`06-what-yt-dlp-reports.txt` - the four cases as yt-dlp actually answers
 them, under the same flags the search runs. Two findings are load-bearing.
 `playlist_count` is the real length while `n_entries` is what
 `--playlist-items` left behind, so a header built on `n_entries` would report

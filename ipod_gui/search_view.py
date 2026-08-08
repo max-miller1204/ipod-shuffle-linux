@@ -535,12 +535,21 @@ class SearchViewMixin:
         appearing or a script starting reaches it too: it is the same download
         against the same iPod, and a button left sensitive through a sync is
         one that starts a second script over the first.
+
+        Only a list yt-dlp gave a length for is offered whole, though. A Mix or
+        a channel reports none because there is no end to report, and one press
+        would put a listing of no stated size onto a player with two gigabytes
+        on it. The header still names it, which is what explains the three
+        rows, and each row keeps its own Add.
         """
         playlist = None if self.search_loading else self.search_playlist
         self.search_playlist_row.set_visible(playlist is not None)
         if playlist is None:
             return
         self.search_playlist_label.set_text(playlist.summary())
+        self.search_playlist_add.set_visible(playlist.length_known())
+        if not playlist.length_known():
+            return
         self.search_playlist_add.set_sensitive(self._can_download())
         self.search_playlist_add.set_tooltip_text(self._youtube_download_tooltip())
         self.search_add_buttons.append(self.search_playlist_add)

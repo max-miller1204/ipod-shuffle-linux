@@ -156,7 +156,9 @@ The field says so - it reads **Search or paste a link**, and its tooltip names b
 
 A link to a playlist gets a header above the results naming it and saying how long it really is, along the lines of *Playlist: Road Trip, 40 tracks, showing the first 3*, with **Add all** beside it.
 Only three rows are ever listed, so that an album link cannot flood the section; the header is what stops those three reading as the whole of it, and **Add all** downloads the rest.
-A link to one video that happens to sit inside a playlist is that video, which is what YouTube's own address bar means by it - paste the playlist's own link to get all of it.
+**Add all** is offered only for a list `yt-dlp` reports a length for; a mix or a channel is paginated rather than finite, so it gets the header and each row's own **Add** but no one-press download of a listing with no end to it.
+A link that carries a playlist - the `watch?v=…&list=…` form YouTube's address bar gives you partway through one - resolves to that playlist rather than to the single video: the header names it, and **Add all** takes the whole thing.
+The three rows under it are the playlist's first three, which need not include the video the link was of.
 
 When the field is empty and your clipboard holds a link, a strip under the header offers it: **Look it up** puts it in the field and searches for it, and **×** dismisses it.
 It is offered rather than filled in, so a clipboard that happens to hold a link never changes what your next search is about, and each link is offered once rather than every time you come back to an empty field.
