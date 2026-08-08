@@ -519,8 +519,11 @@ def fetch_command(url, output, new_tracks=None, single=True):
     """The ipod-fetch.sh invocation behind every download the GUI starts.
 
     One builder keeps the shared flags consistent for the link dialog, a
-    search result's Add and a preview while letting each supply its output,
-    new-track manifest and playlist scope.
+    search result's Add, the Add all beside a pasted playlist and a preview
+    while letting each supply its output, new-track manifest and playlist
+    scope. Add all is the only one that always asks for the whole list, which
+    the dialog does only with its Whole playlist switch on and a result's Add
+    never does.
     """
     command = [str(FETCH_SCRIPT), "--output", str(output)]
     if new_tracks is not None:

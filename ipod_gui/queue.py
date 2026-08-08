@@ -690,11 +690,14 @@ class QueueMixin:
     ):
         """Fetch one link and queue whatever that run produced.
 
-        Shared by the dialog and by a search result so both queue exactly the
-        tracks the download reported rather than the folder it wrote into.
-        `playlist` names the playlist a result was added to, which is the one
-        case where the download is a step towards something else rather than
-        the whole of what was asked for.
+        Shared by the dialog, by a search result and by the Add all beside a
+        pasted playlist, so each of them queues exactly the tracks the
+        download reported rather than the folder it wrote into. Add all is the
+        only caller that hands over `single=False` outright, making it the
+        whole-list download the dialog offers behind its Whole playlist
+        switch. `playlist` names the playlist a result was added to, which is
+        the one case where the download is a step towards something else
+        rather than the whole of what was asked for.
         """
         # Written by the download and read when it completes, so only what this
         # run actually fetched enters the queue. Without it the whole library
