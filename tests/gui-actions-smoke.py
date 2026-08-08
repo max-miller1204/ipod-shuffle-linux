@@ -1149,6 +1149,109 @@ flood = gui.parse_search_results(
 )
 assert len(flood) == gui.YOUTUBE_SEARCH_RESULTS, len(flood)
 
+# ----------------------------------------------------------- pasted playlist
+#
+# A pasted playlist link is capped at the shortlist like everything else, and
+# three rows of a forty-track playlist look exactly like a three-track
+# playlist. Every field the header is built from is one yt-dlp only reports on
+# the entries themselves, so these are the shapes it actually emits, taken from
+# real --flat-playlist --dump-json output.
+
+
+def playlist_entries(count, title="Automate the Boring Stuff", shown=3):
+    """Entries as a playlist link answers with --playlist-items 1-N."""
+    return [
+        json.dumps(
+            {
+                "id": f"vid{index}",
+                "title": f"Lesson {index}",
+                "playlist": title,
+                "playlist_title": title,
+                "playlist_count": count,
+                # What this run was asked for, which --playlist-items has
+                # already capped: yt-dlp reports the truncation here, not the
+                # length, and reading it as the length is the whole bug.
+                "n_entries": shown,
+                "playlist_index": index,
+            }
+        )
+        for index in range(1, shown + 1)
+    ]
+
+
+playlist_link = "https://www.youtube.com/playlist?list=PL0-84-yl1fUnRuXGFe"
+from_playlist = gui.parse_search_results(playlist_entries(15))
+assert from_playlist[0].playlist_title == "Automate the Boring Stuff"
+assert from_playlist[0].playlist_count == 15, from_playlist[0].playlist_count
+
+listed = gui.linked_playlist(playlist_link, from_playlist)
+assert listed is not None, "a pasted playlist link resolved to no playlist"
+assert listed.url == playlist_link, listed.url
+assert listed.count == 15 and listed.shown == 3, (listed.count, listed.shown)
+assert listed.summary() == (
+    "Playlist: Automate the Boring Stuff, 15 tracks, showing the first 3"
+), listed.summary()
+
+# The hazard the whole thing turns on: ytsearchN: is a playlist to yt-dlp as
+# well, and every entry of a text search comes back with playlist_title set to
+# the query. Read off the entries alone, every search would announce itself as
+# a playlist named after whatever was typed.
+searched = gui.parse_search_results(
+    [
+        json.dumps(
+            {
+                "id": "fJ9rUzIMcZQ",
+                "title": "Bohemian Rhapsody",
+                "playlist": "bohemian rhapsody",
+                "playlist_title": "bohemian rhapsody",
+                "playlist_count": None,
+                "n_entries": 3,
+            }
+        )
+    ]
+)
+assert searched[0].playlist_title == "bohemian rhapsody"
+assert gui.linked_playlist("bohemian rhapsody", searched) is None, (
+    "a typed query was announced as a playlist of its own name"
+)
+# A link with no playlist behind it carries none of those fields at all.
+lone = gui.parse_search_results([json.dumps({"id": "abc", "title": "One Video"})])
+assert lone[0].playlist_count == 0, lone[0].playlist_count
+assert gui.linked_playlist(link, lone) is None, "a linked video became a playlist"
+assert gui.linked_playlist(playlist_link, []) is None, "nothing found named a list"
+
+# A list no longer than what is on screen is not truncated, so the header says
+# what it is and drops the part about the rest.
+whole = gui.linked_playlist(playlist_link, gui.parse_search_results(
+    playlist_entries(3)
+))
+assert whole is not None and whole.summary() == (
+    "Playlist: Automate the Boring Stuff, 3 tracks"
+), whole.summary()
+# Fewer rows than the cap asked for means the list ran out, whatever yt-dlp
+# reported: --playlist-items would have taken more if there had been more.
+short = gui.linked_playlist(
+    playlist_link, gui.parse_search_results(playlist_entries(99, shown=2))
+)
+assert short is not None and short.count == 2, short.count
+# And a list yt-dlp would not put a number on says what is shown rather than
+# inventing a length for it.
+unnumbered = gui.linked_playlist(
+    playlist_link,
+    gui.parse_search_results(playlist_entries(None)),
+)
+assert unnumbered is not None and unnumbered.summary() == (
+    "Playlist: Automate the Boring Stuff, showing the first 3 tracks"
+), unnumbered.summary()
+
+# The link as a suggestion reads it: the scheme and the www. are the two parts
+# that never tell one link from another, and everything else is kept.
+assert gui.short_link("https://www.youtube.com/watch?v=abc&list=PL1") == (
+    "youtube.com/watch?v=abc&list=PL1"
+)
+assert gui.short_link("  http://youtu.be/abc  ") == "youtu.be/abc"
+assert gui.short_link("") == ""
+
 
 # ---------------------------------------------------------------- artwork
 #
@@ -1557,6 +1660,44 @@ for attribute, value, why in (
     gui.IpodWindow._download_result(refusing, found_result)
     assert refusing.commands == [], why
 
+# Add all is the other download the section offers, and the one thing that
+# keeps a pasted playlist from being three tracks of itself. It is the dialog's
+# Whole playlist switch by another name: no --single, so yt-dlp takes the list
+# rather than the first video of it.
+playlist_window = FakeWindow()
+playlist_window._set_search_note = lambda _text: None
+playlist_window.search_playlist = gui.LinkedPlaylist(
+    "Automate the Boring Stuff", 15, playlist_link, 3
+)
+gui.IpodWindow._download_playlist(playlist_window)
+playlist_fetch = playlist_window.commands[-1]
+assert playlist_fetch[-1] == playlist_link, playlist_fetch
+assert "--single" not in playlist_fetch, playlist_fetch
+assert "Automate the Boring Stuff" in playlist_window.busy_messages[-1], (
+    playlist_window.busy_messages
+)
+
+# Every reason a result cannot be added is a reason the whole list cannot be.
+for attribute, value, why in (
+    ("mount_point", None, "no iPod connected"),
+    ("busy", True, "a script already running"),
+    ("youtube_unavailable", "ffmpeg is not installed", "a missing dependency"),
+):
+    refusing = FakeWindow()
+    refusing._set_search_note = lambda _text: None
+    refusing.search_playlist = gui.LinkedPlaylist("Road Trip", 40, playlist_link, 3)
+    setattr(refusing, attribute, value)
+    gui.IpodWindow._download_playlist(refusing)
+    assert refusing.commands == [], why
+
+# And with no playlist there is nothing to add all of, however addable the
+# window is: the button is hidden, but a stale press must not fetch a query.
+no_playlist = FakeWindow()
+no_playlist.search_playlist = None
+gui.IpodWindow._download_playlist(no_playlist)
+assert no_playlist.commands == [], no_playlist.commands
+
+
 # A download refused before it started must not leave its list file behind.
 refused_run = FakeWindow()
 refused_run._run = lambda *_a, **_k: False
@@ -1752,6 +1893,35 @@ navigating._navigate("playlists")
 assert navigating.views.name == "playlists", navigating.shown
 assert navigating.search_entry.get_text() == "", "the field kept a spent query"
 assert navigating.search_query == "" and navigating.search_results == []
+
+
+class OfferWindow:
+    """Enough of the window to decide whether a clipboard link is worth it."""
+
+    _link_worth_offering = gui.IpodWindow._link_worth_offering
+
+    def __init__(self, typed=""):
+        self.search_entry = SearchEntry(typed)
+        self._offered_links = set()
+
+
+# What was pre-filled into the link dialog is offered under the field instead,
+# and offering is the whole of it: a clipboard that happens to hold a link must
+# never silently change what the next search is about.
+offering = OfferWindow()
+assert offering._link_worth_offering("  https://youtu.be/abc  ") == (
+    "https://youtu.be/abc"
+)
+for ignored in ("", "   ", "bohemian rhapsody", "youtu.be/abc", "file:///etc/passwd"):
+    assert offering._link_worth_offering(ignored) is None, ignored
+# A field already typed in is a search in the middle of being run, and a strip
+# suggesting something else is then in the way of reading its results.
+assert OfferWindow("queen")._link_worth_offering("https://youtu.be/abc") is None
+# Once per link. The field is empty every time the window is come back to, so
+# an offer that returned after being turned down would be back on every visit.
+offering._offered_links.add("https://youtu.be/abc")
+assert offering._link_worth_offering("https://youtu.be/abc") is None
+assert offering._link_worth_offering("https://youtu.be/other") is not None
 
 # --------------------------------------------------------------- staged sync
 #

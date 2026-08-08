@@ -1383,7 +1383,7 @@ assert "--playlist-voiceover" in by_hand.commands[-1]
 # to a new playlist takes the user to the Playlists view while the download is
 # still running, and nothing else reports the failure.
 moved_on = FakeWindow()
-moved_on._report_download_failure(result)
+moved_on._report_download_failure(result.title)
 assert moved_on.toasts[-1] == "Could not finish downloading Bohemian Rhapsody", (
     moved_on.toasts
 )

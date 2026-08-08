@@ -150,7 +150,16 @@ Your indexed music folders answer immediately, matching every word of the query 
 For queries of at least two characters, YouTube answers a second or so later with up to three matches; a reserved three-row placeholder keeps the page steady while it waits.
 Hovering a result's artwork turns it into a play button, the same as a track you already have, and pressing it downloads that video into the preview cache and plays it.
 Once an iPod is connected, adding one of those results downloads it as MP3 and queues it, the same as pasting its link would.
+
 Pasting a link into the search field looks that link up rather than searching for its text, so you can see what a URL actually is before adding it.
+The field says so - it reads **Search or paste a link**, and its tooltip names both sources.
+
+A link to a playlist gets a header above the results naming it and saying how long it really is, along the lines of *Playlist: Road Trip, 40 tracks, showing the first 3*, with **Add all** beside it.
+Only three rows are ever listed, so that an album link cannot flood the section; the header is what stops those three reading as the whole of it, and **Add all** downloads the rest.
+A link to one video that happens to sit inside a playlist is that video, which is what YouTube's own address bar means by it - paste the playlist's own link to get all of it.
+
+When the field is empty and your clipboard holds a link, a strip under the header offers it: **Look it up** puts it in the field and searches for it, and **×** dismisses it.
+It is offered rather than filled in, so a clipboard that happens to hold a link never changes what your next search is about, and each link is offered once rather than every time you come back to an empty field.
 
 The two halves fail independently and each explains problems inline in its own section, never as a toast that is gone by the time you look back at the empty space:
 

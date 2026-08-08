@@ -17,6 +17,7 @@ from pathlib import Path
 
 from .config import ART_CACHE, AUDIO_EXTENSIONS, FETCH_SCRIPT
 from .shell import lib_function_output
+from .text import plural
 
 
 def is_downloadable_url(text):
@@ -26,6 +27,23 @@ def is_downloadable_url(text):
     except ValueError:
         return False
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def short_link(url):
+    """A link as it reads in a sentence: youtube.com/watch?v=abc.
+
+    The scheme and the www. are the two parts of a URL that never distinguish
+    one link from another, and a suggestion strip has one line to say which
+    link it is offering. Everything that identifies the video is kept.
+    """
+    url = (url or "").strip()
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return url
+    host = parsed.netloc[4:] if parsed.netloc.startswith("www.") else parsed.netloc
+    shortened = f"{host}{parsed.path}"
+    return f"{shortened}?{parsed.query}" if parsed.query else shortened
 
 
 # Three, which is exactly what the reserved skeleton makes room for. The
@@ -58,9 +76,28 @@ class SearchResult:
     grid and into the storage meter.
     """
 
-    __slots__ = ("title", "uploader", "duration", "url", "video_id", "thumbnail")
+    __slots__ = (
+        "title",
+        "uploader",
+        "duration",
+        "url",
+        "video_id",
+        "thumbnail",
+        "playlist_title",
+        "playlist_count",
+    )
 
-    def __init__(self, title, uploader, duration, url, video_id="", thumbnail=""):
+    def __init__(
+        self,
+        title,
+        uploader,
+        duration,
+        url,
+        video_id="",
+        thumbnail="",
+        playlist_title="",
+        playlist_count=0,
+    ):
         self.title = title
         self.uploader = uploader
         self.duration = duration
@@ -70,6 +107,13 @@ class SearchResult:
         # search answers in about a second and downloading three images before
         # showing anything would trade that away for decoration.
         self.thumbnail = thumbnail
+        # What the entry said about the list it was one of. Carried on the
+        # result because it is the only thing that can tell three rows of a
+        # forty-track playlist from a playlist with three tracks in it, and
+        # yt-dlp says it once per entry rather than once per run.
+        self.playlist_title = playlist_title
+        # 0 means yt-dlp did not say, which it does not for a plain search.
+        self.playlist_count = playlist_count
 
 
 def youtube_search_target(query, limit=YOUTUBE_SEARCH_RESULTS):
@@ -105,6 +149,21 @@ def youtube_search_command(yt_dlp, query, limit=YOUTUBE_SEARCH_RESULTS):
         "--",
         youtube_search_target(query, limit),
     ]
+
+
+def playlist_length(entry):
+    """How long the list this entry came out of really is, or 0.
+
+    playlist_count is the whole list. n_entries is how much of it this run was
+    asked for, which --playlist-items has already capped at the shortlist, so
+    reading that instead would report the truncation as the length - which is
+    the one thing the playlist header exists to correct.
+    """
+    try:
+        count = int(entry.get("playlist_count") or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, count)
 
 
 def parse_search_results(lines, limit=YOUTUBE_SEARCH_RESULTS):
@@ -147,11 +206,69 @@ def parse_search_results(lines, limit=YOUTUBE_SEARCH_RESULTS):
                 url=url,
                 video_id=video_id,
                 thumbnail=thumbnail_from_entry(entry),
+                playlist_title=str(
+                    entry.get("playlist_title") or entry.get("playlist") or ""
+                ),
+                playlist_count=playlist_length(entry),
             )
         )
         if len(results) >= limit:
             break
     return results
+
+
+class LinkedPlaylist:
+    """The list a pasted link resolved to, and how much of it is on screen."""
+
+    __slots__ = ("title", "count", "url", "shown")
+
+    def __init__(self, title, count, url, shown):
+        self.title = title
+        # 0 when yt-dlp did not say how long the list is, which is different
+        # from a list whose length happens to be what is already shown.
+        self.count = count
+        self.url = url
+        self.shown = shown
+
+    def summary(self):
+        """What the header says: which list this is, and what is left out."""
+        named = f"Playlist: {self.title}" if self.title else "Playlist"
+        if self.count > self.shown:
+            return (
+                f"{named}, {plural(self.count, 'track')}, "
+                f"showing the first {self.shown}"
+            )
+        if self.count:
+            return f"{named}, {plural(self.count, 'track')}"
+        return f"{named}, showing the first {plural(self.shown, 'track')}"
+
+
+def linked_playlist(query, results, limit=YOUTUBE_SEARCH_RESULTS):
+    """The playlist a pasted link resolved to, or None.
+
+    Only ever for a link. `ytsearchN:` is a playlist to yt-dlp too, and every
+    entry of a text search comes back with playlist_title set to the query
+    itself, so a header derived from the entries alone would announce every
+    search as a playlist named after what was typed.
+
+    A link that came back with fewer rows than it asked for is exactly as long
+    as what it showed, whatever yt-dlp reported: --playlist-items would have
+    taken more if the list had held them.
+    """
+    query = (query or "").strip()
+    if not results or not is_downloadable_url(query):
+        return None
+    title = next(
+        (result.playlist_title for result in results if result.playlist_title), ""
+    )
+    count = max(result.playlist_count for result in results)
+    if len(results) < max(1, int(limit)):
+        count = len(results)
+    if not title and count <= len(results):
+        # A linked video carries neither, and a list with nothing more to it
+        # than the rows already up has nothing a header would add.
+        return None
+    return LinkedPlaylist(title, count, query, len(results))
 
 
 def search_youtube(

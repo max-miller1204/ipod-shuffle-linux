@@ -117,7 +117,15 @@ class IpodWindow(
         self.search_query = ""
         self.search_generation = 0
         self.search_results = []
+        # The list a pasted link resolved to, which is what the rows are three
+        # of. None for a typed query, which resolves to no list at all.
+        self.search_playlist = None
         self.search_loading = False
+        # The link currently being offered under the field, and every link
+        # already offered: a suggestion is made once per link rather than
+        # every time the empty field is reached for again.
+        self.clipboard_offer_url = ""
+        self._offered_links = set()
         # What the YouTube half of the search is currently unable to give, said
         # in place of the rows rather than in a toast: a toast has gone by the
         # time the eye returns to the empty space it was explaining.
@@ -201,8 +209,10 @@ class IpodWindow(
             self.playlists_view,
             # Typing while a script runs would repaint a view that is already
             # insensitive, which reads as the search being broken rather than
-            # as the window being busy.
+            # as the window being busy. The clipboard strip is the same field
+            # by another route: its button fills that field and searches.
             self.search_entry,
+            self.clipboard_offer,
         ]
 
         style = Adw.StyleManager.get_default()
@@ -435,6 +445,11 @@ class IpodWindow(
         wrapper.append(handle)
         line = Gtk.Separator()
         wrapper.append(line)
+        # Under the whole strip rather than beside the field: it is as wide as
+        # the content it is offering to fill, and it must not be inside the
+        # window handle, where a click meant for its buttons would be the
+        # start of a window drag.
+        wrapper.append(self._build_clipboard_offer())
         return wrapper
 
     # -------------------------------------------------------------- sidebar

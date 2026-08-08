@@ -1,0 +1,28 @@
+What yt-dlp reports, and why the header is gated on the query being a link
+=========================================================================
+
+yt-dlp 2026.07.04, the same --flat-playlist --dump-json --playlist-items 1-3
+the search always runs. Only the fields the header is built from are shown.
+
+1. A playlist link. playlist_count is the whole list; n_entries is what
+   --playlist-items left, so reading n_entries would report the
+   truncation as the length - the bug the header exists to fix.
+   https://www.youtube.com/playlist?list=PL0-84-yl1fUnRuXGFe_F7qSH1LEnn9LkW
+   {"id": "1F_OgqRuSdI", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 1}
+   {"id": "7qHMXu99d88", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 2}
+   {"id": "buMTH6ICnqk", "playlist_title": "Automate the Boring Stuff with Python", "playlist_count": 15, "n_entries": 3, "playlist_index": 3}
+
+2. A typed query. ytsearchN: is a playlist to yt-dlp too, and every
+   entry carries playlist_title set to the query itself. A header
+   derived from the entries alone would announce every search as a
+   playlist named after what was typed, which is why linked_playlist()
+   answers None unless the query is a link.
+   ytsearch3:bohemian rhapsody
+   {"id": "fJ9rUzIMcZQ", "playlist_title": "bohemian rhapsody", "playlist_count": null, "n_entries": 3, "playlist_index": 1}
+   {"id": "5zLnaNY58j8", "playlist_title": "bohemian rhapsody", "playlist_count": null, "n_entries": 3, "playlist_index": 2}
+   {"id": "vbvyNnw8Qjg", "playlist_title": "bohemian rhapsody", "playlist_count": null, "n_entries": 3, "playlist_index": 3}
+
+3. A link to one video. None of the three fields is there at all, so a
+   linked video gets no header even though it is a link.
+   https://www.youtube.com/watch?v=1F_OgqRuSdI
+   {"id": "1F_OgqRuSdI", "playlist_title": null, "playlist_count": null, "n_entries": null, "playlist_index": null}
