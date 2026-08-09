@@ -45,7 +45,8 @@ assert not stems & {name.lower() for name in names}, stems
 
 # A playlist the device holds no recording for is the other half of the
 # answer, or the window would call every playlist announced.
-assert not gui.spoken_playlists(mount_point, ["Never Synced"]), "matched nothing"
+never_synced = gui.spoken_playlists(mount_point, ["Never Synced"])
+assert not never_synced, f"announced with no recording on the device: {never_synced}"
 
 print(
     json.dumps(
