@@ -556,20 +556,37 @@ class LibraryViewMixin:
         for track in self.device_tracks:
             on_device.setdefault(track.identity(), []).append(track)
         matched = set()
+
+        def claim(track):
+            """Give this track the device's copy of itself, if there is one.
+
+            One rule for both loops below, which make the same claim and had
+            drifted apart once: the copy over there is what the file here
+            would become, so the row reads "On iPod" and carries the device's
+            path, and that copy is marked claimed rather than left to stand
+            alone in `device_only` and put the same song in the grid twice.
+
+            Popped rather than read, so two local files of one song claim two
+            different copies and the second is only "On iPod" if the device
+            really holds it twice.
+            """
+            matches = on_device.get(track.identity(), [])
+            if not matches:
+                return False
+            device_track = matches.pop(0)
+            track.state = STATE_IPOD
+            track.on_ipod = True
+            track.relpath = device_track.relpath
+            matched.add(id(device_track))
+            return True
+
         self._library_by_path = {
             track.path: track for track in self.library.tracks
         }
         queued = getattr(self, "pending", set())
         for track in self.library.tracks:
             track.relpath = track.path
-            matches = on_device.get(track.identity(), [])
-            if matches:
-                device_track = matches.pop(0)
-                track.state = STATE_IPOD
-                track.on_ipod = True
-                track.relpath = device_track.relpath
-                matched.add(id(device_track))
-            else:
+            if not claim(track):
                 # Assigned rather than only demoted from STATE_IPOD, because a
                 # track leaves the queue as readily as it joins it and the
                 # state it goes back to is the one this decides either way.
@@ -597,17 +614,7 @@ class LibraryViewMixin:
             # Queued by construction: nothing but the queue names these, and
             # they are here because no music folder does.
             track = Track(path, record, STATE_QUEUED)
-            matches = on_device.get(track.identity(), [])
-            if matches:
-                device_track = matches.pop(0)
-                track.state = STATE_IPOD
-                track.on_ipod = True
-                track.relpath = device_track.relpath
-                # Claimed, the way a library track claims one. Left unclaimed
-                # the device's copy would also stand alone below, and the grid
-                # would carry the same song twice - once as the file waiting
-                # here and once as the copy already over there.
-                matched.add(id(device_track))
+            claim(track)
             pending_index[path] = track
             queued_only.append(track)
         self._pending_track_index = pending_index
