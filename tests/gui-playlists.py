@@ -13,6 +13,7 @@ called unbound against a stand-in that records what would have been run, which
 is the approach the other GUI checks use.
 """
 
+import os
 import sys
 import tempfile
 import threading
@@ -188,16 +189,33 @@ assert gui.PLAYLIST_GONE != gui.TARGET_GONE, (
 # sitting in it perfectly well. Only a definite "nothing is at that path"
 # takes a playlist off the rail, because that claims more than saying it could
 # not be read does, and the doubt goes to the smaller claim.
-shut = Path(tempfile.mkdtemp(prefix="shut-"))
-gui.write_playlist_entries(shut / "Locked Away.m3u", [str(first)])
-shut.chmod(0o000)
-try:
-    assert gui.playlist_contents(shut / "Locked Away.m3u") == ([], False), (
-        "a playlist behind a folder that could not be read was called deleted"
-    )
-    assert gui.add_entries(shut / "Locked Away.m3u", [str(second)]) is None
-finally:
-    shut.chmod(0o700)
+#
+# Reached here with a plain file where the folder should be, so that both the
+# read and the entry check refuse with "that is not a directory" rather than
+# with "nothing is there". Deliberately not a permission bit: root ignores
+# those, so a container running the suite as root would read the playlist
+# straight through the folder meant to shut it away and the check would pass
+# while proving nothing.
+blocked = Path(tempfile.mkdtemp(prefix="blocked-")) / "Playlists"
+blocked.write_bytes(b"a file where the folder should be")
+assert gui.playlist_contents(blocked / "Locked Away.m3u") == ([], False), (
+    "a playlist behind a folder that could not be read was called deleted"
+)
+assert gui.add_entries(blocked / "Locked Away.m3u", [str(second)]) is None
+# And as the user actually meets it, which is a folder whose permissions
+# refuse a listing. Only as an unprivileged user, for the reason above.
+if os.geteuid() != 0:
+    shut = Path(tempfile.mkdtemp(prefix="shut-"))
+    gui.write_playlist_entries(shut / "Locked Away.m3u", [str(first)])
+    shut.chmod(0o000)
+    try:
+        assert gui.playlist_contents(shut / "Locked Away.m3u") == ([], False), (
+            "a playlist behind a folder with no read permission was called "
+            "deleted"
+        )
+        assert gui.add_entries(shut / "Locked Away.m3u", [str(second)]) is None
+    finally:
+        shut.chmod(0o700)
 # A playlist whose entries are readable but whose files have gone is a
 # different thing again, and still perfectly editable.
 assert gui.playlist_contents(created) == ([str(first)], True)

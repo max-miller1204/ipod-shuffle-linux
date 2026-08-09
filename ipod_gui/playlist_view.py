@@ -1301,7 +1301,7 @@ class PlaylistViewMixin:
                     f"Could not {self._edit_step(playlist)} {playlist.name}"
                 )
                 return False
-            if moved == TARGET_GONE:
+            if moved is TARGET_GONE:
                 # The playlist was shortened past where the drag was aimed
                 # rather than past the track being dragged, so that track is
                 # still listed and only the destination has gone: what to say
