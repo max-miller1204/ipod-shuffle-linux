@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 124,
+  "revision": 129,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -183,27 +183,13 @@
     },
     {
       "id": "add-covers-to-playlists",
-      "title": "Add covers to playlists",
-      "status": "open",
+      "title": "Library page: playlist covers, a Queued marker, and Delete from library",
+      "status": "done",
       "createdAt": "2026-08-05T16:06:26.195Z",
-      "updatedAt": "2026-08-07T22:20:08.222Z",
-      "group": "UI"
-    },
-    {
-      "id": "add-queued-filter-and-symbol-on-library",
-      "title": "add queued filter and symbol on library page",
-      "status": "open",
-      "createdAt": "2026-08-05T16:04:11.221Z",
-      "updatedAt": "2026-08-07T22:20:07.838Z",
-      "group": "UI"
-    },
-    {
-      "id": "delete-from-library-button",
-      "title": "delete from library button",
-      "status": "open",
-      "createdAt": "2026-08-05T16:38:43.375Z",
-      "updatedAt": "2026-08-07T22:20:08.603Z",
-      "group": "UI"
+      "updatedAt": "2026-08-09T01:55:01.893Z",
+      "group": "UI",
+      "description": "Three merged UI goals, all on the library page and on the track rows it shares with the album, search and playlist pages.\n\nCovers on playlists: a tile on the library shelf and a row in either playlist rail both draw make_cover(None, ...), so every playlist is a generated placeholder even when every song it lists carries artwork. Take the first cover any of its tracks has, for a device playlist as well as one made here, and fall back to the placeholder only when nothing in it has art. The playlist detail page keeps no cover: it already measures 625px against the 640px minimum the window advertises, and tests/gui-window-minimum.py is what says so.\n\nQueued filter and symbol: the library's state pills are All / On iPod / In library / Previewed, and a track staged for the next sync looks exactly like one that is not, apart from the word on its own Add button. Add a fourth state, queued, decided in _merge_states beside the other three so that every dot, label, pill and count derives from it rather than from a second rule. An album is Queued when all of it is either on the iPod or staged, which is the rule On iPod already follows.\n\nDelete from library: nothing in the window can delete a song. Put it in the menu a track row already carries, for tracks on this computer only - never a device-only entry, never a preview - behind a confirmation that says what happens to the copy on the iPod and to the playlists that list it. The file goes to the wastebasket rather than being unlinked, and the track is dropped from the queue and from the library index.",
+      "completedAt": "2026-08-09T01:55:01.893Z"
     },
     {
       "id": "drop-the-sync-options-card-and-the",
@@ -318,6 +304,8 @@
   "retiredIds": [
     "test",
     "fix-unknown-album-on-every-song-import",
-    "add-interfaces-so-agents-can-interact"
+    "add-interfaces-so-agents-can-interact",
+    "add-queued-filter-and-symbol-on-library",
+    "delete-from-library-button"
   ]
 }

@@ -7,9 +7,9 @@ picks an interpreter that has the GTK bindings.
 
 The interface is library-first: your music is the app, and the device
 operations live in one Device & Settings view rather than leading the window.
-A track is in one of three states everywhere it appears - on the iPod, in your
-local library, or previewed only - and that state is what the coloured dot
-next to it means.
+A track is in one of four states everywhere it appears - on the iPod, staged
+for the next sync, in your local library, or previewed only - and that state
+is what the coloured dot next to it means.
 
 This was one module until it outgrew being readable as one. The split follows
 what each part talks to: the shell scripts, the device over USB, YouTube, the

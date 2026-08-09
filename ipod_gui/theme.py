@@ -169,6 +169,13 @@ window.shuffle.light .sf-cover-7 { background: repeating-linear-gradient(135deg,
 .sf-dot { min-width: 8px; min-height: 8px; border-radius: 99px; }
 .sf-dot.ipod { background: #ff6b3d; border: 1.5px solid #ff6b3d; }
 window.shuffle.light .sf-dot.ipod { background: #e0521f; border-color: #e0521f; }
+/* Drawn between the two states it stands between: the accent ring of a track
+   that has reached the device, around the muted fill the storage meter shows
+   this same change in. Filled with the accent instead, a staged track would be
+   indistinguishable at a glance from a synced one, which is the single
+   distinction this marker exists to draw. */
+.sf-dot.queued { background: #5a4034; border: 1.5px solid #ff6b3d; }
+window.shuffle.light .sf-dot.queued { background: #e8c3ad; border-color: #e0521f; }
 .sf-dot.library { background: transparent; border: 1.5px solid #8b8884; }
 .sf-dot.preview { background: transparent; border: 1.5px dashed #a8a5a1; }
 

@@ -59,16 +59,29 @@ PREVIEW_CACHE_LIMIT = 512 * 1024 * 1024
 # Where a track lives, which decides its marker in every view. "preview" is a
 # track downloaded purely so it could be heard: it sits in the preview cache
 # rather than in a music folder, and stays there until it is added, which moves
-# it into the library and out of the cache.
+# it into the library and out of the cache. "queued" is the one that is not a
+# place: the file is in a music folder like any other, and what it says is that
+# the next sync will copy it. It is a state rather than a flag beside one
+# because every dot, label, pill and count in the window reads a track's state
+# and nothing else, so a second rule would have to be repeated in each of them.
 STATE_IPOD = "ipod"
+STATE_QUEUED = "queued"
 STATE_LIBRARY = "library"
 STATE_PREVIEW = "preview"
 
+# Ordered as the library's filter pills show them, which is the journey a track
+# makes backwards: on the device, staged for it, here, or only ever heard.
 STATE_LABELS = {
     STATE_IPOD: "On iPod",
+    STATE_QUEUED: "Queued",
     STATE_LIBRARY: "In library",
     STATE_PREVIEW: "Previewed",
 }
+
+# The library page's filter pills, in the order they are shown. "all" is not a
+# state, so it is named here rather than in STATE_LABELS, which is what every
+# view reads a marker's wording out of.
+LIBRARY_FILTERS = (("all", "All"), *STATE_LABELS.items())
 
 
 # Kept in step with the canonical SUPPORTED_EXT in lib.sh. The GUI cannot

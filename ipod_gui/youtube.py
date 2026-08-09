@@ -71,7 +71,7 @@ SEARCH_DEBOUNCE_MS = 300
 class SearchResult:
     """One YouTube hit, before anything has been downloaded.
 
-    Not a Track: it has no file, no size and none of the three states, and
+    Not a Track: it has no file, no size and none of the four states, and
     giving it one would put a thing that does not exist yet into the album
     grid and into the storage meter.
     """

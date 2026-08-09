@@ -16,12 +16,17 @@ Owns the sidebar rail, the Playlists view's rail and detail, the shelf of tiles
 at the top of the library page, the ⋯ menu every track row carries, and the
 drag reordering that rewrites the list rather than only this window.
 
+A playlist's cover is the first one its own tracks carry, since a list of
+paths has no artwork of its own; only a list holding nothing with a cover
+falls back to the placeholder its name generates.
+
 Borrows from the window: `playlists` and `spoken` as the probe left them,
 `device_tracks` and `library` to resolve an entry into a track, `mount_point`,
 `device_identity`, `busy` and `speech_engine_available` to know what can reach
 the device, and `show_view`, `_run`, `_toast`, `_confirmed_device`,
 `_sync_options`, `_queue_playlists`, `is_queued`, `unqueue_source`,
-`focus_search` and `_keep_preview` to act on what an edit changed.
+`focus_search`, `on_delete_track` and `_keep_preview` to act on what an edit
+changed.
 """
 
 from pathlib import Path
@@ -99,12 +104,37 @@ class PlaylistViewMixin:
         folded = (name or "").casefold()
         return any(other.casefold() == folded for other, _entries in self.playlists)
 
+    def _playlists_listing(self, track):
+        """The names of the playlists made here that list this file.
+
+        Both the tick beside a playlist in a track's menu and the sentence
+        warning what a deletion leaves behind are this same question, so it is
+        asked once: an entry is a path, and a playlist holds a track when it
+        names it.
+        """
+        return [
+            playlist.name
+            for playlist in self.local_playlists
+            if track.path in playlist.entries
+        ]
+
     def _playlist_state(self, playlist):
         return (
             STATE_IPOD if self._playlist_on_device(playlist.name) else STATE_LIBRARY
         )
 
-    def _playlist_tracks(self, playlist):
+    def _playlist_index(self, editable):
+        """What an entry is resolved against, built once for several playlists.
+
+        Handed to `_playlist_tracks` by the paints that resolve every playlist
+        at once - a rail of them, and the shelf beside it - because building
+        this per playlist walks the whole library once per row.
+        """
+        if editable:
+            return {track.path: track for track in self.library.all_tracks()}
+        return {track.relpath: track for track in self.device_tracks}
+
+    def _playlist_tracks(self, playlist, index=None):
         """A playlist's entries as tracks, in the order it lists them.
 
         A local entry is a path in a music folder, so it is looked up in the
@@ -114,19 +144,50 @@ class PlaylistViewMixin:
         silently lost a line would be worse than one showing a track whose tags
         could not be read.
         """
+        if index is None:
+            index = self._playlist_index(playlist.editable)
         if not playlist.editable:
-            by_relpath = {track.relpath: track for track in self.device_tracks}
             return [
-                by_relpath.get(entry)
+                index.get(entry)
                 or Track(entry, {"title": Path(entry).stem}, STATE_IPOD, relpath=entry)
                 for entry in playlist.entries
             ]
-        by_path = {track.path: track for track in self.library.all_tracks()}
         return [
-            by_path.get(entry)
+            index.get(entry)
             or Track(entry, {"title": Path(entry).stem}, STATE_LIBRARY)
             for entry in playlist.entries
         ]
+
+    def _playlist_art(self, playlist, index=None):
+        """The first cover any of its tracks carries, or None.
+
+        A playlist has no artwork of its own - it is a list of paths - so it
+        borrows the first one it lists, the way an album card takes the art off
+        the first of its tracks to have any. Nothing in it with a cover leaves
+        the generated placeholder, which is keyed on the name and so keeps
+        drawing the same list the same way.
+        """
+        for track in self._playlist_tracks(playlist, index):
+            if track.art:
+                return track.art
+        return None
+
+    def _playlist_covers(self, playlists):
+        """The artwork for each of these playlists, by name.
+
+        One index per kind rather than one per playlist: a rail of twenty
+        lists would otherwise walk the library twenty times to draw twenty
+        covers, on every repaint.
+        """
+        indexes = {}
+        covers = {}
+        for playlist in playlists:
+            if playlist.editable not in indexes:
+                indexes[playlist.editable] = self._playlist_index(playlist.editable)
+            covers[playlist.name] = self._playlist_art(
+                playlist, indexes[playlist.editable]
+            )
+        return covers
 
     # ------------------------------------------------------------ the rails
 
@@ -262,9 +323,13 @@ class PlaylistViewMixin:
             clear_children(container)
 
         shown = self._shown_playlists()
+        # Resolved once for both rails and the shelf below them, which are
+        # three drawings of the same playlists.
+        covers = self._playlist_covers(shown)
         for playlist in shown:
-            self.playlist_rail.append(self._rail_row(playlist, compact=True))
-            self.playlist_list.append(self._rail_row(playlist, compact=False))
+            art = covers[playlist.name]
+            self.playlist_rail.append(self._rail_row(playlist, True, art))
+            self.playlist_list.append(self._rail_row(playlist, False, art))
 
         names = {playlist.name for playlist in shown}
         if not shown:
@@ -274,14 +339,14 @@ class PlaylistViewMixin:
             self.current_playlist = shown[0].name
         if self.current_playlist is not None:
             self._show_playlist(self.current_playlist)
-        self._populate_playlist_shelf()
+        self._populate_playlist_shelf(shown, covers)
 
-    def _rail_row(self, playlist, compact):
+    def _rail_row(self, playlist, compact, art=None):
         button = Gtk.Button()
         button.add_css_class("flat")
         button.add_css_class("sf-nav-row")
         row = Gtk.Box(spacing=9)
-        row.append(make_cover(None, PLAYLIST_ROW_COVER, playlist.name, "tiny"))
+        row.append(make_cover(art, PLAYLIST_ROW_COVER, playlist.name, "tiny"))
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
         text.append(label(playlist.name, ellipsize=ELLIPSIZE_END))
         if not compact:
@@ -303,10 +368,20 @@ class PlaylistViewMixin:
         )
         return button
 
-    def _populate_playlist_shelf(self):
-        clear_children(self.playlist_shelf)
+    def _populate_playlist_shelf(self, shown=None, covers=None):
+        """The tiles at the top of the library page.
 
-        for playlist in self._shown_playlists()[:5]:
+        The playlists and their artwork are passed in by the rail, which has
+        just resolved both; asked for on its own - by a check, or by a caller
+        that only wants this section - it works them out for itself.
+        """
+        clear_children(self.playlist_shelf)
+        if shown is None:
+            shown = self._shown_playlists()
+        if covers is None:
+            covers = self._playlist_covers(shown)
+
+        for playlist in shown[:5]:
             tile = Gtk.Button()
             tile.add_css_class("flat")
             tile.add_css_class("sf-card")
@@ -319,7 +394,11 @@ class PlaylistViewMixin:
             # all four sides. Adding to it made the tile wide enough that four
             # playlists and the New tile no longer fit the shelf at the
             # window's opening size.
-            box.append(make_cover(None, PLAYLIST_TILE_COVER, playlist.name))
+            box.append(
+                make_cover(
+                    covers.get(playlist.name), PLAYLIST_TILE_COVER, playlist.name
+                )
+            )
             title = label(playlist.name, "sf-row-title", ellipsize=ELLIPSIZE_END)
             title.set_max_width_chars(16)
             title.set_width_chars(0)
@@ -355,7 +434,7 @@ class PlaylistViewMixin:
         self.playlist_shelf.append(new_tile)
         # Only the New tile means an empty section, which the library page has
         # nothing to say with; the Playlists view is where one is made.
-        self.shelf_section.set_visible(bool(self._shown_playlists()))
+        self.shelf_section.set_visible(bool(shown))
 
     def _show_playlist(self, name):
         playlist = None
@@ -567,7 +646,8 @@ class PlaylistViewMixin:
                     (
                         f"Remove from {inside.name}",
                         lambda: self._remove_track_from_playlist(inside.name, track),
-                    )
+                    ),
+                    *self._delete_entry(track),
                 ],
                 # The list this row is in is the one place it cannot move to,
                 # so it is filtered out - and with only that one made, "no
@@ -578,12 +658,25 @@ class PlaylistViewMixin:
         return self._playlist_menu(
             "Add to playlist",
             lambda name: self._add_tracks_to_playlist(name, [track]),
-            holding={
-                playlist.name
-                for playlist in self.local_playlists
-                if track.path in playlist.entries
-            },
+            holding=set(self._playlists_listing(track)),
+            extra=self._delete_entry(track),
         )
+
+    def _delete_entry(self, track):
+        """The Delete row a track's menu ends with, or nothing.
+
+        Offered for a song this computer holds and nothing else: a device-only
+        entry names a file on the iPod, which the row's own Remove takes off
+        it, and a previewed one sits in a cache Device & Settings empties in
+        one press. Last in the menu behind a separator, because it is the one
+        thing in there that choosing again does not undo.
+        """
+        if self._device_only_track(track) or track.state == STATE_PREVIEW:
+            return ()
+        return ((
+            "Delete from library…",
+            lambda: self.on_delete_track(track),
+        ),)
 
     @staticmethod
     def _unaddable_note():

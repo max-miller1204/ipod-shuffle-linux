@@ -11,6 +11,7 @@ called unbound against a stand-in that records what would have been run,
 which is the approach the other GUI checks use.
 """
 
+import functools
 import http.server
 import json
 import os
@@ -211,6 +212,7 @@ class FakeWindow:
     _queue_playlists = gui.IpodWindow._queue_playlists
     _unqueue_track = gui.IpodWindow._unqueue_track
     _prune_pending = gui.IpodWindow._prune_pending
+    _drop_unclaimed = gui.IpodWindow._drop_unclaimed
     _scan_queued_sources = gui.IpodWindow._scan_queued_sources
     _finish_pending_source_scan = gui.IpodWindow._finish_pending_source_scan
     _launch_pending_sync = gui.IpodWindow._launch_pending_sync
@@ -2050,7 +2052,17 @@ already_copied = gui.Track(
     {"title": "Dawn", "size": 4096},
     gui.STATE_LIBRARY,
 )
-already_copied.on_ipod = True
+# Copied already, and said the way the window says it: a track is on the iPod
+# because the device walk found one with its tags, not because a flag was set
+# beside it. A merge decides on_ipod and state together from that walk, so a
+# hand-marked track is one the next merge disagrees with.
+on_device_copy = gui.Track(
+    "/media/alex/iPod/iPod_Control/Music/F00/ABCD.mp3",
+    {"title": "Dawn", "size": 4096},
+    gui.STATE_IPOD,
+    relpath="iPod_Control/Music/F00/ABCD.mp3",
+)
+queue_window.device_tracks = [on_device_copy]
 queue_window.library.tracks = [*queued_paths.values(), already_copied]
 queue_window.pending = {*queued_paths, already_copied.path}
 queue_window.pending_sources = {
@@ -2058,8 +2070,16 @@ queue_window.pending_sources = {
 }
 queue_window.pending_device_identity = queue_window.device_identity
 queue_window._merge_states()
+assert already_copied.on_ipod, "a queued track the device holds read as missing"
 assert queue_window._pending_change_count() == len(queued_paths)
 assert sum(track.size for track in queue_window._pending_copy_tracks()) == 3072
+# Everything staged that is not there yet carries the queued state, which is
+# what every marker, pill and count in the window is drawn from.
+assert [track.state for track in queued_paths.values()] == [gui.STATE_QUEUED] * 2
+assert already_copied.state == gui.STATE_IPOD, already_copied.state
+# The same queue against a device that no longer holds that copy - taken off
+# it, or its tags edited since. The track is a change to make again.
+queue_window.device_tracks = []
 replacement = gui.Track(
     already_copied.path,
     {"title": "Dawn", "size": 4096},
@@ -2069,6 +2089,7 @@ queue_window.library.tracks = [*queued_paths.values(), replacement]
 queue_window._merge_states()
 assert queue_window._pending_change_count() == len(queued_paths) + 1
 assert sum(track.size for track in queue_window._pending_copy_tracks()) == 7168
+assert replacement.state == gui.STATE_QUEUED, replacement.state
 added_after_queue = sync_source / "03 Added Later.mp3"
 added_after_queue.write_bytes(b"x" * 512)
 linked_during_sync = sync_source / "04 Linked.mp3"
@@ -2617,6 +2638,53 @@ by_duration = gui.track_sorter(lambda track: track.duration)
 short, long_ = sortable("short"), sortable("long")
 short.track.duration, long_.track.duration = 10.0, 400.0
 assert by_duration.compare(short, long_) == Gtk.Ordering.SMALLER
+
+# The state column sorts by the journey a track makes, not by the word the
+# state happens to be stored as: alphabetically "queued" falls after "preview",
+# which would put a track staged for the next sync below one that is not in the
+# library yet, and read as a different order from the pills above the table and
+# the marker table in the README.
+by_state = gui.track_sorter(
+    next(key for name, _t, _e, key in gui.TRACK_COLUMNS if name == "state")
+)
+ordering = {
+    Gtk.Ordering.SMALLER: -1,
+    Gtk.Ordering.EQUAL: 0,
+    Gtk.Ordering.LARGER: 1,
+}
+
+
+def in_state(state):
+    return gui.TrackItem(gui.Track("/tmp/x.mp3", {"title": state}, state), 1)
+
+
+# "invented" stands for a state this build does not know: rows arrive from a
+# scan, and one carrying something unrecognised has to sort somewhere rather
+# than raise under the click that sorted the column.
+shuffled = [
+    in_state(state)
+    for state in (
+        gui.STATE_PREVIEW,
+        "invented",
+        gui.STATE_LIBRARY,
+        gui.STATE_QUEUED,
+        gui.STATE_IPOD,
+    )
+]
+by_journey = [
+    item.track.state
+    for item in sorted(
+        shuffled,
+        key=functools.cmp_to_key(lambda a, b: ordering[by_state.compare(a, b)]),
+    )
+]
+assert by_journey == [
+    gui.STATE_IPOD,
+    gui.STATE_QUEUED,
+    gui.STATE_LIBRARY,
+    gui.STATE_PREVIEW,
+    "invented",
+], by_journey
 
 # Every sortable column must produce a usable sorter, not just the one above.
 for _key, _title, _expand, sort_key in gui.TRACK_COLUMNS:
@@ -3286,6 +3354,7 @@ class PreviewWindow:
     _promote_preview = gui.IpodWindow._promote_preview
     _keep_preview = gui.IpodWindow._keep_preview
     _prune_preview_cache = gui.IpodWindow._prune_preview_cache
+    _forget_files = gui.IpodWindow._forget_files
     _forget_empty_preview_folders = staticmethod(
         gui.IpodWindow._forget_empty_preview_folders
     )
@@ -3304,6 +3373,7 @@ class PreviewWindow:
     _queue_sources = gui.IpodWindow._queue_sources
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
     _prune_pending = gui.IpodWindow._prune_pending
+    _drop_unclaimed = gui.IpodWindow._drop_unclaimed
     _pending_accounting = gui.IpodWindow._pending_accounting
     _pending_change_count = gui.IpodWindow._pending_change_count
     _pending_track = gui.IpodWindow._pending_track
@@ -3355,7 +3425,10 @@ assert not new.exists(), "the preview was copied rather than moved"
 # The artist folder goes with the last file to leave it, or the cache fills up
 # with empty folders nothing will ever clear.
 assert not (preview_cache / "Nirvana").exists(), "an empty artist folder was left"
-assert kept.state == gui.STATE_LIBRARY, kept.state
+# Queued rather than merely in the library: keeping a preview with an iPod
+# attached stages it in the same press, and the state says where the file is
+# going as well as that it has left the cache.
+assert kept.state == gui.STATE_QUEUED, kept.state
 assert kept.path == str(destination), kept.path
 assert promote_window.library.previews == [], promote_window.library.previews
 assert [t.path for t in promote_window.library.tracks] == [str(destination)]
@@ -3372,6 +3445,9 @@ detached._merge_states()
 detached._promote_preview(alone)
 assert (preview_library / "Pixies" / "Debaser [pix1].mp3").is_file()
 assert detached.pending == set(), detached.pending
+# Nothing to stage it for, so it stops at the library rather than reading as
+# waiting on a sync that has no device to run against.
+assert alone.state == gui.STATE_LIBRARY, alone.state
 assert detached.toasts[-1] == f"Kept in {gui.home_relative(preview_library)}"
 
 # The same video downloaded directly on an earlier day. The library copy is

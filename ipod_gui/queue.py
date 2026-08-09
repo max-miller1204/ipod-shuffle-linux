@@ -121,6 +121,26 @@ class QueueMixin:
         """
         return str(source) in self.pending_sources
 
+    def staged_by(self, track):
+        """The sources that staged this track, when the track is not one.
+
+        Asked by the row's Unqueue button, which takes whole sources out: what
+        a press would cost is whatever named this track, and a song queued on
+        its own is its own source and answers with nothing at all.
+
+        A pass over the sources rather than an index the queue would have to
+        keep in step through every stage, prune and sync: each source is one
+        set lookup, and this is the same collection the sync itself walks.
+        """
+        path = str(getattr(track, "path", track))
+        return tuple(
+            sorted(
+                source
+                for source, members in self.pending_sources.items()
+                if source != path and path in members
+            )
+        )
+
     def unqueue_source(self, source):
         """Drop a source from the queue, members and all.
 
@@ -137,10 +157,22 @@ class QueueMixin:
             self._prune_pending()
 
     def _prune_pending(self):
-        """Forget whatever no source claims any more, and repaint.
+        """Forget whatever no source claims any more, and repaint."""
+        self._drop_unclaimed()
+        self._merge_states()
+        self._populate_device_summary()
+        self._refresh_current_view()
+
+    def _drop_unclaimed(self):
+        """The bookkeeping half of `_prune_pending`, for a caller that repaints.
 
         The queue is its sources: a track is staged because something staged
         it, so dropping the last source that named one drops the track with it.
+
+        Apart from the repaint because a caller that changes more than the
+        queue - the deletion, which takes a song out of the library, the queue
+        and the player in one press - paints once at the end over everything it
+        changed, rather than once here in the middle and again after.
         """
         owned = (
             set().union(*self.pending_sources.values())
@@ -155,9 +187,6 @@ class QueueMixin:
         }
         if not self.pending_sources:
             self.pending_device_identity = None
-        self._merge_states()
-        self._populate_device_summary()
-        self._refresh_current_view()
 
     def _pending_change_count(self):
         return self._pending_accounting()[1]
@@ -347,6 +376,35 @@ class QueueMixin:
         self._prune_pending()
         if removed_directory:
             self._toast("The whole folder was removed from the queue")
+
+    def unqueue_deleted_path(self, path):
+        """Drop one file from the queue and leave what staged it staged.
+
+        For a song deleted off this computer. A source is a list of members - a
+        playlist and the tracks it names, a folder and the files under it - and
+        losing one of them is not a reason to stop syncing the rest, which is
+        what `_unqueue_track` would do here: that one is the row's Unqueue
+        button, where the whole source is what the press is about. So the path
+        leaves every member set holding it and the sources stay. One left
+        naming nothing goes with it, the way `_prune_pending` already decides.
+
+        Members are edited rather than re-queued, because the queue outlives an
+        unplug and a song can be deleted with no iPod attached: asking to queue
+        would refuse for want of a device and leave the deleted file staged for
+        the next sync to fail on.
+
+        The caller repaints. A deletion is the library, the queue and the
+        player at once, and the window it leaves behind is the one its own last
+        repaint paints.
+        """
+        key = str(path)
+        for source, members in list(self.pending_sources.items()):
+            if key not in members:
+                continue
+            members.discard(key)
+            if not members:
+                self.pending_sources.pop(source, None)
+        self._drop_unclaimed()
 
     # ------------------------------------------------------ the sync itself
 

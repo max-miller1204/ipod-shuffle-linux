@@ -481,7 +481,11 @@ class FakeWindow:
         self.commands = []
         self.toasts = []
         self.downloads = []
+        self.forgotten = []
         self.repaints = 0
+        self.refreshes = 0
+        self.folder_repaints = 0
+        self._library_scan_tracks = {}
         self._load_local_playlists()
 
     # Recorded rather than run: what a playlist edit asks the device to do is
@@ -508,7 +512,10 @@ class FakeWindow:
         pass
 
     def _refresh_current_view(self):
-        pass
+        self.refreshes += 1
+
+    def _populate_folders(self):
+        self.folder_repaints += 1
 
     def _update_device_controls(self):
         pass
@@ -525,8 +532,17 @@ class FakeWindow:
         track.state = gui.STATE_LIBRARY
         return True
 
+    # What the player would play next, which a deletion has to be taken out of.
+    def _forget_files(self, paths):
+        self.forgotten.extend(paths)
+
     def library_tracks(self, paths):
         self.library.tracks = [track_for(path) for path in paths]
+        # The scan's own index as well as the library, because a deletion is
+        # taken out of both and the real window rebuilds one from the other.
+        self._library_scan_tracks = {
+            track.path: track for track in self.library.tracks
+        }
         self._merge_states()
 
     # The real implementations, which are the subject.
@@ -535,7 +551,12 @@ class FakeWindow:
     _local_playlist = gui.IpodWindow._local_playlist
     _playlist_on_device = gui.IpodWindow._playlist_on_device
     _playlist_state = gui.IpodWindow._playlist_state
+    _playlists_listing = gui.IpodWindow._playlists_listing
+    _delete_entry = gui.IpodWindow._delete_entry
+    _playlist_index = gui.IpodWindow._playlist_index
     _playlist_tracks = gui.IpodWindow._playlist_tracks
+    _playlist_art = gui.IpodWindow._playlist_art
+    _playlist_covers = gui.IpodWindow._playlist_covers
     _device_only_track = gui.IpodWindow._device_only_track
     _add_tracks_to_playlist = gui.IpodWindow._add_tracks_to_playlist
     _remove_track_from_playlist = gui.IpodWindow._remove_track_from_playlist
@@ -554,8 +575,12 @@ class FakeWindow:
     _reorder_playlist = gui.IpodWindow._reorder_playlist
     _confirmed_device = gui.IpodWindow._confirmed_device
     is_queued = gui.IpodWindow.is_queued
+    staged_by = gui.IpodWindow.staged_by
     unqueue_source = gui.IpodWindow.unqueue_source
+    unqueue_deleted_path = gui.IpodWindow.unqueue_deleted_path
+    _forget_deleted_track = gui.IpodWindow._forget_deleted_track
     _prune_pending = gui.IpodWindow._prune_pending
+    _drop_unclaimed = gui.IpodWindow._drop_unclaimed
     _queue_playlists = gui.IpodWindow._queue_playlists
     _scan_queued_sources = gui.IpodWindow._scan_queued_sources
     is_playlist_queued = gui.IpodWindow.is_playlist_queued
@@ -850,6 +875,124 @@ assert FakeWindow(mount_point=None)._device_only_track(unresolved), (
     "unplugging the iPod made a relative entry addable"
 )
 
+# Deleting is offered through the same door, and only for a song this computer
+# holds. A device entry names a file on the iPod, which the row's own Remove
+# takes off it, and a previewed one sits in a cache Device & Settings empties -
+# neither is a file this may unlink, and both reach the menu.
+assert [text for text, _handler in window._delete_entry(track_for(first))] == [
+    "Delete from library…"
+], "a local track was offered no way to delete it"
+for refused in (device_track, unresolved, track_for(first, gui.STATE_PREVIEW)):
+    assert window._delete_entry(refused) == (), (
+        f"delete was offered for {refused.path}, which is not this computer's "
+        "to delete"
+    )
+
+# Which playlists hold a track is one question, asked by the tick beside a
+# name in that menu and by the warning about what a deletion leaves behind.
+# Two songs of its own, because the folder above holds every playlist this
+# file has made and a track from one of those is in more lists than this.
+listed, unlisted = song("Listed Once"), song("In No List")
+listing_window = FakeWindow()
+listing_window.library_tracks([listed, unlisted])
+new_playlist(listing_window, "Holds It")
+listing_window._add_tracks_to_playlist("Holds It", [track_for(listed)])
+# Re-read, because the rail that would have done it here only counts repaints.
+listing_window._load_local_playlists()
+assert listing_window._playlists_listing(track_for(listed)) == ["Holds It"]
+assert listing_window._playlists_listing(track_for(unlisted)) == []
+gui.delete_local_playlist(PLAYLISTS / "Holds It.m3u")
+
+# Deleting one song out of a staged playlist leaves the playlist staged with
+# everything else it named. A source is its members, so taking the whole
+# source out - which is what pressing Unqueue on the row asks for - would
+# quietly drop the list and every other track in it from the next sync, and
+# the only sign would be the Sync button reading that nothing is queued. The
+# sync re-reads each source anyway and skips a line whose file has gone.
+doomed, spared, alone = song("Doomed"), song("Spared"), song("Alone")
+deleting_window = FakeWindow()
+deleting_window.library_tracks([doomed, spared, alone])
+new_playlist(deleting_window, "Road Trip")
+deleting_window._add_tracks_to_playlist(
+    "Road Trip", [track_for(doomed), track_for(spared)]
+)
+road_trip = str(PLAYLISTS / "Road Trip.m3u")
+# A song staged on its own as well, because that source is only ever the one
+# file and has to go with it rather than stay behind naming nothing.
+deleting_window._queue_sources({str(alone): [track_for(alone)]}, show_toast=False)
+assert deleting_window.pending_sources == {
+    road_trip: {road_trip, str(doomed), str(spared)},
+    str(alone): {str(alone)},
+}, deleting_window.pending_sources
+# Unplugged from here on: the queue outlives an unplug and a song can be
+# deleted with no iPod attached, so a deletion that re-staged what it edited
+# would be refused for want of a device and leave the deleted file queued.
+deleting_window.mount_point = None
+deleting_window.device_identity = None
+painted, counted = deleting_window.refreshes, deleting_window.folder_repaints
+deleting_window._forget_deleted_track(track_for(doomed))
+deleting_window._forget_deleted_track(track_for(alone))
+# One repaint per deletion. A deletion changes the library, the queue and the
+# player, and each of them painting as it is edited rebuilds every card in the
+# grid again for the same one song.
+assert deleting_window.refreshes - painted == 2, (
+    f"two deletions repainted the library {deleting_window.refreshes - painted} "
+    "times"
+)
+# Including the card that counts what each music folder holds, which is drawn
+# from the library this has just shortened and is repainted nowhere else until
+# the next scan: left out, Device & Settings keeps the old count on screen.
+assert deleting_window.folder_repaints - counted == 2, (
+    "a deletion left the music folder counts as they were"
+)
+assert deleting_window.pending_sources == {
+    road_trip: {road_trip, str(spared)}
+}, deleting_window.pending_sources
+assert deleting_window.pending == {road_trip, str(spared)}, deleting_window.pending
+assert deleting_window.forgotten == [str(doomed), str(alone)], (
+    "a deleted song was left in the player's queue"
+)
+assert [track.path for track in deleting_window.library.tracks] == [
+    str(spared)
+], deleting_window.library.tracks
+assert not [t for t in deleting_window.toasts if "Connect an iPod" in t], (
+    f"deleting with no iPod attached asked for one: {deleting_window.toasts}"
+)
+gui.delete_local_playlist(PLAYLISTS / "Road Trip.m3u")
+
+# The tip on a staged row has to be true of that row. Unqueue takes whole
+# sources out, so a track that joined the queue inside a playlist takes the
+# list with it - but most tracks are queued on their own, and warning those
+# about a playlist that is not there talks somebody out of a press that costs
+# them nothing.
+tips = FakeWindow()
+solo, inside = song("Solo Take"), song("Listed Take")
+tips.library_tracks([solo, inside])
+new_playlist(tips, "Party")
+tips._add_tracks_to_playlist("Party", [track_for(inside)])
+tips._queue_sources({str(solo): [track_for(solo)]}, show_toast=False)
+assert gui.unqueue_tooltip(tips, track_for(solo)) == (
+    "Take this back out of the next sync"
+), gui.unqueue_tooltip(tips, track_for(solo))
+assert gui.unqueue_tooltip(tips, track_for(inside)) == (
+    "Take this back out of the next sync, and with it the playlist Party"
+), gui.unqueue_tooltip(tips, track_for(inside))
+
+# A folder is named as the folder, not as the road to it, and a track two
+# sources hold names one of them rather than reciting both: what the tip is
+# for is what the press reaches, and it is read in a table cell.
+tips._queue_sources({str(MUSIC / "Artist"): [track_for(inside)]}, show_toast=False)
+held_twice = gui.unqueue_tooltip(tips, track_for(inside))
+assert held_twice.startswith(
+    "Take this back out of the next sync, and with it the "
+), held_twice
+assert held_twice.endswith(" and 1 other"), held_twice
+assert "the folder Artist" in held_twice or "the playlist Party" in held_twice, (
+    held_twice
+)
+assert str(MUSIC) not in held_twice, f"the tip spelled out a path: {held_twice}"
+gui.delete_local_playlist(PLAYLISTS / "Party.m3u")
+
 # The album page adds a whole record at once and a search result arrives from
 # somewhere else again, so the guard is at the one door they all come through
 # rather than beside the menu that happened to have it first.
@@ -885,6 +1028,59 @@ assert "only on the iPod" in device_rows_window.toasts[-1], (
     device_rows_window.toasts
 )
 gui.delete_local_playlist(PLAYLISTS / "Mine.m3u")
+
+# A playlist is a list of paths and has no artwork of its own, so a tile or a
+# rail row shows the first cover the songs in it carry. Resolved through the
+# same lookup a row is, because the artwork has to be the artwork of the track
+# the list actually names.
+covers = FakeWindow()
+plain = gui.Track(first, {"title": "Lithium"}, gui.STATE_LIBRARY)
+illustrated = gui.Track(
+    second, {"title": "Debaser", "art": "/art/doolittle.png"}, gui.STATE_LIBRARY
+)
+covers.library.tracks = [plain, illustrated]
+covers._merge_states()
+new_playlist(covers, "Illustrated")
+covers._add_tracks_to_playlist("Illustrated", [plain, illustrated])
+new_playlist(covers, "Plain")
+covers._add_tracks_to_playlist("Plain", [plain])
+# Past the first entry rather than only at it: a playlist opening on a track
+# with no art is the ordinary case, not a playlist with none.
+assert covers._playlist_art(covers._local_playlist("Illustrated")) == (
+    "/art/doolittle.png"
+), covers._playlist_art(covers._local_playlist("Illustrated"))
+# Nothing in it with a cover keeps the generated placeholder, which make_cover
+# draws from the name; answering with some other list's artwork would be worse
+# than answering with none.
+assert covers._playlist_art(covers._local_playlist("Plain")) is None
+# A device playlist names files on the iPod, so its cover comes out of what
+# the device walk read rather than out of the library.
+on_device_art = gui.Track(
+    "/media/alex/iPod/iPod_Control/Music/F00/AAAA.mp3",
+    {"title": "Only There", "art": "/art/only-there.png"},
+    gui.STATE_IPOD,
+    relpath="F00/AAAA.mp3",
+)
+covers.device_tracks = [on_device_art]
+covers.playlists = [("Genres", ["F00/AAAA.mp3"])]
+# Every playlist on screen at once, which is how the rail and the shelf ask:
+# both kinds resolved in one pass, so a device list beside a local one gets
+# its own artwork rather than the other's or none.
+shown_covers = covers._playlist_covers(covers._shown_playlists())
+assert {
+    name: art
+    for name, art in shown_covers.items()
+    if name in ("Genres", "Illustrated", "Plain")
+} == {
+    "Genres": "/art/only-there.png",
+    "Illustrated": "/art/doolittle.png",
+    "Plain": None,
+}, shown_covers
+assert set(shown_covers) == {
+    playlist.name for playlist in covers._shown_playlists()
+}, "a playlist on screen was left without an answer about its cover"
+for name in ("Illustrated", "Plain"):
+    gui.delete_local_playlist(PLAYLISTS / f"{name}.m3u")
 
 # An album holds what is only on the device beside what is here, so a refusal
 # of part of it has to be said either way: a toast counting only what landed
