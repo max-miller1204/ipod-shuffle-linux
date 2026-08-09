@@ -138,6 +138,7 @@ A track that exists only on the iPod is taken off it with the row's own **Remove
 On a volume with nowhere to trash to, the deletion is refused and the app says why rather than unlinking the file behind the same word.
 
 Local music folders are configurable under **Device & Settings**, which is also where the sync options, **Rebuild database**, **Wipe** and **Eject** live.
+**Add music folder…** on that page is the other kind of add: it stages a folder for the next sync without making it one of your music folders, and its songs appear in the library marked *Queued* like anything else staged, rather than only in the sidebar's figure and the **Sync** button's count.
 
 Making a playlist is a name and nothing else.
 **＋ New** under **Playlists** offers the next free *Playlist N*, and the list exists the moment you accept it: there is no file to choose, no iPod to have plugged in, and no sync to wait for.
@@ -770,6 +771,7 @@ The two scans share the one spinner, so the check drives them together and apart
 `tests/gui-window-build.py` is the display-backed exception: it constructs the real window so a missing builder call, bad widget parent, or incomplete view stack cannot pass behind the stand-ins. Run it under a desktop session or with `xvfb-run -a`; it fails instead of skipping when no display is available.
 It is also where the things that only exist as real widgets are driven: the state pills, which are built from one list and painted by another loop over it, so that a pill filtering what it says it counts is worth asserting; and deleting a song, from the row that offers it through the dialog that says what will be left behind to the file arriving in the wastebasket and leaving the library, the queue and the grid.
 Taking a track back out of the queue with no iPod attached is checked in the same place, because it used to raise: the queue outlives an unplug, and the repaint that followed described a device that was not there.
+The queue and the grid are also read against each other there, rather than each on its own: a folder staged for one sync that no music folder holds was counted in the sidebar and named on the **Sync** button while every pill above the grid read zero of it, which is a disagreement neither count could report alone.
 `tests/gui-window-minimum.py` is the other one, and it measures rather than looks: it fills the window with long names and holds every page and bar to the minimum size the window advertises.
 A window whose contents do not fit the minimum it asked for is not merely cramped - GTK allocates widgets a rectangle smaller than they asked for and then paints them at the size they wanted, so clicks land beside the control under the pointer, hover flickers, and a tooltip can open over the menu it belongs to.
 Nothing in a screenshot says which page is one long album title away from that, so the widths are asserted instead.
