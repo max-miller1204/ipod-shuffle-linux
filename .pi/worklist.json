@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 144,
+  "revision": 146,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -321,10 +321,11 @@
     {
       "id": "only-new-inspo-playlist-shows-up-in-add",
       "title": "Only new \"inspo\" playlist shows up in add song to playlist",
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-09T19:44:09.273Z",
-      "updatedAt": "2026-08-09T19:50:33.890Z",
-      "description": "/home/max/Pictures/Screenshots/Screenshot from 2026-08-09 15-46-02.png : \"Inspo shows like its not on the IPod\"\n\n/home/max/Pictures/Screenshots/Screenshot from 2026-08-09 15-46-08.png : \"2000 shows in ipod\""
+      "updatedAt": "2026-08-09T21:00:48.010Z",
+      "description": "/home/max/Pictures/Screenshots/Screenshot from 2026-08-09 15-46-02.png : \"Inspo shows like its not on the IPod\"\n\n/home/max/Pictures/Screenshots/Screenshot from 2026-08-09 15-46-08.png : \"2000 shows in ipod\"",
+      "completedAt": "2026-08-09T21:00:48.010Z"
     }
   ],
   "retiredIds": [

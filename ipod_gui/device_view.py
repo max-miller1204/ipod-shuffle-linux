@@ -624,8 +624,15 @@ class DeviceViewMixin:
 
         if self.pending_sources:
             self.queued_row.set_visible(True)
+            # The row reports what the sync would add to the device, and a
+            # change that adds nothing is routine rather than a figure of
+            # zero: editing a playlist every song of which is already over
+            # there stages the list and not one byte, and "+0 B queued to
+            # sync" reads as a size that failed to be worked out.
             self.queued_label.set_text(
                 f"+{human_size(queued_bytes)} queued to sync"
+                if queued_bytes
+                else "Queued to sync · no new tracks to copy"
             )
             self.sync_button.set_label(f"Sync {plural(changes, 'change')}")
             self.sync_button.set_sensitive(not self.busy)

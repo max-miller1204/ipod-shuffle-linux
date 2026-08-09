@@ -74,7 +74,15 @@ class IpodWindow(
         self.set_default_size(1180, 760)
         # Below this the sidebar has already folded away and the now-playing
         # bar has nothing left to give, so stop rather than clipping.
-        self.set_size_request(640, 560)
+        #
+        # The width is set by the playlist page while it is showing a playlist
+        # whose tracks are on the iPod: every row's button then reads "Remove"
+        # rather than "Add", which is the widest that column gets. It stood at
+        # 640 while nothing measured that page in that state, so the window was
+        # advertising eight pixels it did not have - and a window allocated
+        # less than it needs is not merely cramped, it paints its controls
+        # somewhere other than where the clicks land.
+        self.set_size_request(660, 560)
         self.add_css_class("shuffle")
 
         self.mount_point = None

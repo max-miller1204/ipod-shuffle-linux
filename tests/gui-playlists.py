@@ -80,6 +80,18 @@ assert gui.read_playlist_entries(created) == []
 assert gui.create_local_playlist(PLAYLISTS, "Gym") is None, "a name was reused"
 
 first, second = song("Lithium"), song("Debaser", "Pixies")
+
+# Making one that already holds something is the same act: copying a list off
+# the device writes the tracks it resolved to, and a name that is taken is
+# refused there exactly as it is for an empty one.
+stocked = gui.create_local_playlist(PLAYLISTS, "Stocked", [first, second])
+assert gui.read_playlist_entries(stocked) == [str(first), str(second)]
+assert gui.create_local_playlist(PLAYLISTS, "Stocked", [first]) is None, (
+    "a playlist that was already there was overwritten"
+)
+assert gui.read_playlist_entries(stocked) == [str(first), str(second)]
+assert gui.delete_local_playlist(stocked)
+
 assert gui.add_entries(created, [first, second]) == 2
 assert gui.read_playlist_entries(created) == [str(first), str(second)]
 # The header every player expects, written by us rather than assumed.
@@ -551,6 +563,11 @@ class FakeWindow:
     _shown_playlists = gui.IpodWindow._shown_playlists
     _local_playlist = gui.IpodWindow._local_playlist
     _playlist_on_device = gui.IpodWindow._playlist_on_device
+    _playlists_only_on_device = gui.IpodWindow._playlists_only_on_device
+    _entries_here_for = gui.IpodWindow._entries_here_for
+    on_copy_playlist_here = gui.IpodWindow.on_copy_playlist_here
+    _on_copy_here_response = gui.IpodWindow._on_copy_here_response
+    _copy_playlist_here = gui.IpodWindow._copy_playlist_here
     _playlist_state = gui.IpodWindow._playlist_state
     _playlists_listing = gui.IpodWindow._playlists_listing
     _delete_entry = gui.IpodWindow._delete_entry
@@ -1029,6 +1046,113 @@ assert "only on the iPod" in device_rows_window.toasts[-1], (
     device_rows_window.toasts
 )
 gui.delete_local_playlist(PLAYLISTS / "Mine.m3u")
+
+# A playlist that reached the iPod from somewhere else - another program's
+# export, a sync run from the terminal, a different computer - is shown here
+# and cannot be edited, which is what kept it out of every list of playlists a
+# track's ⋯ offers: only the ones made here were ever in there, so a window
+# showing five playlists offered one. Copying it here is the way out. The
+# library has already matched each copy on the device to the file it was made
+# from, so the list can be written down again in terms of this computer, and
+# from then on it is an ordinary playlist.
+copy_window = FakeWindow()
+here_already = track_for(first)
+copy_window.device_tracks = [
+    gui.Track(
+        "/media/alex/iPod/iPod_Control/Music/Artist/Lithium.mp3",
+        {"title": "Lithium", "artist": "Artist", "size": 8},
+        gui.STATE_IPOD,
+        relpath="Artist/Lithium.mp3",
+    )
+]
+copy_window.library.tracks = [here_already]
+copy_window._merge_states()
+assert here_already.relpath == "Artist/Lithium.mp3", (
+    "the library never claimed the device's copy of a song it holds"
+)
+# The second entry is a song that reached the device from somewhere this
+# computer cannot see, so nothing here answers for it. The device's own row
+# for it is in the library too, as a device-only track: it must not be read as
+# a file to write down, or the copy would name the iPod's own path and the
+# next sync would copy the device's files back onto itself.
+copy_window.library.device_only = [
+    gui.Track(
+        "/media/alex/iPod/iPod_Control/Music/Artist/Elsewhere.mp3",
+        {"title": "Elsewhere", "artist": "Artist"},
+        gui.STATE_IPOD,
+        relpath="Artist/Elsewhere.mp3",
+    )
+]
+copy_window.playlists = [
+    ("Road Trip", ["Artist/Lithium.mp3", "Artist/Elsewhere.mp3"])
+]
+road_trip = copy_window._shown_playlists()[-1]
+assert not road_trip.editable, "a device playlist was offered for editing"
+assert [p.name for p in copy_window._playlists_only_on_device()] == ["Road Trip"]
+assert copy_window._entries_here_for(road_trip) == ([str(first)], 1), (
+    copy_window._entries_here_for(road_trip)
+)
+
+# Half a playlist is a decision rather than a press, because the copy becomes
+# what the next sync writes back: cancelling the question writes nothing.
+copy_window._on_copy_here_response(None, "cancel", "Road Trip", [str(first)], 1)
+assert not (PLAYLISTS / "Road Trip.m3u").exists(), (
+    "cancelling the question copied the playlist anyway"
+)
+copy_window._on_copy_here_response(None, "copy", "Road Trip", [str(first)], 1)
+assert gui.read_playlist_entries(PLAYLISTS / "Road Trip.m3u") == [str(first)], (
+    gui.read_playlist_entries(PLAYLISTS / "Road Trip.m3u")
+)
+assert "left on the iPod" in copy_window.toasts[-1], copy_window.toasts
+# Nothing is staged by the copy. The device is holding this playlist already,
+# so copying it asks for no change over there - and this copy is shorter than
+# the list it came from, which a sync would write back.
+assert copy_window.pending_sources == {}, copy_window.pending_sources
+
+# What the copy was for: the playlist is one of ours now, so it is offered,
+# and a song added to it lands in the file.
+assert copy_window._local_playlist("Road Trip") is not None
+assert copy_window._playlists_only_on_device() == []
+copy_window._add_tracks_to_playlist("Road Trip", [track_for(second)])
+assert gui.read_playlist_entries(PLAYLISTS / "Road Trip.m3u") == [
+    str(first),
+    str(second),
+], gui.read_playlist_entries(PLAYLISTS / "Road Trip.m3u")
+gui.delete_local_playlist(PLAYLISTS / "Road Trip.m3u")
+copy_window._load_local_playlists()
+
+# A copy that leaves nothing behind is not a question, so it happens on the
+# press, and the playlist it makes holds the device's order.
+copy_window.playlists = [("Whole", ["Artist/Lithium.mp3"])]
+copy_window.on_copy_playlist_here("Whole")
+assert gui.read_playlist_entries(PLAYLISTS / "Whole.m3u") == [str(first)]
+assert "copied here" in copy_window.toasts[-1], copy_window.toasts
+assert "left on the iPod" not in copy_window.toasts[-1], copy_window.toasts
+# And pressing it again is asking about a playlist that is no longer only on
+# the device, which writes nothing rather than a second copy of it.
+copy_window.on_copy_playlist_here("Whole")
+assert gui.read_playlist_entries(PLAYLISTS / "Whole.m3u") == [str(first)]
+gui.delete_local_playlist(PLAYLISTS / "Whole.m3u")
+copy_window._load_local_playlists()
+
+# A list none of whose songs are on this computer is not copied at all: there
+# would be nothing to write, and a playlist of nothing here is not that
+# playlist. The page's button is insensitive, and the press says so.
+copy_window.playlists = [("Only There", ["Artist/Elsewhere.mp3"])]
+copy_window.on_copy_playlist_here("Only There")
+assert not (PLAYLISTS / "Only There.m3u").exists(), (
+    "a playlist naming nothing on this computer was copied here anyway"
+)
+assert "None of the songs" in copy_window.toasts[-1], copy_window.toasts
+
+# The menu names what it is leaving out rather than counting it, because the
+# reader is looking for one playlist in particular - but a device holding
+# twenty lists must not put twenty names inside a popover.
+named = gui.IpodWindow._named_briefly
+assert named([gui.Playlist(n, None, []) for n in ("A", "B")]) == "A, B"
+assert named(
+    [gui.Playlist(n, None, []) for n in ("A", "B", "C", "D", "E")]
+) == "A, B, C and 2 more"
 
 # A playlist is a list of paths and has no artwork of its own, so a tile or a
 # rail row shows the first cover the songs in it carry. Resolved through the

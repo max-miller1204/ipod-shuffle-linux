@@ -199,6 +199,44 @@ def populate(window):
         window._show_album(collections[0])
 
 
+def device_playlist_page(window):
+    """The playlists page while showing a playlist only the iPod has.
+
+    Left in place afterwards rather than put back: this is the wider of the
+    two states, so the pane measured further down should be measured in it,
+    and every page above has already been read.
+
+    One of its two entries is claimed by a track in the library, the way a
+    finished scan claims it, and the other names a song this computer does not
+    hold - which is what puts the longest sentence this page has into the note
+    under its heading, and leaves the copy on offer rather than refused.
+    """
+    here = window.library.tracks[0]
+    window.device_tracks = [
+        gui.Track(
+            "/media/max/MAX SHUFFLE/iPod_Control/Music/an-artist/track.mp3",
+            {
+                "title": here.title,
+                "artist": here.artist,
+                "album": here.album,
+                "duration": here.duration,
+            },
+            gui.STATE_IPOD,
+            relpath="an-artist/track.mp3",
+        )
+    ]
+    window._merge_states()
+    window.playlists = [
+        (
+            "A Playlist With A Long Name That Is Only On The iPod",
+            ["an-artist/track.mp3", "another-artist/a track from elsewhere.mp3"],
+        )
+    ]
+    window._populate_playlist_rail()
+    window._show_playlist(window.playlists[0][0])
+    return minimum_width(window.views.get_child_by_name("playlists"))
+
+
 def check(window):
     limit, limit_height = window.get_size_request()
     if limit <= 0:
@@ -219,6 +257,26 @@ def check(window):
                 f"the {name} page needs {width}px but the window offers to be "
                 f"{limit}px wide; widest thing in it: {widest(page)}"
             )
+
+    # The playlists page again, showing the other kind of playlist. The
+    # fixture above shows one made here, holding tracks that are not on the
+    # device; this is one that is only on the iPod, holding tracks that are.
+    #
+    # It is the wider of the two, and not by its buttons: every row of a
+    # playlist whose tracks are on the device carries a Remove where a library
+    # track carries an Add, and that column is what sets the page's width. It
+    # went unmeasured for as long as this fixture only ever painted the other
+    # state, and the window was advertising a minimum eight pixels under what
+    # this page needs.
+    device_page = device_playlist_page(window)
+    measured.append(("page playlists on iPod", device_page))
+    if device_page > limit:
+        failures.append(
+            f"the playlists page needs {device_page}px while showing a playlist "
+            f"that is only on the iPod, but the window offers to be {limit}px "
+            f"wide; widest thing in it: "
+            f"{widest(window.views.get_child_by_name('playlists'))}"
+        )
 
     # Named on its own as well as counted inside the search page. It is hidden
     # at rest like the clipboard offer, so a paint that stopped putting it up

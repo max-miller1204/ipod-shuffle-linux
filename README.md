@@ -155,8 +155,17 @@ Because the device stores playlist names only as spoken audio, a playlist reachi
 The dot beside a playlist means what it means beside a track: on the iPod, or here and waiting to be.
 A playlist wears the first cover the songs in it carry, so a list made out of records you have artwork for looks like those records rather than like a coloured tile.
 
-The **Playlists** view also lists the playlists that exist only on the device - a folder or tag grouping a sync generated, or a list made on another computer.
-Those are shown, reordered and removed but not edited, because their entries name scrambled files on the iPod with no local counterpart to write down.
+The **Playlists** view also lists the playlists that exist only on the device - a folder or tag grouping a sync generated, a list made on another computer, or one a sync run from the terminal put there.
+Those are shown, reordered and removed but not edited, because their entries name copies on the iPod rather than files in your music folders, and for the same reason they are not among the playlists a track's `⋯` offers to add a song to.
+Every menu that offers playlists names the ones it is leaving out, so a playlist missing from it is never missing silently.
+
+**Copy to this computer**, on such a playlist's page, is the way out of that.
+The library has already worked out which of your files each copy on the device was made from, so the list is written down again in terms of this computer as an M3U in `~/Music/Playlists`, and from then on it is an ordinary playlist you can add songs to, reorder and rename.
+Copying stages nothing: the iPod is already holding this playlist, so the copy asks for no change over there.
+A song this computer cannot account for - one that reached the iPod from a machine you no longer have, or that has since been deleted here - is counted in the line above the buttons and spelled out in a confirmation before anything is written, because the copy is what a later sync writes back and the tracks it leaves out would leave the playlist on the device.
+The songs themselves stay on the iPod either way.
+Taking such a playlist off the device is under the `⋯` beside the copy, which is where a playlist made here keeps its own **Delete**.
+
 Neither kind of playlist is sortable by column: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
 
 **Import playlist file…** under **Device & Settings** adopts an M3U or PLS another program wrote, resolving its entries and copying it into the playlist folder, so from then on it is an ordinary playlist you can edit here.
@@ -438,6 +447,7 @@ Hand-placed files like this are left alone by the automatic upkeep above, except
 **From the GUI,** by making one under **Playlists**: name it, add songs from your library or from YouTube with the `⋯` beside any track, and press **Sync**.
 The list is an M3U the app keeps in `~/Music/Playlists`, and syncing hands that file to `ipod-sync.sh` exactly as the command above does, so the two routes produce the same thing on the device.
 **Playlist grouping** under **Device & Settings** still drives the folder and tag groupings, and **Import playlist file…** adopts a list another program wrote.
+A playlist put on the device by the command above, rather than by the app, is adopted from the other end: open it under **Playlists** and press **Copy to this computer**.
 Choosing a grouping switches spoken playlist names on there and then, and a sync that carries a playlist file switches them on for that run, for the reason above; the playlist file and its tracks join the staged queue until you press **Sync**.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
@@ -747,6 +757,9 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - A playlist another program deleted while its rows were on screen reporting the next edit as a read that failed, so the rail went on offering a list that was gone while the user was sent to a folder that was perfectly readable
 - An import refusing a name it had chosen itself rather than moving to the next free one, so pressing Import again produced the same rejected name for as long as the file holding it sat there
 - The window looking for a playlist's spoken name under the playlist's own name, when the database files that recording under an id derived from it, so every playlist on a device that could announce all of them was labelled as having no spoken name
+- Only the playlists made in the app being offered when a song was added to one, with no way to make a playlist that arrived on the device by another route into one of those and nothing on screen saying it had been left out
+- A staged change that copies nothing - a playlist rewritten out of songs the device already holds - reported in the sidebar as `+0 B queued to sync`, which reads as a size that failed to be worked out
+- The window advertising a minimum width narrower than a playlist page can be drawn in once its rows are on the iPod, because the check only ever measured that page showing a playlist that was not
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 
