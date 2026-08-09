@@ -348,6 +348,31 @@ class QueueMixin:
         if removed_directory:
             self._toast("The whole folder was removed from the queue")
 
+    def unqueue_deleted_path(self, path):
+        """Drop one file from the queue and leave what staged it staged.
+
+        For a song deleted off this computer. A source is a list of members - a
+        playlist and the tracks it names, a folder and the files under it - and
+        losing one of them is not a reason to stop syncing the rest, which is
+        what `_unqueue_track` would do here: that one is the row's Unqueue
+        button, where the whole source is what the press is about. So the path
+        leaves every member set holding it and the sources stay. One left
+        naming nothing goes with it, the way `_prune_pending` already decides.
+
+        Members are edited rather than re-queued, because the queue outlives an
+        unplug and a song can be deleted with no iPod attached: asking to queue
+        would refuse for want of a device and leave the deleted file staged for
+        the next sync to fail on.
+        """
+        key = str(path)
+        for source, members in list(self.pending_sources.items()):
+            if key not in members:
+                continue
+            members.discard(key)
+            if not members:
+                self.pending_sources.pop(source, None)
+        self._prune_pending()
+
     # ------------------------------------------------------ the sync itself
 
     def on_sync_pending(self, _button):

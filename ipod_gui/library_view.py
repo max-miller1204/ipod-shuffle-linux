@@ -13,8 +13,8 @@ and `_populate_device_summary`, `_populate_cache_card`, `_populate_folders`,
 `_queue_tracks` to repaint or act on what the merge changed. Deleting adds
 three more, each owned by whoever the deletion has to be undone in:
 `_device_only_track` and `_playlists_listing` from the playlist view,
-`_unqueue_track` and `_source_gone` from the queue, and `_forget_files` from
-the player.
+`unqueue_deleted_path` and `_source_gone` from the queue, and `_forget_files`
+from the player.
 
 The playlist shelf at the top of the library page is the playlist view's,
 built and filled there - and repainted from here when a scan finishes, because
@@ -790,8 +790,10 @@ class LibraryViewMixin:
         self._library_scan_tracks.pop(track.path, None)
         self.library.tracks = list(self._library_scan_tracks.values())
         # A sync still holding it would fail on a file nothing can read, and
-        # copying it is not a change anybody is asking for any more.
-        self._unqueue_track(track)
+        # copying it is not a change anybody is asking for any more. Only the
+        # song: a playlist or a folder staged around it is still staged, minus
+        # the one line this deletion took out of it.
+        self.unqueue_deleted_path(track.path)
         self._forget_files([track.path])
         self._merge_states()
         self._refresh_current_view()

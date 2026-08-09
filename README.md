@@ -131,6 +131,7 @@ The state pills count and filter the collections shown in the grid, or the indiv
 
 The `⋯` beside a track ends with **Delete from library…**, which is the only thing in the window that touches your own music files.
 It asks first, and the dialog says what the deletion leaves behind before it happens: the file is moved to your wastebasket, the copy on the iPod stays there until you remove it, a staged track is taken back out of the next sync, and a playlist listing it keeps that line, where it will name a file that is no longer there.
+Only that song leaves the queue: a playlist or a folder staged around it is still staged, minus the one line the deletion took out of it.
 It is offered only for songs this computer holds.
 A track that exists only on the iPod is taken off it with the row's own **Remove**, and a previewed one lives in the cache **Device & Settings** empties in one press, so neither is a file this deletes.
 On a volume with nowhere to trash to, the deletion is refused and the app says why rather than unlinking the file behind the same word.

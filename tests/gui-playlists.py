@@ -481,7 +481,9 @@ class FakeWindow:
         self.commands = []
         self.toasts = []
         self.downloads = []
+        self.forgotten = []
         self.repaints = 0
+        self._library_scan_tracks = {}
         self._load_local_playlists()
 
     # Recorded rather than run: what a playlist edit asks the device to do is
@@ -525,8 +527,17 @@ class FakeWindow:
         track.state = gui.STATE_LIBRARY
         return True
 
+    # What the player would play next, which a deletion has to be taken out of.
+    def _forget_files(self, paths):
+        self.forgotten.extend(paths)
+
     def library_tracks(self, paths):
         self.library.tracks = [track_for(path) for path in paths]
+        # The scan's own index as well as the library, because a deletion is
+        # taken out of both and the real window rebuilds one from the other.
+        self._library_scan_tracks = {
+            track.path: track for track in self.library.tracks
+        }
         self._merge_states()
 
     # The real implementations, which are the subject.
@@ -560,6 +571,8 @@ class FakeWindow:
     _confirmed_device = gui.IpodWindow._confirmed_device
     is_queued = gui.IpodWindow.is_queued
     unqueue_source = gui.IpodWindow.unqueue_source
+    unqueue_deleted_path = gui.IpodWindow.unqueue_deleted_path
+    _forget_deleted_track = gui.IpodWindow._forget_deleted_track
     _prune_pending = gui.IpodWindow._prune_pending
     _queue_playlists = gui.IpodWindow._queue_playlists
     _scan_queued_sources = gui.IpodWindow._scan_queued_sources
@@ -882,6 +895,49 @@ listing_window._load_local_playlists()
 assert listing_window._playlists_listing(track_for(listed)) == ["Holds It"]
 assert listing_window._playlists_listing(track_for(unlisted)) == []
 gui.delete_local_playlist(PLAYLISTS / "Holds It.m3u")
+
+# Deleting one song out of a staged playlist leaves the playlist staged with
+# everything else it named. A source is its members, so taking the whole
+# source out - which is what pressing Unqueue on the row asks for - would
+# quietly drop the list and every other track in it from the next sync, and
+# the only sign would be the Sync button reading that nothing is queued. The
+# sync re-reads each source anyway and skips a line whose file has gone.
+doomed, spared, alone = song("Doomed"), song("Spared"), song("Alone")
+deleting_window = FakeWindow()
+deleting_window.library_tracks([doomed, spared, alone])
+new_playlist(deleting_window, "Road Trip")
+deleting_window._add_tracks_to_playlist(
+    "Road Trip", [track_for(doomed), track_for(spared)]
+)
+road_trip = str(PLAYLISTS / "Road Trip.m3u")
+# A song staged on its own as well, because that source is only ever the one
+# file and has to go with it rather than stay behind naming nothing.
+deleting_window._queue_sources({str(alone): [track_for(alone)]}, show_toast=False)
+assert deleting_window.pending_sources == {
+    road_trip: {road_trip, str(doomed), str(spared)},
+    str(alone): {str(alone)},
+}, deleting_window.pending_sources
+# Unplugged from here on: the queue outlives an unplug and a song can be
+# deleted with no iPod attached, so a deletion that re-staged what it edited
+# would be refused for want of a device and leave the deleted file queued.
+deleting_window.mount_point = None
+deleting_window.device_identity = None
+deleting_window._forget_deleted_track(track_for(doomed))
+deleting_window._forget_deleted_track(track_for(alone))
+assert deleting_window.pending_sources == {
+    road_trip: {road_trip, str(spared)}
+}, deleting_window.pending_sources
+assert deleting_window.pending == {road_trip, str(spared)}, deleting_window.pending
+assert deleting_window.forgotten == [str(doomed), str(alone)], (
+    "a deleted song was left in the player's queue"
+)
+assert [track.path for track in deleting_window.library.tracks] == [
+    str(spared)
+], deleting_window.library.tracks
+assert not [t for t in deleting_window.toasts if "Connect an iPod" in t], (
+    f"deleting with no iPod attached asked for one: {deleting_window.toasts}"
+)
+gui.delete_local_playlist(PLAYLISTS / "Road Trip.m3u")
 
 # The album page adds a whole record at once and a search result arrives from
 # somewhere else again, so the guard is at the one door they all come through
