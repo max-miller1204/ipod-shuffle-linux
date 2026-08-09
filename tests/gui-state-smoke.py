@@ -93,7 +93,9 @@ assert probe.mount_point == str(mount_point), probe.mount_point
 assert probe.identity == gui.volume_identity(str(mount_point)), probe.identity
 assert probe.sync_options == state, probe.sync_options
 assert probe.playlists == gui.list_playlists(mount_point), probe.playlists
-assert probe.spoken == gui.spoken_playlists(mount_point), probe.spoken
+assert probe.spoken == gui.spoken_playlists(
+    mount_point, [name for name, _entries in probe.playlists]
+), probe.spoken
 assert probe.track_count == gui.count_tracks(mount_point), probe.track_count
 # The synthetic device is a real directory, so this is a real reading; a probe
 # that returned None here would be the storage meter silently going blank.

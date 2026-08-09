@@ -392,17 +392,45 @@ def write_playlist(mount_point, device_identity, path, entries):
     return True
 
 
-def spoken_playlists(mount_point):
-    """Names of the playlists the device can say out loud.
+def speakable_id(name):
+    """The name the device files a playlist's spoken name under.
+
+    Nothing on the shuffle is stored as text, the spoken names least of all:
+    the database identifies a playlist by an id derived from its name, and the
+    recording is a WAV named after that id, little end first. Asking whether a
+    playlist can be announced therefore means deriving the id and looking for
+    that file - a WAV named after the playlist would be a file the firmware
+    never reads.
+
+    Names arrive decoded from a FAT volume, and a volume mounted under a
+    non-UTF-8 iocharset hands back bytes no UTF-8 decode accepts, escaped into
+    lone surrogates. Encoding those back the way they were decoded hashes the
+    bytes actually on the volume; encoding strictly would raise instead, on the
+    thread the whole device reading runs on.
+    """
+    encoded = name.encode("utf-8", "surrogateescape")
+    digest = hashlib.md5(encoded, usedforsecurity=False).digest()[:8]
+    return "".join(f"{byte:02x}" for byte in reversed(digest))
+
+
+def spoken_playlists(mount_point, names):
+    """Which of these playlists the device can say out loud, case-folded.
 
     With no screen, a playlist the shuffle cannot announce is one the user has
     no way to identify, so the interface says which are which rather than
     listing them all as though they were equal.
+
+    Names are taken in rather than read back out of the recordings, because the
+    id is a hash: it says whether a given name is spoken, and cannot be turned
+    back into the name. They arrive as the device spells them, which is what
+    was hashed - a playlist made here as "Gym" and synced onto a FAT volume
+    that already held "gym" is announced under the name the volume kept.
     """
     speakable = Path(mount_point, "iPod_Control", "Speakable", "Playlists")
     if not speakable.is_dir():
         return set()
-    return {p.stem.lower() for p in speakable.iterdir() if p.is_file()}
+    stems = {p.stem.lower() for p in speakable.iterdir() if p.is_file()}
+    return {name.lower() for name in names if speakable_id(name) in stems}
 
 
 class DeviceProbe:
@@ -488,7 +516,7 @@ def _probe_device(cancelled=None):
         playlists = list_playlists(mount_point)
         if cancelled is not None and cancelled():
             return DeviceProbe(candidates)
-        spoken = spoken_playlists(mount_point)
+        spoken = spoken_playlists(mount_point, [name for name, _ in playlists])
         if cancelled is not None and cancelled():
             return DeviceProbe(candidates)
         track_count = count_tracks(mount_point, cancelled=cancelled)

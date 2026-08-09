@@ -1006,9 +1006,14 @@ assert parsed == [
 (fake_volume / "iPod_Control" / "Music" / "F00").mkdir(parents=True)
 (fake_volume / "iPod_Control" / "Music" / "F00" / "AAAA.mp3").write_text("song")
 (fake_volume / "iPod_Control" / "Speakable" / "Playlists").mkdir(parents=True)
-(fake_volume / "iPod_Control" / "Speakable" / "Playlists" / "Party.wav").write_text(
-    "spoken"
-)
+# The name the database gives the recording of "Party", written out as the
+# device tool writes it rather than asked for from the code being tested: a
+# WAV named after the playlist is what this used to look for, and it is a file
+# the firmware never reads. "Radio" is left without one, so the probe has to
+# tell the two apart rather than answering the same for both.
+(
+    fake_volume / "iPod_Control" / "Speakable" / "Playlists" / "4ff4323b3d174a09.wav"
+).write_text("spoken")
 original_find_ipods = gui.find_ipods
 gui.find_ipods = lambda: [str(fake_volume)]
 try:
@@ -1021,6 +1026,29 @@ assert volume_probe.playlists == parsed, volume_probe.playlists
 assert volume_probe.spoken == {"party"}, volume_probe.spoken
 assert volume_probe.track_count == 1, volume_probe.track_count
 assert volume_probe.usage is not None, volume_probe.usage
+
+# A playlist whose name holds a byte no UTF-8 decode accepts, as a FAT volume
+# mounted under a non-UTF-8 iocharset hands one back. Deriving an id from it
+# has to answer, because the probe runs on a worker thread whose only reply to
+# the window is the reading it returns: a raise there leaves the window on the
+# searching page for as long as the device stays plugged in.
+with open(os.path.join(os.fsencode(fake_volume), b"Caf\xe9.m3u"), "wb") as handle:
+    handle.write(b"#EXTM3U\n")
+gui.find_ipods = lambda: [str(fake_volume)]
+try:
+    undecodable_probe = gui.probe_device()
+finally:
+    gui.find_ipods = original_find_ipods
+assert undecodable_probe.readable is True, undecodable_probe.readable
+assert [name for name, _entries in undecodable_probe.playlists] == [
+    "Caf\udce9",
+    "Party",
+    "Radio",
+    "mix..v2",
+], undecodable_probe.playlists
+# Still the one recording on the volume: the unreadable name has none, and it
+# did not take the rest of the answer down with it.
+assert undecodable_probe.spoken == {"party"}, undecodable_probe.spoken
 
 # ------------------------------------------------------------------ youtube
 
@@ -2426,7 +2454,7 @@ gui.find_ipods = lambda: [serialized_run.mount_point]
 gui.volume_identity = lambda _mount: serialized_run.device_identity
 gui.saved_sync_options = lambda _mount: (0, [], False, False)
 gui.list_playlists = lambda _mount: []
-gui.spoken_playlists = lambda _mount: set()
+gui.spoken_playlists = lambda _mount, _names: set()
 gui.count_tracks = blocking_count
 gui.resolve_device = lambda mount, identity, require_block=False: gui.DeviceHandle(
     mount, identity, "/dev/sdz"
