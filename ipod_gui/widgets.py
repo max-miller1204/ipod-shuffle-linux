@@ -4,8 +4,13 @@ from pathlib import Path
 
 from gi.repository import Gdk, Gio, GLib, GObject, Gtk, Pango
 
-from .config import STATE_LABELS, STATE_PREVIEW, YOUTUBE_LIBRARY
-from .text import home_relative, human_duration
+from .config import (
+    PLAYLIST_EXTENSIONS,
+    STATE_LABELS,
+    STATE_PREVIEW,
+    YOUTUBE_LIBRARY,
+)
+from .text import home_relative, human_duration, plural
 from .theme import PALETTE, cover_class
 
 
@@ -235,6 +240,41 @@ def row_menu_button(build_popover, tooltip, dim=True):
     return button
 
 
+def source_name(source):
+    """A queued source as the row would name it, rather than as a path.
+
+    A playlist is known by the name on its tile, which is its filename without
+    the extension, and a folder by the folder rather than the road to it: the
+    tip is read in a table cell, and a home-relative path of a queued folder
+    would be most of the sentence.
+    """
+    path = Path(source)
+    if path.suffix.lower() in PLAYLIST_EXTENSIONS:
+        return f"the playlist {path.stem}"
+    return f"the folder {path.name}"
+
+
+def unqueue_tooltip(window, track):
+    """What pressing Unqueue on this row takes out of the next sync.
+
+    Read off what actually staged the track rather than hedged over both
+    cases. Most tracks are queued on their own, where the press takes out the
+    row under it and nothing else, and a tip that warned about a playlist that
+    is not there would talk somebody out of a press costing them nothing.
+
+    Only the first source is named when more than one holds the track: the
+    point is what the press reaches, and a tip reciting four playlists is one
+    nobody finishes reading.
+    """
+    staged_by = window.staged_by(track)
+    if not staged_by:
+        return "Take this back out of the next sync"
+    named = source_name(staged_by[0])
+    if len(staged_by) > 1:
+        named = f"{named} and {plural(len(staged_by) - 1, 'other')}"
+    return f"Take this back out of the next sync, and with it {named}"
+
+
 def track_cell(window, track, number, column, view=None, playlist=None):
     """One cell of a track row, for whichever column asked for it.
 
@@ -305,10 +345,7 @@ def track_cell(window, track, number, column, view=None, playlist=None):
         # beside it already says "Queued", and a row carrying that word twice
         # leaves the button reading as a label that happens to be clickable.
         action.set_label("Unqueue")
-        action.set_tooltip_text(
-            "Take this out of the next sync, and with it the playlist or "
-            "folder that staged it"
-        )
+        action.set_tooltip_text(unqueue_tooltip(window, track))
         action.connect("clicked", lambda _b, t=track: window._unqueue_track(t))
     else:
         action.set_label("Add")

@@ -308,9 +308,14 @@ def check_delete_from_library(window):
             f"a track's menu offers no way to delete it: {menu_text(menu.get_child())}"
         )
         return
+    # Read before the press as well as after it, because this dialog is the
+    # one thing here found by asking the window what is visible rather than
+    # from a handle. A dialog left standing by anything above would be handed
+    # over as this one, and every assertion below would pass against it.
+    standing = window.get_visible_dialog()
     row.emit("clicked")
     dialog = window.get_visible_dialog()
-    if not isinstance(dialog, Adw.AlertDialog):
+    if dialog is standing or not isinstance(dialog, Adw.AlertDialog):
         failures.append(f"Delete from library opened {dialog!r} rather than a dialog")
         return
     # What it says will happen is the whole reason it is asked at all, and
@@ -327,6 +332,10 @@ def check_delete_from_library(window):
         )
 
     dialog.emit("response", "delete")
+    # Answered dialogs are dismissed here rather than left standing, because
+    # the one above was found with get_visible_dialog: a check leaving one up
+    # hands the next one looking the wrong dialog, and it would look right.
+    dialog.force_close()
     if doomed.exists():
         failures.append(f"the file is still in the music folder: {doomed}")
     trashed = list(Path(_SANDBOX, ".local/share/Trash/files").glob("Doomed*"))
@@ -366,6 +375,7 @@ def check_delete_from_library(window):
         failures.append("a local track was refused a delete dialog")
     else:
         cancelled.emit("response", "cancel")
+        cancelled.force_close()
         if not kept.is_file():
             failures.append("cancelling the delete dialog deleted the file anyway")
         if [t.path for t in window.library.tracks] != [keeper.path]:
@@ -375,7 +385,9 @@ def check_delete_from_library(window):
     # answered. There is nothing to trash, and reporting that as a failure
     # would leave a row on screen for a song that is not there.
     kept.unlink()
-    window.on_delete_track(keeper).emit("response", "delete")
+    already_gone = window.on_delete_track(keeper)
+    already_gone.emit("response", "delete")
+    already_gone.force_close()
     if [t.path for t in window.library.tracks]:
         failures.append(
             "a song deleted from under the dialog stayed in the library: "

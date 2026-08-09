@@ -121,6 +121,26 @@ class QueueMixin:
         """
         return str(source) in self.pending_sources
 
+    def staged_by(self, track):
+        """The sources that staged this track, when the track is not one.
+
+        Asked by the row's Unqueue button, which takes whole sources out: what
+        a press would cost is whatever named this track, and a song queued on
+        its own is its own source and answers with nothing at all.
+
+        A pass over the sources rather than an index the queue would have to
+        keep in step through every stage, prune and sync: each source is one
+        set lookup, and this is the same collection the sync itself walks.
+        """
+        path = str(getattr(track, "path", track))
+        return tuple(
+            sorted(
+                source
+                for source, members in self.pending_sources.items()
+                if source != path and path in members
+            )
+        )
+
     def unqueue_source(self, source):
         """Drop a source from the queue, members and all.
 

@@ -575,6 +575,7 @@ class FakeWindow:
     _reorder_playlist = gui.IpodWindow._reorder_playlist
     _confirmed_device = gui.IpodWindow._confirmed_device
     is_queued = gui.IpodWindow.is_queued
+    staged_by = gui.IpodWindow.staged_by
     unqueue_source = gui.IpodWindow.unqueue_source
     unqueue_deleted_path = gui.IpodWindow.unqueue_deleted_path
     _forget_deleted_track = gui.IpodWindow._forget_deleted_track
@@ -958,6 +959,39 @@ assert not [t for t in deleting_window.toasts if "Connect an iPod" in t], (
     f"deleting with no iPod attached asked for one: {deleting_window.toasts}"
 )
 gui.delete_local_playlist(PLAYLISTS / "Road Trip.m3u")
+
+# The tip on a staged row has to be true of that row. Unqueue takes whole
+# sources out, so a track that joined the queue inside a playlist takes the
+# list with it - but most tracks are queued on their own, and warning those
+# about a playlist that is not there talks somebody out of a press that costs
+# them nothing.
+tips = FakeWindow()
+solo, inside = song("Solo Take"), song("Listed Take")
+tips.library_tracks([solo, inside])
+new_playlist(tips, "Party")
+tips._add_tracks_to_playlist("Party", [track_for(inside)])
+tips._queue_sources({str(solo): [track_for(solo)]}, show_toast=False)
+assert gui.unqueue_tooltip(tips, track_for(solo)) == (
+    "Take this back out of the next sync"
+), gui.unqueue_tooltip(tips, track_for(solo))
+assert gui.unqueue_tooltip(tips, track_for(inside)) == (
+    "Take this back out of the next sync, and with it the playlist Party"
+), gui.unqueue_tooltip(tips, track_for(inside))
+
+# A folder is named as the folder, not as the road to it, and a track two
+# sources hold names one of them rather than reciting both: what the tip is
+# for is what the press reaches, and it is read in a table cell.
+tips._queue_sources({str(MUSIC / "Artist"): [track_for(inside)]}, show_toast=False)
+held_twice = gui.unqueue_tooltip(tips, track_for(inside))
+assert held_twice.startswith(
+    "Take this back out of the next sync, and with it the "
+), held_twice
+assert held_twice.endswith(" and 1 other"), held_twice
+assert "the folder Artist" in held_twice or "the playlist Party" in held_twice, (
+    held_twice
+)
+assert str(MUSIC) not in held_twice, f"the tip spelled out a path: {held_twice}"
+gui.delete_local_playlist(PLAYLISTS / "Party.m3u")
 
 # The album page adds a whole record at once and a search result arrives from
 # somewhere else again, so the guard is at the one door they all come through
