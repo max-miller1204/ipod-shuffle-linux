@@ -1,0 +1,36 @@
+What an Add to playlist gets back for each way a playlist stops reading.
+Run against both commits with the same script, on the same situations.
+
+===== BEFORE THE FIX (1e29ad8) =====
+the playlist a user pressed Add on             read            add_entries
+-----------------------------------------------------------------------------
+a playlist that is there and readable          True            1
+deleted by another program                     False           None
+in the folder, pointing at an unplugged drive  False           None
+in a folder that cannot be listed              False           None
+in a folder with no read permission            False           None
+in a folder that is not there at all           False           None
+in a Music folder on an unplugged drive        False           None
+
+every edit on the playlist another program deleted:
+  add_entries   -> None
+  remove_entry  -> None
+  move_entry    -> None
+  and it stayed deleted: True
+
+===== AFTER THE FIX (93a3e00) =====
+the playlist a user pressed Add on             read            add_entries
+-----------------------------------------------------------------------------
+a playlist that is there and readable          True            1
+deleted by another program                     PLAYLIST_GONE   PLAYLIST_GONE
+in the folder, pointing at an unplugged drive  False           None
+in a folder that cannot be listed              False           None
+in a folder with no read permission            False           None
+in a folder that is not there at all           False           None
+in a Music folder on an unplugged drive        False           None
+
+every edit on the playlist another program deleted:
+  add_entries   -> PLAYLIST_GONE
+  remove_entry  -> PLAYLIST_GONE
+  move_entry    -> PLAYLIST_GONE
+  and it stayed deleted: True
