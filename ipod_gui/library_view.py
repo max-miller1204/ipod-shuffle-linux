@@ -7,11 +7,13 @@ device and which is on its way there, and the deletion that takes a song off
 this computer.
 
 Borrows from the window: `library`, `device_tracks` and `mount_point` to merge
-against, `current_view` and `show_view` to know and change what is on screen,
-and `_populate_device_summary`, `_populate_cache_card`, `_populate_folders`,
-`_show_playlist`, `_populate_playlist_rail`, `_paint_local_results` and
-`_queue_tracks` to repaint or act on what the merge changed. Deleting adds five
-more, from the three modules the deletion has to be undone in:
+against, `pending` and `pending_records` from the queue, which is what the
+merge decides a track's queued state from, `current_view` and `show_view` to
+know and change what is on screen, and `_populate_device_summary`,
+`_populate_cache_card`, `_populate_folders`, `_show_playlist`,
+`_populate_playlist_rail`, `_paint_local_results` and `_queue_tracks` to
+repaint or act on what the merge changed. Deleting adds five more, from the
+three modules the deletion has to be undone in:
 `_device_only_track` and `_playlists_listing` from the playlist view,
 `unqueue_deleted_path` and `_source_gone` from the queue, and `_forget_files`
 from the player.
@@ -791,8 +793,8 @@ class LibraryViewMixin:
         self.library.tracks = list(self._library_scan_tracks.values())
         # A sync still holding it would fail on a file nothing can read, and
         # copying it is not a change anybody is asking for any more. Only the
-        # song: a playlist or a folder staged around it is still staged, minus
-        # the one line this deletion took out of it.
+        # song: a playlist or a folder staged around it is still staged, just
+        # without that one song.
         self.unqueue_deleted_path(track.path)
         self._forget_files([track.path])
         # Everything the deletion changed, painted once here rather than a
