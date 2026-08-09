@@ -28,10 +28,9 @@ Borrows from the window: `playlists` and `spoken` as the probe left them,
 `device_identity`, `busy` and `speech_engine_available` to know what can reach
 the device, `_library_scan_running` and `_device_snapshot_ready` to know
 whether those two readings can be quoted yet, and `show_view`, `_run`,
-`_toast`, `_confirmed_device`,
-`_sync_options`, `_queue_playlists`, `is_queued`, `unqueue_source`,
-`focus_search`, `on_delete_track` and `_keep_preview` to act on what an edit
-changed.
+`_toast`, `_confirmed_device`, `_sync_options`, `_queue_playlists`,
+`is_queued`, `unqueue_source`, `focus_search`, `on_delete_track` and
+`_keep_preview` to act on what an edit changed.
 """
 
 from pathlib import Path
@@ -634,7 +633,10 @@ class PlaylistViewMixin:
         self.playlist_voice_note.append(label(" · ".join(parts), "sf-body", wrap=True))
 
     def _fill_playlist_actions(self, playlist, resolved):
-        """The two things a playlist is for, and a menu holding the rest.
+        """What this playlist is for, in buttons, and a menu holding the rest.
+
+        Two of them for a playlist made here, one for a playlist only the
+        device has, and the ⋯ beside either.
 
         Two buttons rather than four: a row of four set a minimum width the
         whole window then had to honour, 90px past the point where the sidebar

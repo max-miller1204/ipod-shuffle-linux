@@ -1,0 +1,17 @@
+== the machine in the report ==
+playlist folder holds: ['Inspo.m3u']
+volume root holds: ['2000.m3u', '2016.m3u', 'Inspo.m3u', 'More alt shii.m3u', 'YN.m3u']
+rail as the user sees it: ['Inspo', '2000', '2016', 'More alt shii', 'YN']
+screenshot: 01-five-playlists-on-the-rail.png
+
+== the ⋯ on a song, pressed ==
+Add to playlist offers: ['ADD TO PLAYLIST', 'Inspo', '＋  New playlist…', 'Delete from library…']
+screenshot: 02-add-menu-names-what-it-leaves-out.png
+
+== 2000, opened from the rail ==
+page note: ['3 tracks · the device can announce this playlist']
+page buttons: ['Remove from iPod']
+screenshot: 03-a-device-playlist-offers-a-copy.png
+
+== Copy to this computer, pressed ==
+says: None
