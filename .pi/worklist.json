@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 129,
+  "revision": 132,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -198,7 +198,7 @@
       "group": "UI",
       "status": "open",
       "createdAt": "2026-08-07T21:41:30.889Z",
-      "updatedAt": "2026-08-07T21:49:36.292Z",
+      "updatedAt": "2026-08-09T06:52:12.356Z",
       "dependsOn": [
         "let-the-search-box-own-pasted-youtube"
       ]
@@ -299,6 +299,15 @@
       "status": "open",
       "createdAt": "2026-08-07T21:37:54.443Z",
       "updatedAt": "2026-08-07T21:37:54.443Z"
+    },
+    {
+      "id": "count-queued-tracks-the-library-index",
+      "title": "Count queued tracks the library index does not hold",
+      "description": "The library page's Queued pill can read 0 while the sidebar reads '+120 MB queued to sync' and the Sync button reads 'Sync 30 changes'.\n\n_populate_albums counts from LibraryIndex.counts()/track_counts(), which walk all_tracks() = tracks + device_only + previews. A folder staged through the header's 'Add music folder…' button (on_add_music -> _discover_music_folder -> _finish_music_folder_discovery in queue.py) is queued without being added to library.roots - that is on_add_folder in device_view.py, a different button - so its tracks land in _pending_track_index only and never reach library.tracks.\n\nThe gap is older than the pill: those tracks are already absent from the grid and from every other pill. Naming a count is what made it visible, and it was deliberately left out of the goal that added the pill. Decide whether a queued track no music folder holds belongs in the album grid at all - if it does, the merge is where it would join, and the pill and its filter then agree with the Sync button by construction.",
+      "group": "UI",
+      "status": "open",
+      "createdAt": "2026-08-09T04:34:29.277Z",
+      "updatedAt": "2026-08-09T04:34:29.277Z"
     }
   ],
   "retiredIds": [
