@@ -574,6 +574,15 @@ def check_delete_from_library(window):
     if cancelled is None:
         failures.append("a local track was refused a delete dialog")
     else:
+        # Nothing staged this song, so the dialog has no business naming the
+        # sync: the clause above it is decided by asking the queue, and a
+        # question answered yes for everything would have this one destructive
+        # confirmation promise to undo a sync the deletion never touches.
+        if "out of the next sync" in cancelled.get_body():
+            failures.append(
+                "the delete dialog tells a song nothing had staged that it is "
+                f"being taken out of the next sync: {cancelled.get_body()!r}"
+            )
         cancelled.emit("response", "cancel")
         cancelled.force_close()
         if not kept.is_file():
