@@ -535,7 +535,12 @@ class FakeWindow:
     _local_playlist = gui.IpodWindow._local_playlist
     _playlist_on_device = gui.IpodWindow._playlist_on_device
     _playlist_state = gui.IpodWindow._playlist_state
+    _playlists_listing = gui.IpodWindow._playlists_listing
+    _delete_entry = gui.IpodWindow._delete_entry
+    _playlist_index = gui.IpodWindow._playlist_index
     _playlist_tracks = gui.IpodWindow._playlist_tracks
+    _playlist_art = gui.IpodWindow._playlist_art
+    _playlist_covers = gui.IpodWindow._playlist_covers
     _device_only_track = gui.IpodWindow._device_only_track
     _add_tracks_to_playlist = gui.IpodWindow._add_tracks_to_playlist
     _remove_track_from_playlist = gui.IpodWindow._remove_track_from_playlist
@@ -850,6 +855,34 @@ assert FakeWindow(mount_point=None)._device_only_track(unresolved), (
     "unplugging the iPod made a relative entry addable"
 )
 
+# Deleting is offered through the same door, and only for a song this computer
+# holds. A device entry names a file on the iPod, which the row's own Remove
+# takes off it, and a previewed one sits in a cache Device & Settings empties -
+# neither is a file this may unlink, and both reach the menu.
+assert [text for text, _handler in window._delete_entry(track_for(first))] == [
+    "Delete from library…"
+], "a local track was offered no way to delete it"
+for refused in (device_track, unresolved, track_for(first, gui.STATE_PREVIEW)):
+    assert window._delete_entry(refused) == (), (
+        f"delete was offered for {refused.path}, which is not this computer's "
+        "to delete"
+    )
+
+# Which playlists hold a track is one question, asked by the tick beside a
+# name in that menu and by the warning about what a deletion leaves behind.
+# Two songs of its own, because the folder above holds every playlist this
+# file has made and a track from one of those is in more lists than this.
+listed, unlisted = song("Listed Once"), song("In No List")
+listing_window = FakeWindow()
+listing_window.library_tracks([listed, unlisted])
+new_playlist(listing_window, "Holds It")
+listing_window._add_tracks_to_playlist("Holds It", [track_for(listed)])
+# Re-read, because the rail that would have done it here only counts repaints.
+listing_window._load_local_playlists()
+assert listing_window._playlists_listing(track_for(listed)) == ["Holds It"]
+assert listing_window._playlists_listing(track_for(unlisted)) == []
+gui.delete_local_playlist(PLAYLISTS / "Holds It.m3u")
+
 # The album page adds a whole record at once and a search result arrives from
 # somewhere else again, so the guard is at the one door they all come through
 # rather than beside the menu that happened to have it first.
@@ -885,6 +918,59 @@ assert "only on the iPod" in device_rows_window.toasts[-1], (
     device_rows_window.toasts
 )
 gui.delete_local_playlist(PLAYLISTS / "Mine.m3u")
+
+# A playlist is a list of paths and has no artwork of its own, so a tile or a
+# rail row shows the first cover the songs in it carry. Resolved through the
+# same lookup a row is, because the artwork has to be the artwork of the track
+# the list actually names.
+covers = FakeWindow()
+plain = gui.Track(first, {"title": "Lithium"}, gui.STATE_LIBRARY)
+illustrated = gui.Track(
+    second, {"title": "Debaser", "art": "/art/doolittle.png"}, gui.STATE_LIBRARY
+)
+covers.library.tracks = [plain, illustrated]
+covers._merge_states()
+new_playlist(covers, "Illustrated")
+covers._add_tracks_to_playlist("Illustrated", [plain, illustrated])
+new_playlist(covers, "Plain")
+covers._add_tracks_to_playlist("Plain", [plain])
+# Past the first entry rather than only at it: a playlist opening on a track
+# with no art is the ordinary case, not a playlist with none.
+assert covers._playlist_art(covers._local_playlist("Illustrated")) == (
+    "/art/doolittle.png"
+), covers._playlist_art(covers._local_playlist("Illustrated"))
+# Nothing in it with a cover keeps the generated placeholder, which make_cover
+# draws from the name; answering with some other list's artwork would be worse
+# than answering with none.
+assert covers._playlist_art(covers._local_playlist("Plain")) is None
+# A device playlist names files on the iPod, so its cover comes out of what
+# the device walk read rather than out of the library.
+on_device_art = gui.Track(
+    "/media/alex/iPod/iPod_Control/Music/F00/AAAA.mp3",
+    {"title": "Only There", "art": "/art/only-there.png"},
+    gui.STATE_IPOD,
+    relpath="F00/AAAA.mp3",
+)
+covers.device_tracks = [on_device_art]
+covers.playlists = [("Genres", ["F00/AAAA.mp3"])]
+# Every playlist on screen at once, which is how the rail and the shelf ask:
+# both kinds resolved in one pass, so a device list beside a local one gets
+# its own artwork rather than the other's or none.
+shown_covers = covers._playlist_covers(covers._shown_playlists())
+assert {
+    name: art
+    for name, art in shown_covers.items()
+    if name in ("Genres", "Illustrated", "Plain")
+} == {
+    "Genres": "/art/only-there.png",
+    "Illustrated": "/art/doolittle.png",
+    "Plain": None,
+}, shown_covers
+assert set(shown_covers) == {
+    playlist.name for playlist in covers._shown_playlists()
+}, "a playlist on screen was left without an answer about its cover"
+for name in ("Illustrated", "Plain"):
+    gui.delete_local_playlist(PLAYLISTS / f"{name}.m3u")
 
 # An album holds what is only on the device beside what is here, so a refusal
 # of part of it has to be said either way: a toast counting only what landed

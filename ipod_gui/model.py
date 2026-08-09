@@ -8,8 +8,10 @@ from pathlib import Path
 from .config import (
     AUDIO_EXTENSIONS,
     STATE_IPOD,
+    STATE_LABELS,
     STATE_LIBRARY,
     STATE_PREVIEW,
+    STATE_QUEUED,
     music_roots,
 )
 from .text import plural
@@ -174,12 +176,18 @@ class Album:
         A half-synced album badged "On iPod" would be a lie, and the shuffle
         gives you no way to discover which half is missing. The album view
         shows the ratio for the partial case.
+
+        Queued follows the same rule one step earlier: the album is queued when
+        the next sync will leave all of it on the device, so what is already
+        there counts towards it and one staged track out of twelve does not.
         """
         states = {track.state for track in self.tracks}
         if states == {STATE_IPOD}:
             return STATE_IPOD
         if states == {STATE_PREVIEW}:
             return STATE_PREVIEW
+        if STATE_QUEUED in states and states <= {STATE_IPOD, STATE_QUEUED}:
+            return STATE_QUEUED
         return STATE_LIBRARY
 
     @property
@@ -248,7 +256,9 @@ class LibraryIndex:
         return self.artists() if by_artist else self.albums()
 
     def counts(self, by_artist=False):
-        counts = {STATE_IPOD: 0, STATE_LIBRARY: 0, STATE_PREVIEW: 0}
+        # Keyed off the labels so that a state added there is counted here
+        # rather than reaching a pill that reports zero of it.
+        counts = {state: 0 for state in STATE_LABELS}
         for collection in self.collections(by_artist):
             counts[collection.state] = counts.get(collection.state, 0) + 1
         return counts
@@ -261,7 +271,7 @@ class LibraryIndex:
         counting collections under a list of tracks would disagree with the
         list itself.
         """
-        counts = {STATE_IPOD: 0, STATE_LIBRARY: 0, STATE_PREVIEW: 0}
+        counts = {state: 0 for state in STATE_LABELS}
         for track in self.all_tracks():
             counts[track.state] = counts.get(track.state, 0) + 1
         return counts

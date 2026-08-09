@@ -175,6 +175,199 @@ def tooltip_shown(widget):
     return widget.emit("query-tooltip", 0, 0, False, Gtk.Tooltip())
 
 
+def album_cards(window):
+    """The cards currently in the album grid."""
+    return [
+        found
+        for found in walk(window.album_flow)
+        if isinstance(found, Gtk.FlowBoxChild)
+    ]
+
+
+def pill_text(window, key):
+    child = window.album_filters[key].get_child()
+    return child.get_text() if isinstance(child, Gtk.Label) else ""
+
+
+def library_track(path, title, album, state=None):
+    return gui.Track(
+        path,
+        {"title": title, "album": album, "artist": "The Fixture", "size": 8},
+        state or gui.STATE_LIBRARY,
+    )
+
+
+def check_queued_state(window):
+    """The fourth state, from the merge that decides it to the pill.
+
+    Queued is not a place a file is - it is the same file in the same folder,
+    with a sync coming - so nothing but the state it is given says so. That
+    makes the chain worth driving whole: what the merge decides, what the
+    marker on the row reads, what the pill counts, and what the pill filters
+    to. Driven through the real widgets, because the pills are built from one
+    list in config and painted from another loop over it, and the two agreeing
+    is the whole of what makes a pill filter what it says it counts.
+    """
+    staged = library_track("/music/staged/01 Staged.mp3", "Staged", "Going")
+    left = library_track("/music/left/01 Left.mp3", "Left", "Staying")
+    window.library.tracks = [staged, left]
+    window._library_scan_tracks = {track.path: track for track in window.library.tracks}
+    window.pending = {staged.path}
+    window.pending_sources = {staged.path: {staged.path}}
+    window.pending_records = {}
+    window._merge_states()
+
+    if staged.state != gui.STATE_QUEUED:
+        failures.append(f"a staged track merged as {staged.state!r}")
+    if left.state != gui.STATE_LIBRARY:
+        failures.append(f"a track nothing staged merged as {left.state!r}")
+
+    window.view_mode = "grid"
+    window._populate_albums()
+    if pill_text(window, gui.STATE_QUEUED) != "Queued 1":
+        failures.append(
+            f"the grid's Queued pill reads {pill_text(window, gui.STATE_QUEUED)!r} "
+            "with one album staged"
+        )
+    if pill_text(window, "all") != "All 2":
+        failures.append(f"the All pill reads {pill_text(window, 'all')!r}")
+
+    # The pill filters what it counts. An album is queued when the sync will
+    # leave all of it on the device, which is one of these two.
+    window.album_filters[gui.STATE_QUEUED].set_active(True)
+    if len(album_cards(window)) != 1:
+        failures.append(
+            f"the Queued filter left {len(album_cards(window))} albums in the "
+            "grid, not the one that is staged"
+        )
+    window.album_filters["all"].set_active(True)
+    if len(album_cards(window)) != 2:
+        failures.append("All did not put the whole library back in the grid")
+
+    # The table counts tracks rather than albums, and the same track is what
+    # the pill beside it filters to.
+    window.mode_buttons["list"].set_active(True)
+    if pill_text(window, gui.STATE_QUEUED) != "Queued 1":
+        failures.append(
+            f"the table's Queued pill reads {pill_text(window, gui.STATE_QUEUED)!r}"
+        )
+    window.mode_buttons["grid"].set_active(True)
+
+    # Unqueue, pressed with no iPod attached. The queue outlives an unplug and
+    # the row keeps offering this, so the repaint that follows has to be the
+    # one for a device that is not there: painting the connected summary read
+    # a mount point of None and raised under the button.
+    try:
+        window._unqueue_track(staged)
+    except Exception:  # noqa: BLE001 - raising at all is the finding
+        failures.append(
+            f"unqueueing with no iPod attached raised:\n{traceback.format_exc()}"
+        )
+    if window.pending or window.pending_sources:
+        failures.append(f"Unqueue left the track staged: {window.pending}")
+    if staged.state != gui.STATE_LIBRARY:
+        failures.append(f"an unqueued track stayed {staged.state!r}")
+
+
+def check_delete_from_library(window):
+    """Deleting a song, from the row's menu to the file leaving the folder.
+
+    The one thing in this window that touches the user's own music, so it is
+    driven the whole way here rather than asserted a piece at a time: the row
+    that offers it, the dialog that says what will happen, and what is left
+    of the track afterwards in the library, in the queue and on disk.
+    """
+    doomed = Path(_SANDBOX, "Music", "The Fixture", "Doomed.mp3")
+    doomed.parent.mkdir(parents=True, exist_ok=True)
+    doomed.write_bytes(b"a file to delete")
+    track = library_track(str(doomed), "Doomed", "Doomed Album")
+    window.library.tracks = [track]
+    window._library_scan_tracks = {track.path: track}
+    window.pending = {track.path}
+    window.pending_sources = {track.path: {track.path}}
+    window._merge_states()
+    window._populate_albums()
+
+    menu = window.track_menu(track)
+    row = find_button(menu.get_child(), "Delete from library…")
+    if row is None:
+        failures.append(
+            f"a track's menu offers no way to delete it: {menu_text(menu.get_child())}"
+        )
+        return
+    row.emit("clicked")
+    dialog = window.get_visible_dialog()
+    if not isinstance(dialog, Adw.AlertDialog):
+        failures.append(f"Delete from library opened {dialog!r} rather than a dialog")
+        return
+    # What it says will happen is the whole reason it is asked at all, and
+    # the queue is the consequence nothing else on screen would show.
+    body = dialog.get_body()
+    for expected in ("wastebasket", "out of the next sync", "Doomed"):
+        if expected not in body:
+            failures.append(f"the delete dialog never mentions {expected!r}: {body!r}")
+    if not dialog.get_response_appearance("delete") == Adw.ResponseAppearance.DESTRUCTIVE:
+        failures.append("Delete is not marked as the destructive response")
+    if dialog.get_default_response() != "cancel":
+        failures.append(
+            f"the delete dialog defaults to {dialog.get_default_response()!r}"
+        )
+
+    dialog.emit("response", "delete")
+    if doomed.exists():
+        failures.append(f"the file is still in the music folder: {doomed}")
+    trashed = list(Path(_SANDBOX, ".local/share/Trash/files").glob("Doomed*"))
+    if not trashed:
+        failures.append(
+            "the file did not reach the wastebasket, so a deletion the dialog "
+            "said could be taken back cannot be"
+        )
+    if [t.path for t in window.library.tracks]:
+        failures.append(
+            f"the deleted track is still in the library: {window.library.tracks}"
+        )
+    if window.pending or window.pending_sources:
+        failures.append(
+            f"the deleted track is still queued for the next sync: {window.pending}"
+        )
+    if album_cards(window):
+        failures.append("the album grid still holds the record it was the whole of")
+
+    # A cancel leaves everything where it is, which is the answer the dialog
+    # defaults to and the one nothing else would notice going wrong.
+    kept = Path(_SANDBOX, "Music", "The Fixture", "Kept.mp3")
+    kept.write_bytes(b"a file to keep")
+    keeper = library_track(str(kept), "Kept", "Kept Album")
+    window.library.tracks = [keeper]
+    window._library_scan_tracks = {keeper.path: keeper}
+    window._merge_states()
+    cancelled = window.on_delete_track(keeper)
+    if cancelled is None:
+        failures.append("a local track was refused a delete dialog")
+    else:
+        cancelled.emit("response", "cancel")
+        if not kept.is_file():
+            failures.append("cancelling the delete dialog deleted the file anyway")
+        if [t.path for t in window.library.tracks] != [keeper.path]:
+            failures.append("cancelling the delete took the track out of the library")
+
+    # A file something else deleted between the dialog opening and being
+    # answered. There is nothing to trash, and reporting that as a failure
+    # would leave a row on screen for a song that is not there.
+    kept.unlink()
+    window.on_delete_track(keeper).emit("response", "delete")
+    if [t.path for t in window.library.tracks]:
+        failures.append(
+            "a song deleted from under the dialog stayed in the library: "
+            f"{window.library.tracks}"
+        )
+
+    window.library.tracks = []
+    window._library_scan_tracks = {}
+    window._merge_states()
+    window._populate_albums()
+
+
 def inspect(window):
     # Where the window says it is the moment it opens, read before anything
     # below calls show_view and answers the question for it. The stack shows
@@ -311,6 +504,9 @@ def inspect(window):
     outside = window.track_menu(borrowed)
     if find_button(outside.get_child(), "Built") is not None:
         failures.append("a folder-relative entry was offered as one to add")
+
+    check_queued_state(window)
+    check_delete_from_library(window)
 
     # Naming a playlist and renaming one are one dialog assembled in one place,
     # so a break in it is a break in both, and neither is built until the user

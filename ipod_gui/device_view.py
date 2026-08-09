@@ -552,6 +552,18 @@ class DeviceViewMixin:
             self.device_banner.append(mount)
         self.device_banner.set_visible(True)
 
+        self._populate_absent_queue()
+
+    def _populate_absent_queue(self):
+        """What is staged for an iPod that is not attached.
+
+        Apart from the rest of the absent summary, because the queue outlives
+        an unplug and can still change while one is: a playlist deleted or a
+        track taken back out of it are both edits this window allows with
+        nothing plugged in, and each ends in the prune that repaints from
+        here. Everything else on that card describes a device, and the device
+        has not changed.
+        """
         _tracks, changes, queued_bytes = self._pending_accounting()
         if self.pending_sources:
             self.queued_row.set_visible(True)
@@ -568,6 +580,14 @@ class DeviceViewMixin:
         self._update_device_controls()
 
     def _populate_device_summary(self):
+        # Every line below describes an attached device, and this runs from
+        # the queue's own prune as well as from a probe - so it can be reached
+        # with nothing plugged in, by an edit made while the iPod is away.
+        # What that changed is the queue, which the absent card carries its
+        # own line for.
+        if self.mount_point is None:
+            self._populate_absent_queue()
+            return
         name = Path(self.mount_point).name
         self.device_name.set_text(name)
         self.settings_name.set_text(name)
@@ -784,6 +804,10 @@ class DeviceViewMixin:
             self._device_snapshot_ready = True
             self._merge_states()
             self._request_refresh(scan_complete=scan_complete)
+            # A device playlist's entries name files on the iPod, so its cover
+            # is artwork this walk is what read. The rail was painted when the
+            # probe answered, which is before any of this existed.
+            self._populate_playlist_rail()
         return False
 
     def _finish_device_scan(self, generation, mount_point):

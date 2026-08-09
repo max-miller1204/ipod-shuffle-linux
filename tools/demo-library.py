@@ -2,8 +2,9 @@
 """Builds the demo library `docs/screenshot.png` is taken against.
 
 That shot shows a library nobody has: four albums with cover art the app
-generates itself, a playlist that has reached the device and one that has not,
-and an iPod called MAX SHUFFLE. The library used to be built by hand in a
+generates itself, a playlist that has reached the device and one that has not -
+each wearing the first cover its own songs carry - and an iPod called MAX
+SHUFFLE. The library used to be built by hand in a
 temporary directory, which is why the screenshot went stale and could not
 simply be retaken - the directory was gone and nothing recorded what had been
 in it.
@@ -54,8 +55,11 @@ IPOD_NAME = "MAX SHUFFLE"
 MARKER = ".demo-library"
 
 # Four albums, because the screenshot's state pills count albums and reading
-# "All 4 / On iPod 1 / In library 3" is the point of the shot. Warm Ridge is
-# the one that gets synced, so it is the only one wearing an "On iPod" badge.
+# "All 4 / On iPod 1 / Queued 0 / In library 3" is the point of the shot. Warm
+# Ridge is the one that gets synced, so it is the only one wearing an "On iPod"
+# badge. Nothing is queued: the queue is held by the running window rather than
+# written anywhere, so a demo cannot build one - what the shot shows of it is
+# the pill, and the badge is in the state table in the README.
 ALBUMS = [
     ("Ana Petrov", "Field Notes", ["Paper Boats", "Coastal Road"]),
     ("Elle Marchetti", "Warm Ridge", ["Low Sun", "Ridge Line"]),

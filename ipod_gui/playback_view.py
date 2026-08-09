@@ -4,7 +4,8 @@ Playback is preview only, on this computer's speakers, and never touches the
 iPod. Owns the bar in all four of its states, the transport, the download that
 fetches a result into the cache before playing it - with `preview_generation`,
 the process handle and the lock that let a newer preview disown an older one -
-the cache's pruning, and promoting a previewed track into the library.
+the cache's pruning, promoting a previewed track into the library, and
+`_forget_files`, which is what a deleted file means for what is playing.
 
 It also holds the window's shutdown: a pipeline left playing outlives the
 window, so closing it comes through here.
@@ -528,7 +529,18 @@ class PlaybackViewMixin:
             self.library.previews = [
                 track for track in self.library.previews if track.path not in dropped
             ]
-            self.player.forget(dropped)
+            self._forget_files(dropped)
+
+    def _forget_files(self, paths):
+        """Take files that have gone out of what the player would play.
+
+        The queue is what next, previous and play walk, so a file deleted
+        while it sits in one leaves a control that fails on every press - and
+        if it is the file playing, audio that outlives what produced it.
+        Called by whatever does the deleting: the cache prunes its own
+        previews, and the library's delete brings it the song it just took.
+        """
+        self.player.forget(paths)
 
     @staticmethod
     def _forget_empty_preview_folders(folder):

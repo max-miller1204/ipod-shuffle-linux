@@ -2,34 +2,44 @@
 
 Owns the album flow and its filter pills, the flat track table, the album
 detail page, the music-folder scan and `scan_generation` that supersedes a
-stale one, and `_merge_states`, which decides which local track is already on
-the device.
+stale one, `_merge_states`, which decides which local track is already on the
+device and which is on its way there, and the deletion that takes a song off
+this computer.
 
 Borrows from the window: `library`, `device_tracks` and `mount_point` to merge
 against, `current_view` and `show_view` to know and change what is on screen,
 and `_populate_device_summary`, `_populate_cache_card`, `_populate_folders`,
-`_show_playlist`, `_paint_local_results` and `_queue_tracks` to repaint or act
-on what the merge changed. The playlist shelf at the top of the library page is
-the playlist view's, built and filled there.
+`_show_playlist`, `_populate_playlist_rail`, `_paint_local_results` and
+`_queue_tracks` to repaint or act on what the merge changed. Deleting adds
+three more, each owned by whoever the deletion has to be undone in:
+`_device_only_track` and `_playlists_listing` from the playlist view,
+`_unqueue_track` and `_source_gone` from the queue, and `_forget_files` from
+the player.
+
+The playlist shelf at the top of the library page is the playlist view's,
+built and filled there - and repainted from here when a scan finishes, because
+a playlist's cover is the first one its own tracks carry.
 """
 
 import threading
 from pathlib import Path
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from .config import (
     AUDIO_EXTENSIONS,
     GROUP_MODE_LABELS,
     GROUP_MODES,
+    LIBRARY_FILTERS,
     PREVIEW_CACHE,
     STATE_IPOD,
     STATE_LABELS,
     STATE_LIBRARY,
     STATE_PREVIEW,
+    STATE_QUEUED,
     save_library_layout,
 )
-from .text import human_duration, human_size, plural
+from .text import home_relative, human_duration, human_size, plural
 from .tags import scan_tracks
 from .model import Track
 from .widgets import (
@@ -133,12 +143,7 @@ class LibraryViewMixin:
         self.collection_heading = label("Albums", "sf-section-heading")
         albums_head.append(self.collection_heading)
         self.album_filters = {}
-        for key, text in (
-            ("all", "All"),
-            (STATE_IPOD, "On iPod"),
-            (STATE_LIBRARY, "In library"),
-            (STATE_PREVIEW, "Previewed"),
-        ):
+        for key, text in LIBRARY_FILTERS:
             pill = Gtk.ToggleButton()
             pill.add_css_class("sf-pill")
             pill.set_valign(Gtk.Align.CENTER)
@@ -391,6 +396,11 @@ class LibraryViewMixin:
         if self.mount_point:
             self._populate_device_summary()
         self._refresh_current_view()
+        # A playlist's cover is the first one its tracks carry, so the scan
+        # that reads that artwork is what the tiles have been waiting for.
+        # Here rather than in the coalesced repaint: painting the rail
+        # re-reads the playlist folder, which is disk work no batch is worth.
+        self._populate_playlist_rail()
         self._populate_folders()
         return False
 
@@ -525,10 +535,15 @@ class LibraryViewMixin:
         return False
 
     def _merge_states(self):
-        """Decide which local tracks are already on the device.
+        """Decide which local tracks are already on the device, or on their way.
 
         Matched on tags rather than path: the device stores every track under a
         scrambled four-letter name, so nothing about its location survives.
+
+        Queued is decided here too, and only here, because a track's state is
+        what every marker, pill and count in the window is drawn from: worked
+        out again beside each of them, the queue would be a rule four views
+        had to agree on rather than one this function already runs.
         """
         on_device = {}
         for track in self.device_tracks:
@@ -537,6 +552,7 @@ class LibraryViewMixin:
         self._library_by_path = {
             track.path: track for track in self.library.tracks
         }
+        queued = getattr(self, "pending", set())
         for track in self.library.tracks:
             track.relpath = track.path
             matches = on_device.get(track.identity(), [])
@@ -546,13 +562,18 @@ class LibraryViewMixin:
                 track.on_ipod = True
                 track.relpath = device_track.relpath
                 matched.add(id(device_track))
-            elif track.state == STATE_IPOD:
-                track.state = STATE_LIBRARY
+            else:
+                # Assigned rather than only demoted from STATE_IPOD, because a
+                # track leaves the queue as readily as it joins it and the
+                # state it goes back to is the one this decides either way.
+                track.state = (
+                    STATE_QUEUED if track.path in queued else STATE_LIBRARY
+                )
                 track.on_ipod = False
 
         pending_index = dict(self._library_by_path)
         records = getattr(self, "pending_records", {})
-        for path in getattr(self, "pending", set()):
+        for path in queued:
             if path in pending_index or Path(path).suffix.lower() not in AUDIO_EXTENSIONS:
                 continue
             record = dict(records.get(path, {}))
@@ -561,7 +582,9 @@ class LibraryViewMixin:
                 record["size"] = Path(path).stat().st_size
             except OSError:
                 record["size"] = 0
-            track = Track(path, record, STATE_LIBRARY)
+            # Queued by construction: nothing but the queue names these, and
+            # they are here because no music folder does.
+            track = Track(path, record, STATE_QUEUED)
             matches = on_device.get(track.identity(), [])
             if matches:
                 device_track = matches.pop(0)
@@ -597,15 +620,11 @@ class LibraryViewMixin:
             self.library.track_counts() if listing else self.library.counts(by_artist)
         )
         everything = len(self.library.all_tracks()) if listing else len(collections)
-        for key, pill in self.album_filters.items():
-            text = {
-                "all": "All",
-                STATE_IPOD: "On iPod",
-                STATE_LIBRARY: "In library",
-                STATE_PREVIEW: "Previewed",
-            }[key]
+        for key, text in LIBRARY_FILTERS:
             total = everything if key == "all" else counts.get(key, 0)
-            pill.set_child(label(f"{text} {total}", xalign=0.5))
+            self.album_filters[key].set_child(
+                label(f"{text} {total}", xalign=0.5)
+            )
 
         shown = [
             collection
@@ -679,6 +698,107 @@ class LibraryViewMixin:
         button.connect("clicked", lambda _b, a=album: self._show_album(a))
         return button
 
+    # ------------------------------------------------------------- deleting
+
+    def on_delete_track(self, track):
+        """Ask before taking a song off this computer.
+
+        Behind a confirmation rather than done on the press, because it is the
+        only thing in the window that touches the user's own music files, and
+        the menu it is reached from is one every row carries.
+        """
+        if self._device_only_track(track) or track.state == STATE_PREVIEW:
+            return None
+
+        # Every consequence beyond the file itself, stated before it happens.
+        # A song is in more places than the folder it sits in, and which of
+        # them survive a deletion is exactly what a person hesitates over.
+        consequences = ["The file is moved to your wastebasket."]
+        if track.on_ipod:
+            consequences.append(
+                "The copy on the iPod stays there until you remove it."
+            )
+        # Read off the state rather than out of the queue's own bookkeeping,
+        # which is what that state is for and what the row already shows.
+        if track.state == STATE_QUEUED:
+            consequences.append("It is taken back out of the next sync.")
+        listed = self._playlists_listing(track)
+        if listed:
+            consequences.append(
+                f"It stays listed in {plural(len(listed), 'playlist')}, where "
+                "the row will name a file that is no longer there."
+            )
+        dialog = Adw.AlertDialog(
+            heading="Delete this song?",
+            body=f"{track.title} · {track.artist}\n"
+            f"{home_relative(track.path)}\n\n" + " ".join(consequences),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("delete", "Delete")
+        dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_delete_track_response, track)
+        dialog.present(self)
+        return dialog
+
+    def _on_delete_track_response(self, _dialog, response, track):
+        if response != "delete":
+            return
+        if self._source_gone(track.path):
+            # Deleted from a file manager, or by another window, between this
+            # dialog opening and being answered. Nothing to trash, but the row
+            # is still on screen, so this catches up rather than reporting a
+            # failure about a path the user never typed. The queue's own rule
+            # for what has gone, because a link whose target is unmounted is
+            # still a file in a folder here.
+            self._forget_deleted_track(track)
+            self._toast(f"{track.title} was already gone")
+            return
+        problem = self._to_wastebasket(track.path)
+        if problem is not None:
+            self._toast(f"Could not delete {track.title}: {problem}")
+            return
+        self._forget_deleted_track(track)
+        self._toast(f"{track.title} moved to the wastebasket")
+
+    @staticmethod
+    def _to_wastebasket(path):
+        """Delete a file the way the desktop does. Why it did not, or None.
+
+        Trashed rather than unlinked, because this is the one place the window
+        destroys something of the user's that nothing else can put back, and
+        the desktop already keeps the folder a deletion can be taken out of
+        again. A volume with nowhere to trash to - a FAT stick, some network
+        mounts - is refused rather than unlinked behind the same word: the
+        dialog said wastebasket, and a fallback would make that untrue on
+        exactly the drives where it is hardest to notice.
+        """
+        try:
+            Gio.File.new_for_path(str(path)).trash(None)
+        except GLib.Error as error:
+            return error.message
+        return None
+
+    def _forget_deleted_track(self, track):
+        """Take a deleted song out of everything still holding it.
+
+        The scan's own index as well as the library, or the next batch to
+        finish would put the track back in the grid from what it read before
+        the file went.
+        """
+        self._library_scan_tracks.pop(track.path, None)
+        self.library.tracks = list(self._library_scan_tracks.values())
+        # A sync still holding it would fail on a file nothing can read, and
+        # copying it is not a change anybody is asking for any more.
+        self._unqueue_track(track)
+        self._forget_files([track.path])
+        self._merge_states()
+        self._refresh_current_view()
+        # The playlists that listed it, and the covers they were taking from
+        # it, are both drawn from the library this has just changed.
+        self._populate_playlist_rail()
+
     def _show_album(self, album):
         self.current_album = album
         clear_children(self.album_art_holder)
@@ -697,7 +817,13 @@ class LibraryViewMixin:
         )
 
         clear_children(self.album_actions)
-        missing = [t for t in tracks if not t.on_ipod]
+        # What pressing it would actually stage: neither what is already on the
+        # device nor what is already waiting to be. Offering to queue a record
+        # every row of which reads "Queued" is a button whose only answer is
+        # that there was nothing to do.
+        missing = [
+            t for t in tracks if not t.on_ipod and t.state != STATE_QUEUED
+        ]
         if missing and self.mount_point:
             add_all = Gtk.Button(label=f"Queue {plural(len(missing), 'track')}")
             add_all.add_css_class("sf-button")

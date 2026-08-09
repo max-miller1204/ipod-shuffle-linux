@@ -104,24 +104,36 @@ It detects the iPod automatically, appearing and updating as the device is plugg
 Nothing it reads off the device happens where the window draws: detection, the playlists, the track count and the free space are gathered on a worker thread, so plugging in a full 2GB shuffle never freezes the window, and the library, search and preview playback stay usable throughout.
 
 Your own music folders are indexed alongside whatever is on the iPod, so **Your Library** shows both together as one album grid.
-A coloured marker on every album and track says which of three states it is in, and that marker means the same thing everywhere it appears:
+A coloured marker on every album and track says which of four states it is in, and that marker means the same thing everywhere it appears:
 
 | Marker | State | Meaning |
 | --- | --- | --- |
 | Filled | On iPod | Synced, and plays on the device |
+| Ringed | Queued | Staged for the next **Sync**, still only on this computer |
 | Hollow | In library | On this computer, not yet synced |
 | Dashed | Previewed only | Downloaded just so it could be heard, never added |
 
-The third state is what previewing a YouTube result produces: the file is kept in a cache outside your music folders until you add it, so hearing twenty songs does not add twenty of them to your library.
+*Previewed only* is what previewing a YouTube result produces: the file is kept in a cache outside your music folders until you add it, so hearing twenty songs does not add twenty of them to your library.
+*Queued* is not a place the file is - it sits in your music folder like any other - but a sync that is coming, and the ring is the same colour as the queued segment of the storage meter, which is the other place that same change shows.
+
 An album counts as *On iPod* only when all of it is, because a half-synced album badged otherwise would be a lie the shuffle gives you no way to investigate.
+*Queued* follows that rule one step earlier: an album is queued when the next sync will leave all of it on the device, so one staged track out of twelve leaves the record itself *In library*.
+The table is the view that answers track by track, and its pills count and filter tracks rather than albums.
 
 Adding no longer copies immediately.
-Queueing an album or a track shows it as pending space in the storage meter, and one **Sync** button commits the batch, so a session's worth of changes costs a single database rebuild instead of one per track.
+Queueing an album or a track shows it as pending space in the storage meter, marks it *Queued* wherever it appears, and one **Sync** button commits the batch, so a session's worth of changes costs a single database rebuild instead of one per track.
+A staged track's own button becomes **Unqueue**, which takes it back out without touching anything else.
 The copy reports each file as it lands, which a 2GB device over USB 2.0 badly needed: the progress bar, the file list and the raw script output all sit in a bar above the player.
 
 The grid groups by album or by artist, and swaps for a sortable table of every track: click a column to sort by title, album, state or length.
 Both choices are remembered, so the app reopens on the view you left it in rather than back on the album grid.
 The state pills count and filter the collections shown in the grid, or the individual tracks shown in the table, so their totals always describe the active view.
+
+The `⋯` beside a track ends with **Delete from library…**, which is the only thing in the window that touches your own music files.
+It asks first, and the dialog says what the deletion leaves behind before it happens: the file is moved to your wastebasket, the copy on the iPod stays there until you remove it, a staged track is taken back out of the next sync, and a playlist listing it keeps that line, where it will name a file that is no longer there.
+It is offered only for songs this computer holds.
+A track that exists only on the iPod is taken off it with the row's own **Remove**, and a previewed one lives in the cache **Device & Settings** empties in one press, so neither is a file this deletes.
+On a volume with nowhere to trash to, the deletion is refused and the app says why rather than unlinking the file behind the same word.
 
 Local music folders are configurable under **Device & Settings**, which is also where the sync options, **Rebuild database**, **Wipe** and **Eject** live.
 
@@ -138,6 +150,7 @@ Every edit stages the playlist and its songs for the next sync, and **Sync** cop
 Editing with no iPod attached is fine - **Send to iPod** stages it whenever one turns up.
 Because the device stores playlist names only as spoken audio, a playlist reaching it switches spoken names on automatically; without a speech engine installed the playlist stays on this computer and the page says so.
 The dot beside a playlist means what it means beside a track: on the iPod, or here and waiting to be.
+A playlist wears the first cover the songs in it carry, so a list made out of records you have artwork for looks like those records rather than like a coloured tile.
 
 The **Playlists** view also lists the playlists that exist only on the device - a folder or tag grouping a sync generated, or a list made on another computer.
 Those are shown, reordered and removed but not edited, because their entries name scrambled files on the iPod with no local counterpart to write down.
@@ -237,6 +250,9 @@ A thumbnail that cannot be fetched leaves that placeholder in place rather than 
 
 Thumbnails are cached under the video's id, which is also in the name of every file `ipod-fetch.sh` writes.
 A previewed track therefore keeps the artwork its search fetched, and so does the copy that keeping it moves into `~/Music/youtube`, without ever downloading the image again.
+
+An album has its tracks' art, and a playlist is a list of paths with no artwork of its own, so it borrows the first cover the tracks it names carry - out of your library for a playlist made here, and out of what was read off the device for one that exists only there.
+Only a list with nothing in it carrying a cover falls back to the placeholder its name generates, which is the same placeholder every time that list is drawn.
 
 None of it reaches the iPod.
 `ipod-fetch.sh` still passes `--no-embed-thumbnail`, because cover art is pure waste on a 2GB device with no screen; artwork exists only in the cache on this computer.
@@ -750,6 +766,8 @@ The minimum runs from the most recent press rather than the first, because the p
 The two scans share the one spinner, so the check drives them together and apart: a device read outliving the library scan has to keep it going, and a scan superseded by a newer one returns without ever finishing and must not leave it turning forever - which is why what it shows is derived from the two scan flags rather than counted up and down around them.
 
 `tests/gui-window-build.py` is the display-backed exception: it constructs the real window so a missing builder call, bad widget parent, or incomplete view stack cannot pass behind the stand-ins. Run it under a desktop session or with `xvfb-run -a`; it fails instead of skipping when no display is available.
+It is also where the things that only exist as real widgets are driven: the state pills, which are built from one list and painted by another loop over it, so that a pill filtering what it says it counts is worth asserting; and deleting a song, from the row that offers it through the dialog that says what will be left behind to the file arriving in the wastebasket and leaving the library, the queue and the grid.
+Taking a track back out of the queue with no iPod attached is checked in the same place, because it used to raise: the queue outlives an unplug, and the repaint that followed described a device that was not there.
 `tests/gui-window-minimum.py` is the other one, and it measures rather than looks: it fills the window with long names and holds every page and bar to the minimum size the window advertises.
 A window whose contents do not fit the minimum it asked for is not merely cramped - GTK allocates widgets a rectangle smaller than they asked for and then paints them at the size they wanted, so clicks land beside the control under the pointer, hover flickers, and a tooltip can open over the menu it belongs to.
 Nothing in a screenshot says which page is one long album title away from that, so the widths are asserted instead.

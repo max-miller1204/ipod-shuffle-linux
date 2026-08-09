@@ -2050,7 +2050,17 @@ already_copied = gui.Track(
     {"title": "Dawn", "size": 4096},
     gui.STATE_LIBRARY,
 )
-already_copied.on_ipod = True
+# Copied already, and said the way the window says it: a track is on the iPod
+# because the device walk found one with its tags, not because a flag was set
+# beside it. A merge decides on_ipod and state together from that walk, so a
+# hand-marked track is one the next merge disagrees with.
+on_device_copy = gui.Track(
+    "/media/alex/iPod/iPod_Control/Music/F00/ABCD.mp3",
+    {"title": "Dawn", "size": 4096},
+    gui.STATE_IPOD,
+    relpath="iPod_Control/Music/F00/ABCD.mp3",
+)
+queue_window.device_tracks = [on_device_copy]
 queue_window.library.tracks = [*queued_paths.values(), already_copied]
 queue_window.pending = {*queued_paths, already_copied.path}
 queue_window.pending_sources = {
@@ -2058,8 +2068,16 @@ queue_window.pending_sources = {
 }
 queue_window.pending_device_identity = queue_window.device_identity
 queue_window._merge_states()
+assert already_copied.on_ipod, "a queued track the device holds read as missing"
 assert queue_window._pending_change_count() == len(queued_paths)
 assert sum(track.size for track in queue_window._pending_copy_tracks()) == 3072
+# Everything staged that is not there yet carries the queued state, which is
+# what every marker, pill and count in the window is drawn from.
+assert [track.state for track in queued_paths.values()] == [gui.STATE_QUEUED] * 2
+assert already_copied.state == gui.STATE_IPOD, already_copied.state
+# The same queue against a device that no longer holds that copy - taken off
+# it, or its tags edited since. The track is a change to make again.
+queue_window.device_tracks = []
 replacement = gui.Track(
     already_copied.path,
     {"title": "Dawn", "size": 4096},
@@ -2069,6 +2087,7 @@ queue_window.library.tracks = [*queued_paths.values(), replacement]
 queue_window._merge_states()
 assert queue_window._pending_change_count() == len(queued_paths) + 1
 assert sum(track.size for track in queue_window._pending_copy_tracks()) == 7168
+assert replacement.state == gui.STATE_QUEUED, replacement.state
 added_after_queue = sync_source / "03 Added Later.mp3"
 added_after_queue.write_bytes(b"x" * 512)
 linked_during_sync = sync_source / "04 Linked.mp3"
@@ -3286,6 +3305,7 @@ class PreviewWindow:
     _promote_preview = gui.IpodWindow._promote_preview
     _keep_preview = gui.IpodWindow._keep_preview
     _prune_preview_cache = gui.IpodWindow._prune_preview_cache
+    _forget_files = gui.IpodWindow._forget_files
     _forget_empty_preview_folders = staticmethod(
         gui.IpodWindow._forget_empty_preview_folders
     )
@@ -3355,7 +3375,10 @@ assert not new.exists(), "the preview was copied rather than moved"
 # The artist folder goes with the last file to leave it, or the cache fills up
 # with empty folders nothing will ever clear.
 assert not (preview_cache / "Nirvana").exists(), "an empty artist folder was left"
-assert kept.state == gui.STATE_LIBRARY, kept.state
+# Queued rather than merely in the library: keeping a preview with an iPod
+# attached stages it in the same press, and the state says where the file is
+# going as well as that it has left the cache.
+assert kept.state == gui.STATE_QUEUED, kept.state
 assert kept.path == str(destination), kept.path
 assert promote_window.library.previews == [], promote_window.library.previews
 assert [t.path for t in promote_window.library.tracks] == [str(destination)]
@@ -3372,6 +3395,9 @@ detached._merge_states()
 detached._promote_preview(alone)
 assert (preview_library / "Pixies" / "Debaser [pix1].mp3").is_file()
 assert detached.pending == set(), detached.pending
+# Nothing to stage it for, so it stops at the library rather than reading as
+# waiting on a sync that has no device to run against.
+assert alone.state == gui.STATE_LIBRARY, alone.state
 assert detached.toasts[-1] == f"Kept in {gui.home_relative(preview_library)}"
 
 # The same video downloaded directly on an earlier day. The library copy is

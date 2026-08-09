@@ -301,7 +301,11 @@ def track_cell(window, track, number, column, view=None, playlist=None):
         )
         action.set_sensitive(bool(window.mount_point))
     elif track.path in window.pending:
-        action.set_label("Queued")
+        # What pressing it does, rather than what the track is: the marker
+        # beside it already says "Queued", and a row carrying that word twice
+        # leaves the button reading as a label that happens to be clickable.
+        action.set_label("Unqueue")
+        action.set_tooltip_text("Take this back out of the next sync")
         action.connect("clicked", lambda _b, t=track: window._unqueue_track(t))
     else:
         action.set_label("Add")
