@@ -141,6 +141,19 @@ class QueueMixin:
             )
         )
 
+    def is_staged(self, track):
+        """Whether the queue holds this file, whatever put it there.
+
+        The question `is_queued` does not answer: that one is about a source,
+        and a song named inside a queued folder or playlist is staged without
+        being one. Asked by the deletion, which drops the path out of every
+        member set holding it and says so before it happens - a state is not
+        what to ask there, because a staged track the iPod already holds reads
+        "On iPod" and the sync still loses it.
+        """
+        path = str(getattr(track, "path", track))
+        return any(path in members for members in self.pending_sources.values())
+
     def unqueue_source(self, source):
         """Drop a source from the queue, members and all.
 

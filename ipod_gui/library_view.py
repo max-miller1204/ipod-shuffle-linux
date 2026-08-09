@@ -12,11 +12,11 @@ merge decides a track's queued state from, `current_view` and `show_view` to
 know and change what is on screen, and `_populate_device_summary`,
 `_populate_cache_card`, `_populate_folders`, `_show_playlist`,
 `_populate_playlist_rail`, `_paint_local_results` and `_queue_tracks` to
-repaint or act on what the merge changed. Deleting adds five more, from the
+repaint or act on what the merge changed. Deleting adds six more, from the
 three modules the deletion has to be undone in:
 `_device_only_track` and `_playlists_listing` from the playlist view,
-`unqueue_deleted_path` and `_source_gone` from the queue, and `_forget_files`
-from the player.
+`is_staged`, `unqueue_deleted_path` and `_source_gone` from the queue, and
+`_forget_files` from the player.
 
 The playlist shelf at the top of the library page is the playlist view's,
 built and filled there - and repainted from here when a scan finishes, because
@@ -741,9 +741,11 @@ class LibraryViewMixin:
             consequences.append(
                 "The copy on the iPod stays there until you remove it."
             )
-        # Read off the state rather than out of the queue's own bookkeeping,
-        # which is what that state is for and what the row already shows.
-        if track.state == STATE_QUEUED:
+        # Asked of the queue rather than read off the state, because what the
+        # deletion does is the queue's rule and the state answers a different
+        # question: a staged track the iPod already holds reads "On iPod", and
+        # `_forget_deleted_track` takes it out of the next sync all the same.
+        if self.is_staged(track):
             consequences.append("It is taken back out of the next sync.")
         listed = self._playlists_listing(track)
         if listed:

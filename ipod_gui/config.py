@@ -60,10 +60,11 @@ PREVIEW_CACHE_LIMIT = 512 * 1024 * 1024
 # track downloaded purely so it could be heard: it sits in the preview cache
 # rather than in a music folder, and stays there until it is added, which moves
 # it into the library and out of the cache. "queued" is the one that is not a
-# place: the file is in a music folder like any other, and what it says is that
-# the next sync will copy it. It is a state rather than a flag beside one
-# because every dot, label, pill and count in the window reads a track's state
-# and nothing else, so a second rule would have to be repeated in each of them.
+# place: the file is in a music folder like any other, or in a folder staged
+# for one sync that never became one, and what it says is that the next sync
+# will copy it. It is a state rather than a flag beside one because every dot,
+# label, pill and count in the window reads a track's state and nothing else,
+# so a second rule would have to be repeated in each of them.
 STATE_IPOD = "ipod"
 STATE_QUEUED = "queued"
 STATE_LIBRARY = "library"

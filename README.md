@@ -114,7 +114,7 @@ A coloured marker on every album and track says which of four states it is in, a
 | Dashed | Previewed only | Downloaded just so it could be heard, never added |
 
 *Previewed only* is what previewing a YouTube result produces: the file is kept in a cache outside your music folders until you add it, so hearing twenty songs does not add twenty of them to your library.
-*Queued* is not a place the file is - it sits in your music folder like any other - but a sync that is coming, so its marker is filled in the colour the storage meter shows that same change in, and ringed like a track that has already reached the device.
+*Queued* is not a place the file is - it sits in your music folder like any other, or in a folder you staged for one sync without making it one of your music folders - but a sync that is coming, so its marker is filled in the colour the storage meter shows that same change in, and ringed like a track that has already reached the device.
 
 An album counts as *On iPod* only when all of it is, because a half-synced album badged otherwise would be a lie the shuffle gives you no way to investigate.
 *Queued* follows that rule one step earlier: an album is queued when the next sync will leave all of it on the device, so one staged track out of twelve leaves the record itself *In library*.

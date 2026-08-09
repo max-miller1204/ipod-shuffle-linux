@@ -408,11 +408,34 @@ def check_queued_outside_the_library(window):
             f"a staged track the iPod already holds is in the library {len(highways)} "
             "times, once as the file waiting here and once as the copy over there"
         )
-    elif highways[0].relpath != "iPod_Control/Music/F00/ABCD.mp3":
-        failures.append(
-            "the surviving row does not carry the device's path, so Remove "
-            f"would name {highways[0].relpath!r} to the script"
-        )
+    else:
+        if highways[0].relpath != "iPod_Control/Music/F00/ABCD.mp3":
+            failures.append(
+                "the surviving row does not carry the device's path, so Remove "
+                f"would name {highways[0].relpath!r} to the script"
+            )
+        # And what deleting that row says it will cost. The song reads "On
+        # iPod" because the device holds it, so its state does not say it is
+        # staged - but the file here is what the next sync would copy, and
+        # deleting it takes that out of the queue. The dialog is asked before
+        # the one thing in this window that destroys a file of the user's, so
+        # a consequence it leaves out is one nobody was given the chance to
+        # weigh.
+        dialog = window.on_delete_track(highways[0])
+        if dialog is None:
+            failures.append(
+                "a staged track the iPod already holds was refused a delete "
+                "dialog, though its file is in a folder of the user's own"
+            )
+        else:
+            if "out of the next sync" not in dialog.get_body():
+                failures.append(
+                    "the delete dialog never says deleting a staged track "
+                    "takes it back out of the sync, which is what the "
+                    f"deletion does: {dialog.get_body()!r}"
+                )
+            dialog.emit("response", "cancel")
+            dialog.force_close()
     window.device_tracks = []
     window._merge_states()
 
