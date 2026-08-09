@@ -567,8 +567,15 @@ class DeviceViewMixin:
         _tracks, changes, queued_bytes = self._pending_accounting()
         if self.pending_sources:
             self.queued_row.set_visible(True)
+            # A size of zero is a reading that failed to be worked out rather
+            # than an amount, the same way round as the attached card: what is
+            # staged here is a playlist every song of which the device already
+            # holds, and the sync copies no bytes for it.
             self.queued_label.set_text(
                 f"{human_size(queued_bytes)} queued "
+                "— reconnect the same iPod"
+                if queued_bytes
+                else "Queued · no new tracks to copy "
                 "— reconnect the same iPod"
             )
             self.sync_button.set_label(

@@ -164,6 +164,7 @@ The library has already worked out which of your files each copy on the device w
 Copying stages nothing: the iPod is already holding this playlist, so the copy asks for no change over there.
 A song this computer cannot account for - one that reached the iPod from a machine you no longer have, or that has since been deleted here - is counted in the line above the buttons and spelled out in a confirmation before anything is written, because the copy is what a later sync writes back and the tracks it leaves out would leave the playlist on the device.
 The songs themselves stay on the iPod either way.
+While your music folders or the iPod are still being read, that count is not stated and the copy is not offered: both readings arrive a batch at a time, and a figure taken from half of one would offer a copy shorter than the playlist actually is.
 Taking such a playlist off the device is under the `⋯` beside the copy, which is where a playlist made here keeps its own **Delete**.
 
 Neither kind of playlist is sortable by column: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
@@ -758,7 +759,7 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - An import refusing a name it had chosen itself rather than moving to the next free one, so pressing Import again produced the same rejected name for as long as the file holding it sat there
 - The window looking for a playlist's spoken name under the playlist's own name, when the database files that recording under an id derived from it, so every playlist on a device that could announce all of them was labelled as having no spoken name
 - Only the playlists made in the app being offered when a song was added to one, with no way to make a playlist that arrived on the device by another route into one of those and nothing on screen saying it had been left out
-- A staged change that copies nothing - a playlist rewritten out of songs the device already holds - reported in the sidebar as `+0 B queued to sync`, which reads as a size that failed to be worked out
+- A staged change that copies nothing - a playlist rewritten out of songs the device already holds - reported in the sidebar as `+0 B queued to sync`, and as `0 B queued` once the iPod was unplugged, both of which read as a size that failed to be worked out
 - The window advertising a minimum width narrower than a playlist page can be drawn in once its rows are on the iPod, because the check only ever measured that page showing a playlist that was not
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.

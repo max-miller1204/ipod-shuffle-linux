@@ -751,6 +751,11 @@ def check_copying_a_device_playlist(window):
     ]
     window.pending = set()
     window.pending_sources = {}
+    # Both readings a copy is resolved from have landed, which is what the
+    # window is in once a scan finishes - and what the block below takes away
+    # one at a time.
+    window._library_scan_running = False
+    window._device_snapshot_ready = True
     window._merge_states()
     window.playlists = [("Road Trip", [entry, stranger])]
     window._populate_playlist_rail()
@@ -761,6 +766,54 @@ def check_copying_a_device_playlist(window):
             "the add menu left out the playlist on the iPod without saying so: "
             f"{said}"
         )
+
+    # Before any of it can be answered: this page is repainted on every batch
+    # a library scan publishes, and again from the probe with device_tracks
+    # still empty, and in both states every entry resolves to nothing. The
+    # copy is what a later sync writes back and create_local_playlist will not
+    # overwrite it, so a press taken here is a permanently short playlist on
+    # the device. The page has to refuse to answer rather than answer wrong.
+    for flag, value in (
+        ("_library_scan_running", True),
+        ("_device_snapshot_ready", False),
+    ):
+        was = getattr(window, flag)
+        setattr(window, flag, value)
+        window._select_playlist("Road Trip")
+        mid_scan = find_button(window.playlist_actions, "Copy to this computer")
+        if mid_scan is not None and mid_scan.get_sensitive():
+            failures.append(
+                f"the copy was pressable with {flag}={value}, which resolves "
+                "every entry to nothing"
+            )
+        reading = menu_text(window.playlist_voice_note)
+        if "still being read" not in reading:
+            failures.append(
+                f"the note quoted a figure with {flag}={value}: {reading}"
+            )
+        standing_mid = window.get_visible_dialog()
+        asked = window.on_copy_playlist_here("Road Trip")
+        opened = window.get_visible_dialog()
+        if asked is not None or opened is not standing_mid:
+            # The truncation is confirmed rather than silent: the dialog states
+            # a count off the half-read library, and answering it writes that
+            # count down. So the press must not get as far as asking.
+            failures.append(
+                f"a copy pressed with {flag}={value} asked "
+                f"{opened.get_body()!r} off a partial reading"
+                if isinstance(opened, Adw.AlertDialog)
+                else f"a copy pressed with {flag}={value} returned {asked!r}"
+            )
+            if isinstance(opened, Adw.AlertDialog):
+                opened.force_close()
+        written = gui.local_playlist_file(gui.PLAYLIST_LIBRARY, "Road Trip")
+        if written.exists():
+            failures.append(
+                f"a copy pressed with {flag}={value} wrote "
+                f"{gui.read_playlist_entries(written)}"
+            )
+            gui.delete_local_playlist(written)
+        setattr(window, flag, was)
 
     window._select_playlist("Road Trip")
     copy = find_button(window.playlist_actions, "Copy to this computer")
@@ -874,10 +927,28 @@ def check_copying_a_device_playlist(window):
             f"the sidebar reads {window.queued_label.get_text()!r} for a change "
             "that copies nothing"
         )
+    # The same reading once the iPod is unplugged. That queue outlives the
+    # unplug - _select_mount only discards one belonging to a different device
+    # - so the other writer of this row paints the same staged change, and it
+    # must not go back to calling a figure of zero a size.
+    window.mount_point = None
+    window.device_identity = None
+    window._populate_device_summary()
+    if "0 B" in window.queued_label.get_text():
+        failures.append(
+            f"the disconnected sidebar reads {window.queued_label.get_text()!r} "
+            "for a change that copies nothing"
+        )
+    if "reconnect the same iPod" not in window.queued_label.get_text():
+        failures.append(
+            "the disconnected sidebar stopped saying which iPod to reconnect: "
+            f"{window.queued_label.get_text()!r}"
+        )
 
     gui.delete_local_playlist(copied)
     window.mount_point = None
     window.device_identity = None
+    window._device_snapshot_ready = False
     window.playlists = []
     window.device_tracks = []
     window.library.tracks = []

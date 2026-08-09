@@ -208,7 +208,12 @@ def pump(turns=40):
 
 
 def settle(window, seconds=25):
-    """Wait for the device probe and both scans to land."""
+    """Wait for the device probe and both scans to land.
+
+    The flags rather than the first batch: library.tracks is republished in
+    batches of 25, so a non-empty library is somewhere in the middle of a scan
+    and the page refuses to quote a figure from one.
+    """
     for _ in range(int(seconds * 8)):
         pump(2)
         if (
@@ -216,6 +221,8 @@ def settle(window, seconds=25):
             and window.device_tracks
             and window.library.tracks
             and window.playlists
+            and not window._library_scan_running
+            and window._device_snapshot_ready
         ):
             pump(10)
             return True

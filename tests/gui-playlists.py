@@ -471,6 +471,11 @@ class FakeWindow:
         self.device_identity = "uuid:test-ipod" if mount_point else None
         self.busy = False
         self.discovering_sources = False
+        # Both readings a copy is worked out from have landed. The window sets
+        # these the other way round while a scan is publishing, which is what
+        # the copy refuses to quote a figure from.
+        self._library_scan_running = False
+        self._device_snapshot_ready = True
         self.source_generation = 0
         self.speech_engine_available = speech
         self.playlist_unavailable = None if speech else "No speech engine installed"
@@ -561,10 +566,12 @@ class FakeWindow:
     # The real implementations, which are the subject.
     _load_local_playlists = gui.IpodWindow._load_local_playlists
     _shown_playlists = gui.IpodWindow._shown_playlists
+    _shown_playlist = gui.IpodWindow._shown_playlist
     _local_playlist = gui.IpodWindow._local_playlist
     _playlist_on_device = gui.IpodWindow._playlist_on_device
     _playlists_only_on_device = gui.IpodWindow._playlists_only_on_device
     _entries_here_for = gui.IpodWindow._entries_here_for
+    _copy_here_offer = gui.IpodWindow._copy_here_offer
     on_copy_playlist_here = gui.IpodWindow.on_copy_playlist_here
     _on_copy_here_response = gui.IpodWindow._on_copy_here_response
     _copy_playlist_here = gui.IpodWindow._copy_playlist_here
@@ -1093,6 +1100,35 @@ assert copy_window._entries_here_for(road_trip) == ([str(first)], 1), (
     copy_window._entries_here_for(road_trip)
 )
 
+# Neither reading this is worked out from arrives all at once. A library scan
+# republishes library.tracks in batches of 25, and device_tracks is empty from
+# the moment an iPod is plugged in until the tag read over USB finishes - and
+# both repaint this page while they are still going. Every entry would then
+# resolve to nothing, so the count is an undercount and the copy taken on it
+# is a permanently short playlist the next sync writes back to the device.
+# There is no figure to give until both have landed, and no press either.
+for flag, value in (("_library_scan_running", True), ("_device_snapshot_ready", False)):
+    was = getattr(copy_window, flag)
+    setattr(copy_window, flag, value)
+    assert copy_window._entries_here_for(road_trip) is None, (
+        f"{flag}={value} still answered with a count: "
+        f"{copy_window._entries_here_for(road_trip)}"
+    )
+    offered, note, tooltip = copy_window._copy_here_offer(road_trip, None)
+    assert not offered, f"{flag}={value} still offered the copy"
+    assert "still being read" in note, note
+    assert "not known yet" in tooltip, tooltip
+    copy_window.on_copy_playlist_here("Road Trip")
+    assert not (PLAYLISTS / "Road Trip.m3u").exists(), (
+        f"a copy taken while {flag}={value} wrote a playlist anyway: "
+        f"{gui.read_playlist_entries(PLAYLISTS / 'Road Trip.m3u')}"
+    )
+    assert "Still reading" in copy_window.toasts[-1], copy_window.toasts
+    setattr(copy_window, flag, was)
+assert copy_window._entries_here_for(road_trip) == ([str(first)], 1), (
+    "the copy stayed refused once both readings had landed"
+)
+
 # Half a playlist is a decision rather than a press, because the copy becomes
 # what the next sync writes back: cancelling the question writes nothing.
 copy_window._on_copy_here_response(None, "cancel", "Road Trip", [str(first)], 1)
@@ -1144,6 +1180,45 @@ assert not (PLAYLISTS / "Only There.m3u").exists(), (
     "a playlist naming nothing on this computer was copied here anyway"
 )
 assert "None of the songs" in copy_window.toasts[-1], copy_window.toasts
+
+# An empty M3U at the volume root is a playlist with no entries at all, which
+# has nothing missing and nothing here either. The note and the button are one
+# answer rather than two, or the page invites a press it then refuses.
+copy_window.playlists = [("Nothing In It", [])]
+nothing_in_it = copy_window._shown_playlists()[-1]
+offered, note, tooltip = copy_window._copy_here_offer(
+    nothing_in_it, copy_window._entries_here_for(nothing_in_it)
+)
+assert not offered, "an empty device playlist offered a copy of nothing"
+assert "empty on the iPod" in note, note
+assert "copy it here" not in note, f"the note invited a press the button refuses: {note}"
+assert "nothing here to make a list out of" in tooltip, tooltip
+copy_window.on_copy_playlist_here("Nothing In It")
+assert not (PLAYLISTS / "Nothing In It.m3u").exists(), (
+    "an empty device playlist was copied here anyway"
+)
+assert "empty on the iPod" in copy_window.toasts[-1], copy_window.toasts
+
+# Two device playlists can carry one name: merge_with_device only keeps the
+# local names apart, and a volume root holding "Twin.m3u" and "Twin.pls" is
+# two rows keyed on the same stem. The page reads the first, so the press has
+# to read the first, or the copy writes the other list's entries.
+copy_window.playlists = [
+    ("Twin", ["Artist/Lithium.mp3"]),
+    ("Twin", ["Artist/Elsewhere.mp3"]),
+]
+twins = [p for p in copy_window._shown_playlists() if p.name == "Twin"]
+assert len(twins) == 2, f"one name did not produce two shown playlists: {twins}"
+assert copy_window._shown_playlist("Twin").entries == twins[0].entries, (
+    "the page and the press picked different playlists of one name: "
+    f"{copy_window._shown_playlist('Twin').entries} against {twins[0].entries}"
+)
+copy_window.on_copy_playlist_here("Twin")
+assert gui.read_playlist_entries(PLAYLISTS / "Twin.m3u") == [str(first)], (
+    gui.read_playlist_entries(PLAYLISTS / "Twin.m3u")
+)
+gui.delete_local_playlist(PLAYLISTS / "Twin.m3u")
+copy_window._load_local_playlists()
 
 # The menu names what it is leaving out rather than counting it, because the
 # reader is looking for one playlist in particular - but a device holding
