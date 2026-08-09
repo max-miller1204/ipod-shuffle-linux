@@ -28,6 +28,11 @@ _SANDBOX = tempfile.mkdtemp(prefix="ipod-gui-build-")
 os.environ["HOME"] = _SANDBOX
 os.environ["XDG_CACHE_HOME"] = str(Path(_SANDBOX, "cache"))
 os.environ["XDG_CONFIG_HOME"] = str(Path(_SANDBOX, "config"))
+# The wastebasket the delete check reads is the home trash, and GIO takes that
+# from the data dir rather than from HOME: with XDG_DATA_HOME exported - it is
+# not on the CI runner, so only a developer machine would see it - a deleted
+# fixture would land in the real one.
+os.environ["XDG_DATA_HOME"] = str(Path(_SANDBOX, ".local/share"))
 Path(_SANDBOX, "Music").mkdir(parents=True, exist_ok=True)
 
 from harness import gui  # noqa: E402
