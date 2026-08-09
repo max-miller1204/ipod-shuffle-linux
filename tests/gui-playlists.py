@@ -570,6 +570,7 @@ class FakeWindow:
     _local_playlist = gui.IpodWindow._local_playlist
     _playlist_on_device = gui.IpodWindow._playlist_on_device
     _playlists_only_on_device = gui.IpodWindow._playlists_only_on_device
+    _still_reading = gui.IpodWindow._still_reading
     _entries_here_for = gui.IpodWindow._entries_here_for
     _copy_here_offer = gui.IpodWindow._copy_here_offer
     on_copy_playlist_here = gui.IpodWindow.on_copy_playlist_here
@@ -1106,8 +1107,15 @@ assert copy_window._entries_here_for(road_trip) == ([str(first)], 1), (
 # both repaint this page while they are still going. Every entry would then
 # resolve to nothing, so the count is an undercount and the copy taken on it
 # is a permanently short playlist the next sync writes back to the device.
-# There is no figure to give until both have landed, and no press either.
-for flag, value in (("_library_scan_running", True), ("_device_snapshot_ready", False)):
+# There is no figure to give until both have landed, and no press either -
+# and each of the two says which one it is waiting for, because they are not
+# the same wait: a plug-in with a fully scanned library waits only on the
+# tag read over USB, and telling that user their music folders are being read
+# is answering wrong in a quieter way.
+for flag, value, named in (
+    ("_library_scan_running", True, "your music folders"),
+    ("_device_snapshot_ready", False, "the tracks on the iPod"),
+):
     was = getattr(copy_window, flag)
     setattr(copy_window, flag, value)
     assert copy_window._entries_here_for(road_trip) is None, (
@@ -1116,14 +1124,16 @@ for flag, value in (("_library_scan_running", True), ("_device_snapshot_ready", 
     )
     offered, note, tooltip = copy_window._copy_here_offer(road_trip, None)
     assert not offered, f"{flag}={value} still offered the copy"
-    assert "still being read" in note, note
-    assert "not known yet" in tooltip, tooltip
+    assert f"still reading {named}" in note, f"{flag}={value} note: {note}"
+    assert named in tooltip and "not known yet" in tooltip, (
+        f"{flag}={value} tooltip: {tooltip}"
+    )
     copy_window.on_copy_playlist_here("Road Trip")
     assert not (PLAYLISTS / "Road Trip.m3u").exists(), (
         f"a copy taken while {flag}={value} wrote a playlist anyway: "
         f"{gui.read_playlist_entries(PLAYLISTS / 'Road Trip.m3u')}"
     )
-    assert "Still reading" in copy_window.toasts[-1], copy_window.toasts
+    assert named in copy_window.toasts[-1], copy_window.toasts
     setattr(copy_window, flag, was)
 assert copy_window._entries_here_for(road_trip) == ([str(first)], 1), (
     "the copy stayed refused once both readings had landed"

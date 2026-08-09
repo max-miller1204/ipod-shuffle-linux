@@ -773,9 +773,12 @@ def check_copying_a_device_playlist(window):
     # copy is what a later sync writes back and create_local_playlist will not
     # overwrite it, so a press taken here is a permanently short playlist on
     # the device. The page has to refuse to answer rather than answer wrong.
-    for flag, value in (
-        ("_library_scan_running", True),
-        ("_device_snapshot_ready", False),
+    # Each of the two names the reading it is actually waiting for: they are
+    # not the same wait, and a plug-in with a fully scanned library waits only
+    # on the second.
+    for flag, value, named in (
+        ("_library_scan_running", True, "your music folders"),
+        ("_device_snapshot_ready", False, "the tracks on the iPod"),
     ):
         was = getattr(window, flag)
         setattr(window, flag, value)
@@ -787,9 +790,10 @@ def check_copying_a_device_playlist(window):
                 "every entry to nothing"
             )
         reading = menu_text(window.playlist_voice_note)
-        if "still being read" not in reading:
+        if f"still reading {named}" not in reading:
             failures.append(
-                f"the note quoted a figure with {flag}={value}: {reading}"
+                f"with {flag}={value} the note reads {reading!r} rather than "
+                f"naming {named!r} as what it is waiting for"
             )
         standing_mid = window.get_visible_dialog()
         asked = window.on_copy_playlist_here("Road Trip")

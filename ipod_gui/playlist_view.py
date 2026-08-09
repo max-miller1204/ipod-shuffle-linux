@@ -137,6 +137,26 @@ class PlaylistViewMixin:
             if not playlist.editable
         ]
 
+    def _still_reading(self):
+        """Which of the two readings a copy is worked out from is outstanding.
+
+        Named rather than merely counted, because the page says while refusing
+        what it is waiting for, and the two waits are not the same wait: the
+        library scan is this computer's music folders, while the device
+        snapshot is the tag read over USB that every plug-in starts and a
+        failed read leaves undone. Telling someone with a fully scanned
+        library that their music folders are being read is answering wrong in
+        a quieter way.
+
+        None once both have landed, which is the only state a figure is given
+        in.
+        """
+        if self._library_scan_running:
+            return "your music folders"
+        if not self._device_snapshot_ready:
+            return "the tracks on the iPod"
+        return None
+
     def _entries_here_for(self, playlist):
         """A device playlist's entries as files this computer holds.
 
@@ -165,7 +185,7 @@ class PlaylistViewMixin:
         the next sync puts back on the device, and `create_local_playlist`
         will not overwrite it afterwards.
         """
-        if self._library_scan_running or not self._device_snapshot_ready:
+        if self._still_reading() is not None:
             return None
         here = {}
         for track in (*self.library.tracks, *self.library.queued_only):
@@ -193,11 +213,12 @@ class PlaylistViewMixin:
         `resolved` is what `_entries_here_for` answered, None included.
         """
         if resolved is None:
+            reading = self._still_reading()
             return (
                 False,
-                "only on the iPod, and your music folders are still being read",
-                "Still reading your music folders, so what a copy would carry "
-                "is not known yet",
+                f"only on the iPod · still reading {reading}",
+                f"Still reading {reading}, so what a copy would carry is not "
+                "known yet",
             )
         if not playlist.entries:
             return (
@@ -1455,8 +1476,9 @@ class PlaylistViewMixin:
         which is what its own dialog says before it does it.
 
         Refused outright while either reading it would be worked out from is
-        still going on, because a count from a half-read library is an
-        undercount and this file is not offered twice.
+        still going on, and says which of the two it is waiting for, because a
+        count from a half-read library is an undercount and this file is not
+        offered twice.
         """
         playlist = self._shown_playlist(name)
         if playlist is None or playlist.editable:
@@ -1464,7 +1486,8 @@ class PlaylistViewMixin:
         resolved = self._entries_here_for(playlist)
         if resolved is None:
             self._toast(
-                f"Still reading your music folders · try {name} again in a moment"
+                f"Still reading {self._still_reading()} · try {name} again "
+                "in a moment"
             )
             return None
         here, missing = resolved

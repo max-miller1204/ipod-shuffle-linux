@@ -78,7 +78,14 @@ class DeviceViewMixin:
         queued_swatch.add_css_class("sf-dot")
         queued_swatch.add_css_class("ipod")
         self.queued_row.append(queued_swatch)
-        self.queued_label = label("", "sf-caption", "sf-accent")
+        # Wrapped rather than ellipsised, and rather than held to sentences
+        # short enough to fit: this card sits in a sidebar pinned to 236px, of
+        # which about 178px reach this label, and every sentence written here
+        # is longer than that - the queued size beside the iPod to reconnect,
+        # what a scan is checking, why a staged change copies nothing. An
+        # ellipsis would cut whichever half came second, and the second half
+        # is the one saying what to do about it.
+        self.queued_label = label("", "sf-caption", "sf-accent", wrap=True)
         self.queued_row.append(self.queued_label)
         self.queued_row.set_visible(False)
         inner.append(self.queued_row)
@@ -575,8 +582,7 @@ class DeviceViewMixin:
                 f"{human_size(queued_bytes)} queued "
                 "— reconnect the same iPod"
                 if queued_bytes
-                else "Queued · no new tracks to copy "
-                "— reconnect the same iPod"
+                else "No new tracks to copy — reconnect the same iPod"
             )
             self.sync_button.set_label(
                 f"Sync {plural(changes, 'change')}"
