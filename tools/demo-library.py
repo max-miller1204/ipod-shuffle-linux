@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Builds the demo library `docs/screenshot.png` is taken against.
 
-That shot shows a library nobody has: four albums with cover art the app
-generates itself, a playlist that has reached the device and one that has not -
+That shot shows a library nobody has: four albums with cover art embedded in
+their tracks, a playlist that has reached the device and one that has not -
 each wearing the first cover its own songs carry - and an iPod called MAX
-SHUFFLE. The library used to be built by hand in a
-temporary directory, which is why the screenshot went stale and could not
-simply be retaken - the directory was gone and nothing recorded what had been
-in it.
+SHUFFLE. The library used to be built by hand in a temporary directory, which
+is why the screenshot went stale and could not simply be retaken - the
+directory was gone and nothing recorded what had been in it.
 
 So it is built here instead. Everything the window shows is real: the tracks
 are real MP3s with real tags, the device is a stand-in volume that

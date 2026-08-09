@@ -258,6 +258,29 @@ def check_queued_state(window):
         )
     window.mode_buttons["grid"].set_active(True)
 
+    # The album page's own button, which stages a whole record in one press.
+    # What it would stage is what is neither on the device nor already on its
+    # way there, so a record the next sync will copy whole has nothing left to
+    # offer: a "Queue 1 track" over rows that all read Queued is a button whose
+    # only answer is that there was nothing to do. Read against a device,
+    # because queueing is only offered when one is attached.
+    window.mount_point = "/media/alex/iPod"
+    albums = {album.title: album for album in window.library.albums()}
+    window._show_album(albums["Going"])
+    if find_button(window.album_actions, "Queue 1 track") is not None:
+        failures.append(
+            "an album already staged whole still offered to queue it: "
+            f"{menu_text(window.album_actions)}"
+        )
+    window._show_album(albums["Staying"])
+    if find_button(window.album_actions, "Queue 1 track") is None:
+        failures.append(
+            "an album with a track still to stage was offered no way to queue "
+            f"it: {menu_text(window.album_actions)}"
+        )
+    window.mount_point = None
+    window.show_view("library")
+
     # Unqueue, pressed with no iPod attached. The queue outlives an unplug and
     # the row keeps offering this, so the repaint that follows has to be the
     # one for a device that is not there: painting the connected summary read

@@ -1,0 +1,70 @@
+{
+  "library tracks": 6,
+  "device tracks": 2,
+  "mount point": "/tmp/shuffle-demo/MAX SHUFFLE",
+  "playlists": [
+    "Downloads",
+    "Morning Ride",
+    "Morning Ride"
+  ],
+  "playlist covers": {
+    "Downloads": "/tmp/shuffle-demo/home/.cache/ipod-shuffle-linux/art/3ad2d8c962b20efcfb90bffddc849f233e9868cd.img",
+    "Morning Ride": "/tmp/shuffle-demo/home/.cache/ipod-shuffle-linux/art/2a021680ad5c89eafbf1e1f3d9a3ee6b17767d1e.img"
+  },
+  "pills before queueing": {
+    "all": "All 6",
+    "ipod": "On iPod 2",
+    "queued": "Queued 0",
+    "library": "In library 4",
+    "preview": "Previewed 0"
+  },
+  "row buttons before queueing": [
+    "Add"
+  ],
+  "queued track state": "queued",
+  "queue": [
+    "/tmp/shuffle-demo/home/Music/Kova/Nightbus/01 - Last Stop.mp3"
+  ],
+  "pills after queueing": {
+    "all": "All 6",
+    "ipod": "On iPod 2",
+    "queued": "Queued 1",
+    "library": "In library 3",
+    "preview": "Previewed 0"
+  },
+  "row buttons after queueing": [
+    "Unqueue"
+  ],
+  "unqueue tooltip": "Take this back out of the next sync",
+  "track menu": [
+    "ADD TO PLAYLIST",
+    "Downloads",
+    "\u2713",
+    "Morning Ride",
+    "\uff0b  New playlist\u2026",
+    "Delete from library\u2026"
+  ],
+  "menu hosted": "popover surface unmapped under broadway; contents hosted",
+  "dialog heading": "Delete this song?",
+  "dialog body": "Last Stop \u00b7 Kova\n~/Music/Kova/Nightbus/01 - Last Stop.mp3\n\nThe file is moved to your wastebasket. It is taken back out of the next sync. It stays listed in 1 playlist, where the row will name a file that is no longer there.",
+  "file before delete": true,
+  "file after delete": false,
+  "wastebasket": [
+    "01 - Last Stop.mp3"
+  ],
+  "library titles after delete": [
+    "Coastal Road",
+    "Low Sun",
+    "Paper Boats",
+    "Ridge Line",
+    "Slow Copper"
+  ],
+  "queue after delete": [],
+  "pills after delete": {
+    "all": "All 5",
+    "ipod": "On iPod 2",
+    "queued": "Queued 0",
+    "library": "In library 3",
+    "preview": "Previewed 0"
+  }
+}
