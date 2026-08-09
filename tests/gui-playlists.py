@@ -1201,7 +1201,9 @@ offered, note, tooltip = copy_window._copy_here_offer(
 )
 assert not offered, "an empty device playlist offered a copy of nothing"
 assert "empty on the iPod" in note, note
-assert "copy it here" not in note, f"the note invited a press the button refuses: {note}"
+assert "copy it here" not in note, (
+    f"the note invited a press the button refuses: {note}"
+)
 assert "nothing here to make a list out of" in tooltip, tooltip
 copy_window.on_copy_playlist_here("Nothing In It")
 assert not (PLAYLISTS / "Nothing In It.m3u").exists(), (
