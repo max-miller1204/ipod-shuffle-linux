@@ -68,7 +68,7 @@ class SearchViewMixin:
         )
         self.search_entry.add_css_class("sf-search")
         # A natural width rather than a hard floor. set_size_request pinned the
-        # field at 260px in a header the window promises can reach 640px wide,
+        # field at 260px in a header the window promises can reach 660px wide,
         # which made the content's real minimum wider than the window's own and
         # left GTK painting widgets outside the space it had allocated them.
         self.search_entry.set_width_chars(8)

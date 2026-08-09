@@ -371,7 +371,7 @@ class IpodWindow(
         children out in a way this row cannot use, for the reason recorded
         below where the controls are added.
 
-        Everything in it is allowed to shrink. The window offers a 640px
+        Everything in it is allowed to shrink. The window offers a 660px
         minimum, and a header that cannot go that narrow makes the whole window
         narrower than its own contents, which GTK resolves by allocating
         widgets somewhere other than where it paints them - clicks then land
