@@ -876,6 +876,8 @@ def check_copying_a_device_playlist(window):
         )
 
     gui.delete_local_playlist(copied)
+    window.mount_point = None
+    window.device_identity = None
     window.playlists = []
     window.device_tracks = []
     window.library.tracks = []

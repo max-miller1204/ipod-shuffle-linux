@@ -488,8 +488,14 @@ class PlaylistViewMixin:
             return
 
         self.playlist_heading.set_text(playlist.name)
-        self._fill_playlist_note(playlist)
-        self._fill_playlist_actions(playlist)
+        # The note and the Copy button ask the library the same question about
+        # a device playlist, and this page is repainted on every batch a
+        # library scan publishes, so it is asked once for the pair.
+        here, missing = (
+            ([], 0) if playlist.editable else self._entries_here_for(playlist)
+        )
+        self._fill_playlist_note(playlist, missing)
+        self._fill_playlist_actions(playlist, here)
 
         tracks = self._playlist_tracks(playlist)
         fill_tracks(self.playlist_tracks, tracks)
@@ -503,7 +509,7 @@ class PlaylistViewMixin:
                 "device still holds."
             )
 
-    def _fill_playlist_note(self, playlist):
+    def _fill_playlist_note(self, playlist, missing_here):
         clear_children(self.playlist_voice_note)
 
         state = self._playlist_state(playlist)
@@ -531,16 +537,15 @@ class PlaylistViewMixin:
         # where it would be a third thing in a row that has to fit the window's
         # minimum width - this line wraps, and that row does not.
         if not playlist.editable:
-            _here, missing = self._entries_here_for(playlist)
             parts.append(
                 "only on the iPod until you copy it here"
-                if not missing
+                if not missing_here
                 else "only on the iPod, with "
-                f"{plural(missing, 'track')} this computer does not have"
+                f"{plural(missing_here, 'track')} this computer does not have"
             )
         self.playlist_voice_note.append(label(" · ".join(parts), "sf-body", wrap=True))
 
-    def _fill_playlist_actions(self, playlist):
+    def _fill_playlist_actions(self, playlist, entries_here):
         """The two things a playlist is for, and a menu holding the rest.
 
         Two buttons rather than four: a row of four set a minimum width the
@@ -583,18 +588,17 @@ class PlaylistViewMixin:
             # The copy leads the row because everything this page cannot offer
             # - adding songs, reordering, being one of the playlists a track's
             # ⋯ lists - is on the other side of it.
-            here, _missing = self._entries_here_for(playlist)
             action(
                 "Copy to this computer",
                 lambda: self.on_copy_playlist_here(playlist.name),
                 "accent",
                 tooltip=(
                     "Make this a playlist you can edit and add songs to"
-                    if here
+                    if entries_here
                     else "None of the songs in this playlist are on this "
                     "computer, so there is nothing here to make a list out of"
                 ),
-                sensitive=bool(here),
+                sensitive=bool(entries_here),
             )
             more_menu()
             return
