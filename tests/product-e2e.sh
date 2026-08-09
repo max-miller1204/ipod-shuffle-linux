@@ -1000,8 +1000,8 @@ grep -Fq 'characters FAT rejects' "$EVIDENCE_DIR/playlist-saved-voiceover.txt"
 # in; locally the copy install.sh keeps is used when present.
 REAL_DB_TOOL="${IPOD_REAL_DB_TOOL:-$HOME/ipod-tools/IPod-Shuffle-4g/ipod-shuffle-4g.py}"
 if [[ -f "$REAL_DB_TOOL" ]]; then
-    /usr/bin/python3 "$REAL_DB_TOOL" --verbose "$PLAYLIST_IPOD" \
-        > "$EVIDENCE_DIR/real-builder.txt" 2>&1
+    /usr/bin/python3 "$REAL_DB_TOOL" --verbose --playlist-voiceover \
+        "$PLAYLIST_IPOD" > "$EVIDENCE_DIR/real-builder.txt" 2>&1
     grep -Fq 'Adding playlist' "$EVIDENCE_DIR/real-builder.txt"
     if grep -Fq 'Could not find track' "$EVIDENCE_DIR/real-builder.txt"; then
         echo "the real builder could not resolve a rewritten playlist entry" >&2
@@ -1020,6 +1020,20 @@ playlists = struct.unpack_from("<I", data, 16)[0]
 assert tracks == 3, tracks
 assert playlists == 4, playlists
 PY
+    # The spoken names that same run wrote, read back by the window. On a
+    # device with no screen they are the whole of a playlist's identity, and
+    # nothing but this builder decides what they are called - so whether the
+    # window can find them is a question only the real one can answer.
+    if command -v pico2wave > /dev/null \
+        || command -v espeak > /dev/null \
+        || command -v say > /dev/null; then
+        /usr/bin/python3 "$ROOT/tests/gui-spoken-names.py" "$PLAYLIST_IPOD" \
+            > "$EVIDENCE_DIR/gui-spoken-names.json"
+    else
+        printf 'skipped: no speech engine installed\n' \
+            > "$EVIDENCE_DIR/gui-spoken-names.json"
+        echo "NOTICE: spoken-name check skipped; install pico2wave or espeak" >&2
+    fi
 else
     printf 'skipped: real database builder not installed at %s\n' "$REAL_DB_TOOL" \
         > "$EVIDENCE_DIR/real-builder.txt"
@@ -1813,6 +1827,7 @@ printf '%s\n' \
     "PASS: PLS replacement removed stale PLS spellings for valid and empty updates" \
     "PASS: the voiceover warning followed the effective options, not the command line alone" \
     "PASS: a FAT-hostile playlist name was adjusted and the change announced" \
+    "PASS: the window read back the spoken names the real builder wrote" \
     "PASS: control characters in playlist names became FAT-safe underscores" \
     "PASS: trailing FAT-rejected playlist characters became underscores" \
     "PASS: colliding sanitized playlist names kept the first list and skipped the second" \

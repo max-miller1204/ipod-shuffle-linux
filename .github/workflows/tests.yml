@@ -22,12 +22,14 @@ jobs:
       # building PyGObject from pip would need the gobject-introspection and
       # cairo development headers. xvfb is for the one check that does build a
       # window: GTK4 has no headless backend, so it needs a display server
-      # rather than an environment variable.
+      # rather than an environment variable. espeak is a speech engine, without
+      # which the database builder writes no spoken playlist names and the
+      # check that the window can read them back skips itself.
       - name: Install test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck xvfb
+            python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck xvfb espeak
 
       - name: Shell lint
         run: shellcheck -x ./*.sh tests/product-e2e.sh

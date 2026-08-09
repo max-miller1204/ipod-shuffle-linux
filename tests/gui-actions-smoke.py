@@ -1006,9 +1006,14 @@ assert parsed == [
 (fake_volume / "iPod_Control" / "Music" / "F00").mkdir(parents=True)
 (fake_volume / "iPod_Control" / "Music" / "F00" / "AAAA.mp3").write_text("song")
 (fake_volume / "iPod_Control" / "Speakable" / "Playlists").mkdir(parents=True)
-(fake_volume / "iPod_Control" / "Speakable" / "Playlists" / "Party.wav").write_text(
-    "spoken"
-)
+# The name the database gives the recording of "Party", written out as the
+# device tool writes it rather than asked for from the code being tested: a
+# WAV named after the playlist is what this used to look for, and it is a file
+# the firmware never reads. "Radio" is left without one, so the probe has to
+# tell the two apart rather than answering the same for both.
+(
+    fake_volume / "iPod_Control" / "Speakable" / "Playlists" / "4ff4323b3d174a09.wav"
+).write_text("spoken")
 original_find_ipods = gui.find_ipods
 gui.find_ipods = lambda: [str(fake_volume)]
 try:
@@ -2426,7 +2431,7 @@ gui.find_ipods = lambda: [serialized_run.mount_point]
 gui.volume_identity = lambda _mount: serialized_run.device_identity
 gui.saved_sync_options = lambda _mount: (0, [], False, False)
 gui.list_playlists = lambda _mount: []
-gui.spoken_playlists = lambda _mount: set()
+gui.spoken_playlists = lambda _mount, _names: set()
 gui.count_tracks = blocking_count
 gui.resolve_device = lambda mount, identity, require_block=False: gui.DeviceHandle(
     mount, identity, "/dev/sdz"
