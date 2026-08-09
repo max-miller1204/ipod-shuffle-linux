@@ -446,6 +446,7 @@ class FakeLibrary:
         self.tracks = []
         self.device_only = []
         self.previews = []
+        self.queued_only = []
 
     all_tracks = gui.LibraryIndex.all_tracks
 

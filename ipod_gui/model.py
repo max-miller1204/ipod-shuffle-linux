@@ -2,7 +2,6 @@
 
 import re
 import urllib.parse
-import urllib.request
 from pathlib import Path
 
 from .config import (
@@ -212,11 +211,18 @@ class LibraryIndex:
         # and the cache are rescanned independently and neither may drop the
         # other's tracks when it finishes.
         self.previews = []
+        # Tracks staged for the next sync that no music folder holds. A folder
+        # chosen with the header's "Add music folder…" is queued without being
+        # added to the roots - that is Device & Settings' own button - so the
+        # only thing here that knows those files exist is the queue. They are a
+        # fourth list for the same reason the previews are a third: a rescan
+        # replaces `tracks` wholesale, and the queue outlives every one of them.
+        self.queued_only = []
         self.roots = music_roots()
         self.generation = 0
 
     def all_tracks(self):
-        return self.tracks + self.device_only + self.previews
+        return self.tracks + self.queued_only + self.device_only + self.previews
 
     def albums(self):
         grouped = {}

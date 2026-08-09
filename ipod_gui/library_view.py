@@ -546,6 +546,11 @@ class LibraryViewMixin:
         what every marker, pill and count in the window is drawn from: worked
         out again beside each of them, the queue would be a rule four views
         had to agree on rather than one this function already runs.
+
+        And a staged track that no music folder holds is built here as well,
+        because this is the only place that would: the scan reads the roots,
+        and a folder chosen with "Add music folder…" is queued without becoming
+        one. The grid gets it from the queue or not at all.
         """
         on_device = {}
         for track in self.device_tracks:
@@ -574,8 +579,13 @@ class LibraryViewMixin:
                 track.on_ipod = False
 
         pending_index = dict(self._library_by_path)
+        queued_only = []
         records = getattr(self, "pending_records", {})
-        for path in queued:
+        # Sorted rather than taken in whatever order the set iterates, because
+        # these tracks are rows now: two staged copies of one song claim the
+        # device's copy in a fixed order, so a repaint that changed nothing
+        # cannot swap which of them reads "On iPod".
+        for path in sorted(queued):
             if path in pending_index or Path(path).suffix.lower() not in AUDIO_EXTENSIONS:
                 continue
             record = dict(records.get(path, {}))
@@ -593,8 +603,19 @@ class LibraryViewMixin:
                 track.state = STATE_IPOD
                 track.on_ipod = True
                 track.relpath = device_track.relpath
+                # Claimed, the way a library track claims one. Left unclaimed
+                # the device's copy would also stand alone below, and the grid
+                # would carry the same song twice - once as the file waiting
+                # here and once as the copy already over there.
+                matched.add(id(device_track))
             pending_index[path] = track
+            queued_only.append(track)
         self._pending_track_index = pending_index
+        # The library the grid draws is what the sync is about to act on, so
+        # these belong in it: without them the Queued pill reads 0 beside a
+        # sidebar saying "+120 MB queued to sync" and a button offering to sync
+        # 30 changes, and the staged tracks are in no view at all.
+        self.library.queued_only = queued_only
 
         # Device tracks with no local counterpart still belong in the grid, or
         # music copied from another machine would simply not appear. Held
