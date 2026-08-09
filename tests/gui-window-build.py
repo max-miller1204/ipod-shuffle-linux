@@ -202,6 +202,16 @@ def library_track(path, title, album, state=None):
     )
 
 
+def album_queue_buttons(window):
+    """What the album page is offering to stage, in its own words."""
+    return [
+        found
+        for found in walk(window.album_actions)
+        if isinstance(found, Gtk.Button)
+        and (found.get_label() or "").startswith("Queue ")
+    ]
+
+
 def check_queued_state(window):
     """The fourth state, from the merge that decides it to the pill.
 
@@ -295,6 +305,282 @@ def check_queued_state(window):
         failures.append(f"Unqueue left the track staged: {window.pending}")
     if staged.state != gui.STATE_LIBRARY:
         failures.append(f"an unqueued track stayed {staged.state!r}")
+
+
+def check_queued_outside_the_library(window):
+    """A folder staged for sync that no music folder holds.
+
+    The header's "Add music folder…" queues a folder without making it a music
+    root - that is Device & Settings' own button, and a different one - so
+    nothing scans those files and the queue is the only part of the window that
+    knows they exist. Left out of the library the grid is drawn from, they were
+    counted in the sidebar and named on the Sync button while every pill above
+    the grid read zero of them and no view in the app would show one.
+
+    So the two counts are read against each other here rather than each on its
+    own: what the Sync button offers to copy and what the Queued pill says is
+    staged are the same tracks, and a check of either alone is what let them
+    disagree. Real files, because the merge stats what it stages for its size,
+    and the sidebar's byte total is one of the figures being agreed with.
+    """
+    staged_dir = Path(_SANDBOX, "Elsewhere", "Road Trip")
+    staged_dir.mkdir(parents=True, exist_ok=True)
+    staged = []
+    for number, title in enumerate(("Highway", "Detour"), start=1):
+        path = staged_dir / f"{number:02d} - {title}.mp3"
+        path.write_bytes(b"a staged song" * (40 * number))
+        staged.append(str(path))
+
+    held = library_track(str(Path(_SANDBOX, "Music", "Kept.mp3")), "Kept", "Kept Album")
+    window.library.tracks = [held]
+    window._library_scan_tracks = {held.path: held}
+    window.pending = set(staged)
+    window.pending_sources = {str(staged_dir): set(staged)}
+    window.pending_records = {
+        path: {
+            "title": Path(path).stem.split(" - ")[1],
+            "artist": "Low Ferry",
+            "album": "Road Trip",
+        }
+        for path in staged
+    }
+    window.mount_point = "/media/alex/iPod"
+    window.device_identity = "fixture-ipod"
+    window.device_tracks = []
+    window._merge_states()
+    window._populate_albums()
+    window._populate_device_summary()
+
+    if window.sync_button.get_label() != "Sync 2 changes":
+        failures.append(
+            f"the Sync button reads {window.sync_button.get_label()!r} with two "
+            "tracks staged, so the counts below are being read against nothing"
+        )
+    if not window.queued_row.get_visible():
+        failures.append("the sidebar never said a staged folder was queued")
+    elif window.queued_label.get_text() != "+1.5 KB queued to sync":
+        # 520 bytes and 1040, the two files written above. Read rather than
+        # taken on trust from the row being visible, which says only that
+        # something is staged and would say it just as readily of nothing:
+        # the size is what the merge stats each staged file for, and a stat
+        # that failed would leave the row up saying "+0 B queued to sync".
+        failures.append(
+            f"the sidebar reads {window.queued_label.get_text()!r} beside "
+            "1560 bytes of staged files, so the size the merge stages is not "
+            "the size the sidebar is agreeing with"
+        )
+
+    # The grid counts records, and the two staged tracks are one of them.
+    if pill_text(window, gui.STATE_QUEUED) != "Queued 1":
+        failures.append(
+            f"the grid's Queued pill reads {pill_text(window, gui.STATE_QUEUED)!r} "
+            "with a staged folder no music folder holds"
+        )
+    if pill_text(window, "all") != "All 2":
+        failures.append(
+            f"the All pill reads {pill_text(window, 'all')!r}, leaving the staged "
+            "record out of the library it says is all of it"
+        )
+    window.album_filters[gui.STATE_QUEUED].set_active(True)
+    if len(album_cards(window)) != 1:
+        failures.append(
+            f"the Queued filter left {len(album_cards(window))} albums in the "
+            "grid, not the staged one it had just counted"
+        )
+    window.album_filters["all"].set_active(True)
+
+    # The table counts tracks, and that is the count the Sync button carries.
+    window.mode_buttons["list"].set_active(True)
+    if pill_text(window, gui.STATE_QUEUED) != "Queued 2":
+        failures.append(
+            f"the table's Queued pill reads {pill_text(window, gui.STATE_QUEUED)!r} "
+            f"beside a button offering {window.sync_button.get_label()!r}"
+        )
+    if pill_text(window, "all") != "All 3":
+        failures.append(f"the table's All pill reads {pill_text(window, 'all')!r}")
+    window.mode_buttons["grid"].set_active(True)
+
+    # A staged track the iPod already holds is one song, and the grid has to
+    # say so once. The copy over there is what the file here would become, so
+    # the row is the device's - which is the row that can be removed from it.
+    window.device_tracks = [
+        gui.Track(
+            "/media/alex/iPod/iPod_Control/Music/F00/ABCD.mp3",
+            {"title": "Highway", "artist": "Low Ferry", "album": "Road Trip"},
+            gui.STATE_IPOD,
+            relpath="iPod_Control/Music/F00/ABCD.mp3",
+        )
+    ]
+    window._merge_states()
+    highways = [t for t in window.library.all_tracks() if t.title == "Highway"]
+    if len(highways) != 1:
+        failures.append(
+            f"a staged track the iPod already holds is in the library {len(highways)} "
+            "times, once as the file waiting here and once as the copy over there"
+        )
+    else:
+        if highways[0].relpath != "iPod_Control/Music/F00/ABCD.mp3":
+            failures.append(
+                "the surviving row does not carry the device's path, so Remove "
+                f"would name {highways[0].relpath!r} to the script"
+            )
+        # And what deleting that row says it will cost. The song reads "On
+        # iPod" because the device holds it, so its state does not say it is
+        # staged - but the file here is what the next sync would copy, and
+        # deleting it takes that out of the queue. The dialog is asked before
+        # the one thing in this window that destroys a file of the user's, so
+        # a consequence it leaves out is one nobody was given the chance to
+        # weigh.
+        dialog = window.on_delete_track(highways[0])
+        if dialog is None:
+            failures.append(
+                "a staged track the iPod already holds was refused a delete "
+                "dialog, though its file is in a folder of the user's own"
+            )
+        else:
+            if "out of the next sync" not in dialog.get_body():
+                failures.append(
+                    "the delete dialog never says deleting a staged track "
+                    "takes it back out of the sync, which is what the "
+                    f"deletion does: {dialog.get_body()!r}"
+                )
+            dialog.emit("response", "cancel")
+            dialog.force_close()
+    window.device_tracks = []
+    window._merge_states()
+
+    # Unqueueing takes the whole folder back out, and with it the only reason
+    # any of those tracks was in the window at all.
+    window._unqueue_track(window.library.queued_only[0])
+    if window.library.queued_only:
+        failures.append(
+            "an unqueued folder left its tracks in the library, where nothing "
+            f"can now take them out: {[t.path for t in window.library.queued_only]}"
+        )
+
+    # And what the sync itself leaves behind. It clears the queue by hand, so a
+    # reset that forgot this list would leave the grid showing tracks as queued
+    # for a sync that had already copied them.
+    window.pending = set(staged)
+    window.pending_sources = {str(staged_dir): set(staged)}
+    window._merge_states()
+    window._clear_pending()
+    if window.library.queued_only:
+        failures.append(
+            "the tracks a finished sync copied are still in the library as "
+            f"queued: {[t.path for t in window.library.queued_only]}"
+        )
+    if window._pending_track_index != {held.path: held}:
+        failures.append(
+            "a finished sync left the queue's own index holding tracks nothing "
+            f"stages any more: {sorted(window._pending_track_index)}"
+        )
+
+    window.mount_point = None
+    window.device_identity = None
+    window.library.tracks = []
+    window._library_scan_tracks = {}
+    window._merge_states()
+    window._populate_albums()
+
+
+def check_album_bulk_queue_leaves_previews(window):
+    """The album page's "Queue N tracks", over a record holding a preview.
+
+    A previewed download sits in the cache the pruner empties and in no music
+    folder, so it is not yet a file the sync can be pointed at: keeping it is
+    what moves it into one, and that is the row's own Add. This button stages
+    what it is handed, straight to the queue, so a preview left in its list
+    would be staged out of the cache - and the merge builds a track for every
+    staged path no music folder holds, which would then draw the same download
+    twice over: once "Previewed only" offering Add, once "Queued" offering
+    Unqueue, counted twice by every pill above them.
+
+    Driven through the real button rather than the filter behind it, because
+    what is wrong in that case is what the page offers to do.
+    """
+    preview_path = Path(gui.PREVIEW_CACHE, "Road Song.mp3")
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
+    preview_path.write_bytes(b"a download kept only in the cache")
+    preview = library_track(
+        str(preview_path), "Road Song", "Night Drive", gui.STATE_PREVIEW
+    )
+    kept_path = Path(_SANDBOX, "Music", "Night Drive", "Kept Song.mp3")
+    kept_path.parent.mkdir(parents=True, exist_ok=True)
+    kept_path.write_bytes(b"a song a music folder holds")
+    held = library_track(str(kept_path), "Kept Song", "Night Drive")
+    window.library.tracks = [held]
+    window._library_scan_tracks = {held.path: held}
+    window.library.previews = [preview]
+    window.mount_point = "/media/alex/iPod"
+    window.device_identity = "fixture-ipod"
+    window.device_tracks = []
+    window._merge_states()
+    window._populate_albums()
+
+    album = next(
+        (a for a in window.library.albums() if a.title == "Night Drive"), None
+    )
+    if album is None or len(album.tracks) != 2:
+        failures.append(
+            "the fixture never built one record out of the previewed download "
+            f"and the song beside it: {album and [t.path for t in album.tracks]}"
+        )
+        return
+    window._show_album(album)
+
+    offered = [button.get_label() for button in album_queue_buttons(window)]
+    if offered != ["Queue 1 track"]:
+        failures.append(
+            f"the album page offers {offered!r} over a record whose two tracks "
+            "are one previewed download and one file in a music folder, when "
+            "only the second is a file the next sync could copy"
+        )
+    for button in album_queue_buttons(window):
+        button.emit("clicked")
+    if window.pending != {held.path}:
+        failures.append(
+            f"queueing the album staged {sorted(window.pending)}, rather than "
+            "only the track a music folder holds"
+        )
+    drawn = [
+        track
+        for track in window.library.all_tracks()
+        if track.path == str(preview_path)
+    ]
+    if len(drawn) != 1:
+        failures.append(
+            f"the previewed download is in the library {len(drawn)} times "
+            "after the album was queued, once as the file in the cache and "
+            "once as a copy the next sync had been told to make of it"
+        )
+    elif drawn[0].state != gui.STATE_PREVIEW:
+        failures.append(
+            f"the previewed download reads {drawn[0].state!r} with nothing "
+            "having moved it out of the cache the pruner empties"
+        )
+    # Repainted by the queueing, and with the one track the sync could copy
+    # now staged there is nothing left on this record to offer.
+    still_offered = [button.get_label() for button in album_queue_buttons(window)]
+    if still_offered:
+        failures.append(
+            f"the album still offers {still_offered!r} with its one queueable "
+            "track staged, so the button is naming the previewed download"
+        )
+
+    window.show_view("library")
+    window.current_album = None
+    window.pending.clear()
+    window.pending_sources.clear()
+    window.pending_records.clear()
+    window.pending_device_identity = None
+    window.mount_point = None
+    window.device_identity = None
+    window.library.tracks = []
+    window.library.previews = []
+    window._library_scan_tracks = {}
+    window._merge_states()
+    window._populate_albums()
 
 
 def check_delete_from_library(window):
@@ -397,6 +683,15 @@ def check_delete_from_library(window):
     if cancelled is None:
         failures.append("a local track was refused a delete dialog")
     else:
+        # Nothing staged this song, so the dialog has no business naming the
+        # sync: the clause above it is decided by asking the queue, and a
+        # question answered yes for everything would have this one destructive
+        # confirmation promise to undo a sync the deletion never touches.
+        if "out of the next sync" in cancelled.get_body():
+            failures.append(
+                "the delete dialog tells a song nothing had staged that it is "
+                f"being taken out of the next sync: {cancelled.get_body()!r}"
+            )
         cancelled.emit("response", "cancel")
         cancelled.force_close()
         if not kept.is_file():
@@ -561,6 +856,8 @@ def inspect(window):
         failures.append("a folder-relative entry was offered as one to add")
 
     check_queued_state(window)
+    check_queued_outside_the_library(window)
+    check_album_bulk_queue_leaves_previews(window)
     check_delete_from_library(window)
 
     # Naming a playlist and renaming one are one dialog assembled in one place,

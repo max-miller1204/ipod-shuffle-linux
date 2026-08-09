@@ -103,7 +103,7 @@ class FakeWidget:
 
 
 class FakeLibrary:
-    """The three lists the window reads tracks out of.
+    """The four lists the window reads tracks out of.
 
     Instances rather than one shared class attribute each, because the preview
     list is appended to as well as replaced, and a shared list would carry one
@@ -114,6 +114,7 @@ class FakeLibrary:
         self.tracks = []
         self.device_only = []
         self.previews = []
+        self.queued_only = []
 
     all_tracks = gui.LibraryIndex.all_tracks
 
@@ -670,6 +671,11 @@ gui.IpodWindow._merge_states(merge_window)
 assert sum(track.on_ipod for track in merge_library.tracks) == 1
 assert local_one.relpath == "F00/AAAA.mp3", local_one.relpath
 assert local_two.relpath == local_two.path, local_two.relpath
+# A device track a local one has claimed does not also stand alone. Only the
+# absent case was read here, and the two are the same rule: unclaimed, every
+# synced song would be in the grid twice - once as the file in the music
+# folder and once as the copy of it on the iPod.
+assert merge_library.device_only == [], merge_library.device_only
 
 other_album = gui.Track(
     "/media/iPod/iPod_Control/Music/F00/BBBB.mp3",

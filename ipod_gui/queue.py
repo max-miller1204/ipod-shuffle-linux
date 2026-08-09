@@ -141,6 +141,19 @@ class QueueMixin:
             )
         )
 
+    def is_staged(self, track):
+        """Whether the queue holds this file, whatever put it there.
+
+        The question `is_queued` does not answer: that one is about a source,
+        and a song named inside a queued folder or playlist is staged without
+        being one. Asked by the deletion, which drops the path out of every
+        member set holding it and says so before it happens - a state is not
+        what to ask there, because a staged track the iPod already holds reads
+        "On iPod" and the sync still loses it.
+        """
+        path = str(getattr(track, "path", track))
+        return any(path in members for members in self.pending_sources.values())
+
     def unqueue_source(self, source):
         """Drop a source from the queue, members and all.
 
@@ -597,11 +610,21 @@ class QueueMixin:
         )
 
     def _clear_pending(self):
+        """Forget the queue the sync has just carried out.
+
+        The merge re-derives everything the queue leaves behind rather than
+        this rebuilding it: the index the accounting reads, the state on every
+        track that had been staged, and the tracks that were in the window only
+        because they were queued - a folder chosen with "Add music folder…" is
+        never a music root, so its songs leave with the queue that named them.
+        Written out here instead, that would be the merge's rule kept in two
+        places, and this one would be the copy that goes stale.
+        """
         self.pending.clear()
         self.pending_sources.clear()
         self.pending_records.clear()
-        self._pending_track_index = dict(self._library_by_path)
         self.pending_device_identity = None
+        self._merge_states()
         return "Sync complete"
 
     # ---------------------------------------------------------- new sources

@@ -12,11 +12,11 @@ merge decides a track's queued state from, `current_view` and `show_view` to
 know and change what is on screen, and `_populate_device_summary`,
 `_populate_cache_card`, `_populate_folders`, `_show_playlist`,
 `_populate_playlist_rail`, `_paint_local_results` and `_queue_tracks` to
-repaint or act on what the merge changed. Deleting adds five more, from the
+repaint or act on what the merge changed. Deleting adds six more, from the
 three modules the deletion has to be undone in:
 `_device_only_track` and `_playlists_listing` from the playlist view,
-`unqueue_deleted_path` and `_source_gone` from the queue, and `_forget_files`
-from the player.
+`is_staged`, `unqueue_deleted_path` and `_source_gone` from the queue, and
+`_forget_files` from the player.
 
 The playlist shelf at the top of the library page is the playlist view's,
 built and filled there - and repainted from here when a scan finishes, because
@@ -546,25 +546,47 @@ class LibraryViewMixin:
         what every marker, pill and count in the window is drawn from: worked
         out again beside each of them, the queue would be a rule four views
         had to agree on rather than one this function already runs.
+
+        And a staged track that no music folder holds is built here as well,
+        because this is the only place that would: the scan reads the roots,
+        and a folder chosen with "Add music folder…" is queued without becoming
+        one. The grid gets it from the queue or not at all.
         """
         on_device = {}
         for track in self.device_tracks:
             on_device.setdefault(track.identity(), []).append(track)
         matched = set()
+
+        def claim(track):
+            """Give this track the device's copy of itself, if there is one.
+
+            One rule for both loops below, which make the same claim and had
+            drifted apart once: the copy over there is what the file here
+            would become, so the row reads "On iPod" and carries the device's
+            path, and that copy is marked claimed rather than left to stand
+            alone in `device_only` and put the same song in the grid twice.
+
+            Popped rather than read, so two local files of one song claim two
+            different copies and the second is only "On iPod" if the device
+            really holds it twice.
+            """
+            matches = on_device.get(track.identity(), [])
+            if not matches:
+                return False
+            device_track = matches.pop(0)
+            track.state = STATE_IPOD
+            track.on_ipod = True
+            track.relpath = device_track.relpath
+            matched.add(id(device_track))
+            return True
+
         self._library_by_path = {
             track.path: track for track in self.library.tracks
         }
         queued = getattr(self, "pending", set())
         for track in self.library.tracks:
             track.relpath = track.path
-            matches = on_device.get(track.identity(), [])
-            if matches:
-                device_track = matches.pop(0)
-                track.state = STATE_IPOD
-                track.on_ipod = True
-                track.relpath = device_track.relpath
-                matched.add(id(device_track))
-            else:
+            if not claim(track):
                 # Assigned rather than only demoted from STATE_IPOD, because a
                 # track leaves the queue as readily as it joins it and the
                 # state it goes back to is the one this decides either way.
@@ -574,8 +596,13 @@ class LibraryViewMixin:
                 track.on_ipod = False
 
         pending_index = dict(self._library_by_path)
+        queued_only = []
         records = getattr(self, "pending_records", {})
-        for path in queued:
+        # Sorted rather than taken in whatever order the set iterates, because
+        # these tracks are rows now: two staged copies of one song claim the
+        # device's copy in a fixed order, so a repaint that changed nothing
+        # cannot swap which of them reads "On iPod".
+        for path in sorted(queued):
             if path in pending_index or Path(path).suffix.lower() not in AUDIO_EXTENSIONS:
                 continue
             record = dict(records.get(path, {}))
@@ -587,14 +614,15 @@ class LibraryViewMixin:
             # Queued by construction: nothing but the queue names these, and
             # they are here because no music folder does.
             track = Track(path, record, STATE_QUEUED)
-            matches = on_device.get(track.identity(), [])
-            if matches:
-                device_track = matches.pop(0)
-                track.state = STATE_IPOD
-                track.on_ipod = True
-                track.relpath = device_track.relpath
+            claim(track)
             pending_index[path] = track
+            queued_only.append(track)
         self._pending_track_index = pending_index
+        # The library the grid draws is what the sync is about to act on, so
+        # these belong in it: without them the Queued pill reads 0 beside a
+        # sidebar saying "+120 MB queued to sync" and a button offering to sync
+        # 30 changes, and the staged tracks are in no view at all.
+        self.library.queued_only = queued_only
 
         # Device tracks with no local counterpart still belong in the grid, or
         # music copied from another machine would simply not appear. Held
@@ -720,9 +748,11 @@ class LibraryViewMixin:
             consequences.append(
                 "The copy on the iPod stays there until you remove it."
             )
-        # Read off the state rather than out of the queue's own bookkeeping,
-        # which is what that state is for and what the row already shows.
-        if track.state == STATE_QUEUED:
+        # Asked of the queue rather than read off the state, because what the
+        # deletion does is the queue's rule and the state answers a different
+        # question: a staged track the iPod already holds reads "On iPod", and
+        # `_forget_deleted_track` takes it out of the next sync all the same.
+        if self.is_staged(track):
             consequences.append("It is taken back out of the next sync.")
         listed = self._playlists_listing(track)
         if listed:
@@ -830,9 +860,15 @@ class LibraryViewMixin:
         # What pressing it would actually stage: neither what is already on the
         # device nor what is already waiting to be. Offering to queue a record
         # every row of which reads "Queued" is a button whose only answer is
-        # that there was nothing to do.
+        # that there was nothing to do. A previewed track is left out for a
+        # different reason: it is not a file the sync can be pointed at yet,
+        # because it sits in the cache the pruner empties rather than in a
+        # music folder, and keeping it is what moves it into one. That is its
+        # own row's Add, and this button stages what it is given directly.
         missing = [
-            t for t in tracks if not t.on_ipod and t.state != STATE_QUEUED
+            t
+            for t in tracks
+            if not t.on_ipod and t.state not in (STATE_QUEUED, STATE_PREVIEW)
         ]
         if missing and self.mount_point:
             add_all = Gtk.Button(label=f"Queue {plural(len(missing), 'track')}")
