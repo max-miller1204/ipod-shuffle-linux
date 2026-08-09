@@ -1,0 +1,13 @@
+# tests/gui-spoken-names.py run against the pre-fix spoken_playlists, on the connected shuffle.
+# The check has to fail before the fix, or it would pass for the same wrong reason the old code did.
+
+Traceback (most recent call last):
+  File "/tmp/mutate-old.py", line 16, in <module>
+    runpy.run_path(TESTS + "/gui-spoken-names.py", run_name="__main__")
+  File "<frozen runpy>", line 286, in run_path
+  File "<frozen runpy>", line 98, in _run_module_code
+  File "<frozen runpy>", line 88, in _run_code
+  File "/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZKYDEH30MKT96ZXQWHXGGT0/tests/gui-spoken-names.py", line 38, in <module>
+    assert spoken == {name.lower() for name in names}, (spoken, names)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ({'365571411a0cf908', '16872373982c1995', '841c7a9ae1b8fbde', '84023141cae58641', '906318c2df76cca0'}, ['2000', '2016', 'More alt shii', 'YN'])

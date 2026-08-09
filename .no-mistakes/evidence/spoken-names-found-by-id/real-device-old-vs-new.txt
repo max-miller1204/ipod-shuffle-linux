@@ -1,0 +1,22 @@
+volume: /media/max/MAX_SHUFFLE
+playlists on the device: ['2000', '2016', 'More alt shii', 'YN']
+
+before (cec520c) - stems matched against playlist names:
+  spoken_playlists() -> ['16872373982c1995', '365571411a0cf908', '84023141cae58641', '841c7a9ae1b8fbde', '906318c2df76cca0']
+    2000: on the iPod, but with no spoken name, so the device cannot announce it
+    2016: on the iPod, but with no spoken name, so the device cannot announce it
+    More alt shii: on the iPod, but with no spoken name, so the device cannot announce it
+    YN: on the iPod, but with no spoken name, so the device cannot announce it
+
+after (9cbf32d) - names hashed to the id the recording is filed under:
+  spoken_playlists() -> ['2000', '2016', 'more alt shii', 'yn']
+    2000: the device can announce this playlist
+    2016: the device can announce this playlist
+    More alt shii: the device can announce this playlist
+    YN: the device can announce this playlist
+
+ids derived for each name, against the WAVs on the volume:
+    2000 -> 365571411a0cf908.wav
+    2016 -> 16872373982c1995.wav
+    More alt shii -> 906318c2df76cca0.wav
+    YN -> 84023141cae58641.wav
