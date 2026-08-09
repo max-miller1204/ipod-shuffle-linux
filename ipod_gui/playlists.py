@@ -73,9 +73,11 @@ class Playlist:
     """One playlist, as its file currently reads.
 
     `path` is the M3U this app owns, or None for a playlist that exists only on
-    the device: those are shown but not edited here, because their entries name
-    scrambled four-letter files on the iPod and there is nothing local to write
-    down in their place.
+    the device: those are shown but not edited in place, because their entries
+    name scrambled four-letter files on the iPod rather than files in your
+    music folders. Such a list is copied here instead, `create_local_playlist`
+    writing those entries down again as the files they were made from, after
+    which it has a path like any other.
     """
 
     __slots__ = ("name", "path", "entries")

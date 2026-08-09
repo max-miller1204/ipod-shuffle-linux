@@ -8,9 +8,12 @@ hands that file to ipod-sync.sh exactly as choosing a playlist file used to, so
 nothing about how a playlist reaches the device has changed.
 
 The device's own playlists are shown beside them - a folder or tag grouping the
-sync generated, or a list made on another computer. Those are read-only here,
-because their entries name scrambled four-letter files on the iPod and there is
-nothing local to write down in their place.
+sync generated, or a list made on another computer. Those are not edited in
+place, because their entries name scrambled four-letter files on the iPod
+rather than files in your music folders. Copying one here is the way out of
+that: the library has already matched every copy on the device to the file it
+was made from, so the same list is written down again as an M3U of our own,
+and from then on it is an ordinary playlist.
 
 Owns the sidebar rail, the Playlists view's rail and detail, the shelf of tiles
 at the top of the library page, the ⋯ menu every track row carries, and the
