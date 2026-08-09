@@ -34,6 +34,41 @@ PLAYLIST_SUFFIX = ".m3u"
 FAT_FORBIDDEN = set('\\/:*?"<>|') | {chr(code) for code in range(32)} | {"\x7f"}
 
 
+class _Gone:
+    """A named answer for something an edit looked for and did not find.
+
+    False rather than a truthy value of its own, because every other way to
+    fail in this module is falsy - `move_entry` returns False for a stale
+    source, and add_entries and remove_entry answer None. A caller writing the
+    obvious `if move_entry(...)` reads one of these as the failure it is
+    instead of toasting a reorder over a playlist it never rewrote.
+
+    Two of them rather than one, because a playlist that is not there and a
+    row that is not there are two different sentences over two different
+    repaints. They are told apart by identity, the way None is, so a caller
+    that only knows about one of them cannot mistake it for the other.
+    """
+
+    __slots__ = ("_name",)
+
+    def __init__(self, name):
+        self._name = name
+
+    def __bool__(self):
+        return False
+
+    def __repr__(self):
+        return self._name
+
+
+# The playlist's own file has gone since the window last listed the folder.
+# Not a failure and nothing to write: the file is the playlist, so another
+# program deleting one is how it stops existing, and the window is simply
+# painted from an older reading of the folder. Answered apart from a file that
+# is there and could not be read, which is a folder to go and look at.
+PLAYLIST_GONE = _Gone("PLAYLIST_GONE")
+
+
 class Playlist:
     """One playlist, as its file currently reads.
 
@@ -77,6 +112,29 @@ def local_playlist_file(root, name):
     return Path(root) / f"{name}{PLAYLIST_SUFFIX}"
 
 
+def _entry_missing(path):
+    """Whether nothing at all sits at this path.
+
+    The directory entry rather than what it names, so lstat rather than a
+    read: a playlist symlinked onto a drive that is not plugged in raises
+    FileNotFoundError exactly as a deleted one does, and it is still sitting
+    in the folder. The error a read failed with cannot tell them apart; the
+    entry can.
+
+    Only a definite no counts. A folder that cannot be listed at all leaves
+    this unanswered, and unanswered is not gone: taking a playlist off the
+    rail claims more than saying it could not be read does, so the doubt goes
+    to the smaller claim.
+    """
+    try:
+        os.lstat(path)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def playlist_contents(path):
     """The paths a playlist lists, and whether the file could be read at all.
 
@@ -87,11 +145,18 @@ def playlist_contents(path):
     has gone since the folder was last listed, reads as empty while the folder
     it sits in is still perfectly writable, and a rewrite from that read would
     replace the whole list with whatever the edit added.
+
+    Those last two are then told apart from each other, because they send the
+    reader to two different places: a playlist that is not there any more is a
+    repaint, and one that is there and could not be read is a folder to go and
+    look at. So the second answer is True, PLAYLIST_GONE or False, and the
+    three edits below hand that difference on to the window rather than each
+    deciding it again from an error they no longer have.
     """
     try:
         lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
-        return [], False
+        return [], PLAYLIST_GONE if _entry_missing(path) else False
     entries = []
     for line in lines:
         line = line.strip()
@@ -313,18 +378,31 @@ def import_playlist_file(root, source, taken=()):
     return path, len(tracks), None
 
 
+def _edit_refusal(complete):
+    """What an edit answers when the read it starts with produced no list.
+
+    PLAYLIST_GONE passes straight through, because a playlist that is not
+    there is a repaint and a sentence of its own. Anything else is None, the
+    same answer a failed write gives, because both send the reader to the
+    folder. Written once rather than at each of the three edits below, which
+    all begin by reading the list they are about to rewrite and all owe their
+    caller the same difference.
+    """
+    return PLAYLIST_GONE if complete is PLAYLIST_GONE else None
+
+
 def add_entries(path, entries):
     """Append tracks to a playlist, skipping ones it already lists.
 
-    Returns how many were added, or None if the playlist could not be read or
-    written. A playlist is an ordered list rather than a set, but the same
-    track landing in one twice is always a mis-click here: the only way to ask
-    for it is to press Add twice, which is what a double click on one button
-    is.
+    Returns how many were added, PLAYLIST_GONE if the playlist itself is no
+    longer there, or None if it could not be read or written. A playlist is an
+    ordered list rather than a set, but the same track landing in one twice is
+    always a mis-click here: the only way to ask for it is to press Add twice,
+    which is what a double click on one button is.
     """
     current, complete = playlist_contents(path)
     if not complete:
-        return None
+        return _edit_refusal(complete)
     known = set(current)
     added = []
     for entry in entries:
@@ -340,16 +418,18 @@ def add_entries(path, entries):
 def remove_entry(path, entry):
     """Drop every mention of one track.
 
-    Returns how many lines went, or None if the playlist could not be read or
-    written, the way add_entries counts what it added. The two ways nothing
-    changes are not one thing: a playlist that no longer lists the track has
-    already been edited somewhere else, while a playlist that could not be
-    rewritten is a folder to go and look at - and a caller told only "False"
-    reports whichever of those it guessed at.
+    Returns how many lines went, PLAYLIST_GONE if the playlist itself is no
+    longer there, or None if it could not be read or written, the way
+    add_entries counts what it added. The ways nothing changes are not one
+    thing: a playlist that no longer lists the track has already been edited
+    somewhere else, and one that is no longer there at all has been deleted
+    somewhere else, while a playlist that could not be rewritten is a folder
+    to go and look at - and a caller told only "False" reports whichever of
+    those it guessed at.
     """
     current, complete = playlist_contents(path)
     if not complete:
-        return None
+        return _edit_refusal(complete)
     remaining = [line for line in current if line != str(entry)]
     removed = len(current) - len(remaining)
     if not removed:
@@ -357,32 +437,12 @@ def remove_entry(path, entry):
     return removed if write_playlist_entries(path, remaining) else None
 
 
-class _TargetGone:
-    """What move_entry answers when the row dropped on is the stale one.
-
-    A drag names two rows, and only one of them is the track: when the other
-    one is the row the file has lost, the dragged track is still listed, so
-    "that track is no longer here" would be a sentence about a row that never
-    went anywhere. It needs an answer of its own.
-
-    False rather than a truthy value of its own, because every other way to
-    fail in this module is falsy - `move_entry` three lines below returns
-    False for the stale source, and add_entries and remove_entry answer None.
-    A caller writing the obvious `if move_entry(...)` reads this as the
-    failure it is instead of toasting a reorder over a playlist it never
-    rewrote.
-    """
-
-    __slots__ = ()
-
-    def __bool__(self):
-        return False
-
-    def __repr__(self):
-        return "TARGET_GONE"
-
-
-TARGET_GONE = _TargetGone()
+# What move_entry answers when the row dropped on is the stale one. A drag
+# names two rows, and only one of them is the track: when the other one is the
+# row the file has lost, the dragged track is still listed, so "that track is
+# no longer here" would be a sentence about a row that never went anywhere. It
+# needs an answer of its own.
+TARGET_GONE = _Gone("TARGET_GONE")
 
 
 def move_entry(path, source_index, target_index):
@@ -393,16 +453,17 @@ def move_entry(path, source_index, target_index):
 
     Returns True when the new order was written, False when the playlist no
     longer has the row being dragged, TARGET_GONE when it no longer has the
-    row that was dropped on, or None if it could not be read or written -
-    remove_entry's three answers, with the vanished row answered as two
-    because a drag reads two of them off the same painted list. A row the file
-    has lost since the window painted it is a repaint, while a list that could
-    not be rewritten is a folder to go and look at, and a caller told only
-    "False" reports whichever of those it guessed at.
+    row that was dropped on, PLAYLIST_GONE when the playlist itself is no
+    longer there, or None if it could not be read or written - remove_entry's
+    answers, with the vanished row answered as two because a drag reads two of
+    them off the same painted list. A row the file has lost since the window
+    painted it is a repaint, while a list that could not be rewritten is a
+    folder to go and look at, and a caller told only "False" reports whichever
+    of those it guessed at.
     """
     entries, complete = playlist_contents(path)
     if not complete:
-        return None
+        return _edit_refusal(complete)
     if not 0 <= source_index < len(entries):
         return False
     if not 0 <= target_index < len(entries):
