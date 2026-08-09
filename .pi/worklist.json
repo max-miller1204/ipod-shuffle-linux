@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 135,
+  "revision": 136,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -309,6 +309,14 @@
       "createdAt": "2026-08-09T04:34:29.277Z",
       "updatedAt": "2026-08-09T16:24:53.913Z",
       "completedAt": "2026-08-09T16:24:53.913Z"
+    },
+    {
+      "id": "images-in-songs-playlists",
+      "title": "Images in songs + playlists",
+      "description": "Are the images in the playlists and songs getting added to the shuffle? Shouldn't all the covers be local to the computer?",
+      "status": "open",
+      "createdAt": "2026-08-09T18:21:18.319Z",
+      "updatedAt": "2026-08-09T18:21:18.319Z"
     }
   ],
   "retiredIds": [
