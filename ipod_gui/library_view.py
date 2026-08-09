@@ -10,8 +10,8 @@ Borrows from the window: `library`, `device_tracks` and `mount_point` to merge
 against, `current_view` and `show_view` to know and change what is on screen,
 and `_populate_device_summary`, `_populate_cache_card`, `_populate_folders`,
 `_show_playlist`, `_populate_playlist_rail`, `_paint_local_results` and
-`_queue_tracks` to repaint or act on what the merge changed. Deleting adds
-three more, each owned by whoever the deletion has to be undone in:
+`_queue_tracks` to repaint or act on what the merge changed. Deleting adds five
+more, from the three modules the deletion has to be undone in:
 `_device_only_track` and `_playlists_listing` from the playlist view,
 `unqueue_deleted_path` and `_source_gone` from the queue, and `_forget_files`
 from the player.
