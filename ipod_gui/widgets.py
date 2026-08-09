@@ -305,7 +305,10 @@ def track_cell(window, track, number, column, view=None, playlist=None):
         # beside it already says "Queued", and a row carrying that word twice
         # leaves the button reading as a label that happens to be clickable.
         action.set_label("Unqueue")
-        action.set_tooltip_text("Take this back out of the next sync")
+        action.set_tooltip_text(
+            "Take this out of the next sync, and with it the playlist or "
+            "folder that staged it"
+        )
         action.connect("clicked", lambda _b, t=track: window._unqueue_track(t))
     else:
         action.set_label("Add")
@@ -315,12 +318,33 @@ def track_cell(window, track, number, column, view=None, playlist=None):
     return action
 
 
+# Where each state sits in the order the window states everywhere else: the
+# filter pills, the marker legend and STATE_LABELS itself, which is the journey
+# a track makes backwards. Read off that dict rather than listed again here, so
+# the column cannot come to disagree with the pills above it.
+_STATE_ORDER = {state: rank for rank, state in enumerate(STATE_LABELS)}
+
+
+def state_rank(state):
+    """Where a state sorts, which is not where its own word sorts.
+
+    The column compared `track.state` directly until there were four of them,
+    and the strings only happened to run in the right order: "queued" falls
+    after "preview" alphabetically, which puts a track staged for the next sync
+    below one that is not even in the library yet.
+
+    A state this does not know sorts after every state it does, rather than
+    raising: an unknown state is still a row somebody is looking at.
+    """
+    return _STATE_ORDER.get(state, len(_STATE_ORDER))
+
+
 TRACK_COLUMNS = (
     # key, title, expand, sort key
     ("number", "#", False, None),
     ("title", "Title", True, lambda t: t.title.lower()),
     ("album", "Album", True, lambda t: t.album.lower()),
-    ("state", "", False, lambda t: t.state),
+    ("state", "", False, lambda t: state_rank(t.state)),
     ("duration", "Time", False, lambda t: t.duration),
     ("action", "", False, None),
     ("menu", "", False, None),

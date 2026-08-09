@@ -11,6 +11,7 @@ called unbound against a stand-in that records what would have been run,
 which is the approach the other GUI checks use.
 """
 
+import functools
 import http.server
 import json
 import os
@@ -2637,6 +2638,53 @@ by_duration = gui.track_sorter(lambda track: track.duration)
 short, long_ = sortable("short"), sortable("long")
 short.track.duration, long_.track.duration = 10.0, 400.0
 assert by_duration.compare(short, long_) == Gtk.Ordering.SMALLER
+
+# The state column sorts by the journey a track makes, not by the word the
+# state happens to be stored as: alphabetically "queued" falls after "preview",
+# which would put a track staged for the next sync below one that is not in the
+# library yet, and read as a different order from the pills above the table and
+# the marker table in the README.
+by_state = gui.track_sorter(
+    next(key for name, _t, _e, key in gui.TRACK_COLUMNS if name == "state")
+)
+ordering = {
+    Gtk.Ordering.SMALLER: -1,
+    Gtk.Ordering.EQUAL: 0,
+    Gtk.Ordering.LARGER: 1,
+}
+
+
+def in_state(state):
+    return gui.TrackItem(gui.Track("/tmp/x.mp3", {"title": state}, state), 1)
+
+
+# "invented" stands for a state this build does not know: rows arrive from a
+# scan, and one carrying something unrecognised has to sort somewhere rather
+# than raise under the click that sorted the column.
+shuffled = [
+    in_state(state)
+    for state in (
+        gui.STATE_PREVIEW,
+        "invented",
+        gui.STATE_LIBRARY,
+        gui.STATE_QUEUED,
+        gui.STATE_IPOD,
+    )
+]
+by_journey = [
+    item.track.state
+    for item in sorted(
+        shuffled,
+        key=functools.cmp_to_key(lambda a, b: ordering[by_state.compare(a, b)]),
+    )
+]
+assert by_journey == [
+    gui.STATE_IPOD,
+    gui.STATE_QUEUED,
+    gui.STATE_LIBRARY,
+    gui.STATE_PREVIEW,
+    "invented",
+], by_journey
 
 # Every sortable column must produce a usable sorter, not just the one above.
 for _key, _title, _expand, sort_key in gui.TRACK_COLUMNS:

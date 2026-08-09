@@ -122,7 +122,8 @@ The table is the view that answers track by track, and its pills count and filte
 
 Adding no longer copies immediately.
 Queueing an album or a track shows it as pending space in the storage meter, marks it *Queued* wherever it appears, and one **Sync** button commits the batch, so a session's worth of changes costs a single database rebuild instead of one per track.
-A staged track's own button becomes **Unqueue**, which takes it back out without touching anything else.
+A staged track's own button becomes **Unqueue**, which takes back out whatever staged it: a track you queued on its own leaves on its own, and one that joined the queue as part of a playlist or a folder takes that whole list or folder with it.
+That is what the button is for - a folder queued by mistake is otherwise a hundred tracks to take back one at a time - and the sync is a batch you are still assembling, so nothing has been copied either way.
 The copy reports each file as it lands, which a 2GB device over USB 2.0 badly needed: the progress bar, the file list and the raw script output all sit in a bar above the player.
 
 The grid groups by album or by artist, and swaps for a sortable table of every track: click a column to sort by title, album, state or length.
@@ -131,7 +132,7 @@ The state pills count and filter the collections shown in the grid, or the indiv
 
 The `⋯` beside a track ends with **Delete from library…**, which is the only thing in the window that touches your own music files.
 It asks first, and the dialog says what the deletion leaves behind before it happens: the file is moved to your wastebasket, the copy on the iPod stays there until you remove it, a staged track is taken back out of the next sync, and a playlist listing it keeps that line, where it will name a file that is no longer there.
-Only that song leaves the queue: a playlist or a folder staged around it is still staged, minus the one line the deletion took out of it.
+Where **Unqueue** is the wide press, this is the narrow one: only that song leaves the queue, and a playlist or a folder staged around it stays staged, minus the one line the deletion took out of it.
 It is offered only for songs this computer holds.
 A track that exists only on the iPod is taken off it with the row's own **Remove**, and a previewed one lives in the cache **Device & Settings** empties in one press, so neither is a file this deletes.
 On a volume with nowhere to trash to, the deletion is refused and the app says why rather than unlinking the file behind the same word.
