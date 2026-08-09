@@ -53,6 +53,7 @@ from .playlists import (
     move_entry,
     name_problem,
     playlist_contents,
+    PLAYLIST_GONE,
     remove_entry,
     rename_local_playlist,
     TARGET_GONE,
@@ -705,8 +706,25 @@ class PlaylistViewMixin:
         different places: a list symlinked onto a drive that is not plugged in
         is unreadable in a folder that is perfectly writable, and "could not
         write" would have them checking the permissions on the wrong thing.
+
+        Only asked about an edit that answered None, so the playlist is one
+        that is there: a file that has gone answers PLAYLIST_GONE and is
+        repainted rather than blamed on the folder it used to sit in.
         """
         return "write" if playlist_contents(playlist.path)[1] else "read"
+
+    def _playlist_gone(self, name):
+        """Catch up with a playlist something else deleted, and say so.
+
+        An edit is a read and a rewrite, so a playlist deleted while its rows
+        are on screen is what the edit's read finds rather than anything
+        watching the folder. Nothing failed and there is nothing to write: the
+        window is painted from an older listing of the folder, and re-reading
+        it is what takes the playlist off the rails - the answer a row the
+        file has lost already gets, given here about the file itself.
+        """
+        self._populate_playlist_rail()
+        self._toast(f"There is no playlist called {name}")
 
     def _add_tracks_to_playlist(self, name, tracks):
         """Put tracks in a playlist, making it first if the menu asked to."""
@@ -718,7 +736,7 @@ class PlaylistViewMixin:
             return
         playlist = self._local_playlist(name)
         if playlist is None:
-            self._toast(f"There is no playlist called {name}")
+            self._playlist_gone(name)
             return
         paths = []
         device_only = 0
@@ -754,6 +772,9 @@ class PlaylistViewMixin:
             return
 
         added = add_entries(playlist.path, paths)
+        if added is PLAYLIST_GONE:
+            self._playlist_gone(name)
+            return
         if added is None:
             self._toast(f"Could not {self._edit_step(playlist)} {name}")
             return
@@ -767,8 +788,16 @@ class PlaylistViewMixin:
     def _remove_track_from_playlist(self, name, track):
         playlist = self._local_playlist(name)
         if playlist is None:
+            # The menu only offers this for a playlist that was in the list
+            # when it opened, so getting here means the list has moved on
+            # since - the same thing the edit below finds one step later, and
+            # answered the same way rather than passed over in silence.
+            self._playlist_gone(name)
             return
         removed = remove_entry(playlist.path, track.path)
+        if removed is PLAYLIST_GONE:
+            self._playlist_gone(name)
+            return
         if removed is None:
             self._toast(f"Could not {self._edit_step(playlist)} {name}")
             return
@@ -796,14 +825,33 @@ class PlaylistViewMixin:
         source = self._local_playlist(source_name)
         target = self._local_playlist(target_name)
         if source is None or target is None:
+            # Which of the two it is changes nothing to do: either way the
+            # window is painted from a listing of the folder that has moved
+            # on, so it re-reads it rather than leaving both on the rail.
+            self._populate_playlist_rail()
             self._toast("That playlist is no longer there")
             return
-        if add_entries(target.path, [track.path]) is None:
+        added = add_entries(target.path, [track.path])
+        if added is PLAYLIST_GONE:
+            self._playlist_gone(target_name)
+            return
+        if added is None:
             self._toast(f"Could not {self._edit_step(target)} {target_name}")
             return
         # Only after the track has landed in the target: the opposite order
         # loses it entirely if the second write fails.
-        if remove_entry(source.path, track.path) is None:
+        removed = remove_entry(source.path, track.path)
+        if removed is PLAYLIST_GONE:
+            # There is nothing left to take the track out of, so the move
+            # arrived where it was asked to go. What is worth saying is that
+            # the list it came from has gone, which is also why the rail is
+            # about to lose a row.
+            self._after_playlist_change(
+                target_name,
+                f"Moved to {target_name} · {source_name} is no longer there",
+            )
+            return
+        if removed is None:
             # Half a move is a copy, and it is reported as one: both lists now
             # hold the track and both are staged, so a move called finished
             # here would put it on the device twice without a word. A source
@@ -894,9 +942,10 @@ class PlaylistViewMixin:
             return
         if self._local_playlist(name) is None:
             # Said rather than passed over: a download that never starts and a
-            # menu that closes on nothing are the same thing to look at, and
-            # the local add says this much when a playlist has gone.
-            self._toast(f"There is no playlist called {name}")
+            # menu that closes on nothing are the same thing to look at. The
+            # answer the local add gives, because this is the same playlist
+            # having gone, met before the download rather than after it.
+            self._playlist_gone(name)
             return
         self._start_youtube_download(
             result.url,
@@ -929,6 +978,14 @@ class PlaylistViewMixin:
         if path is None:
             return f"Downloaded, but could not tell which track to add to {name}"
         added = add_entries(playlist.path, [str(path)])
+        if added is PLAYLIST_GONE:
+            # The same sentence the missing playlist above gets, and repainted
+            # for the reason _playlist_gone repaints: the rail is still
+            # showing a list the download was going into. Said rather than
+            # toasted, because this runs where a download reports back and the
+            # caller is what puts one sentence on screen.
+            self._populate_playlist_rail()
+            return f"Downloaded, but {name} is no longer there"
         if added is None:
             return f"Downloaded, but could not {self._edit_step(playlist)} {name}"
         self._load_local_playlists()
@@ -1236,12 +1293,15 @@ class PlaylistViewMixin:
         playlist = self._local_playlist(self.current_playlist)
         if playlist is not None:
             moved = move_entry(playlist.path, source, target)
+            if moved is PLAYLIST_GONE:
+                self._playlist_gone(playlist.name)
+                return False
             if moved is None:
                 self._toast(
                     f"Could not {self._edit_step(playlist)} {playlist.name}"
                 )
                 return False
-            if moved == TARGET_GONE:
+            if moved is TARGET_GONE:
                 # The playlist was shortened past where the drag was aimed
                 # rather than past the track being dragged, so that track is
                 # still listed and only the destination has gone: what to say

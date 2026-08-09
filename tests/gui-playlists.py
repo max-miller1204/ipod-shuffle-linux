@@ -13,6 +13,7 @@ called unbound against a stand-in that records what would have been run, which
 is the approach the other GUI checks use.
 """
 
+import os
 import sys
 import tempfile
 import threading
@@ -153,11 +154,94 @@ assert gui.move_entry(unplugged_list, 1, 0) is None, (
 )
 assert unplugged_list.is_symlink(), "the edit replaced the playlist"
 assert not unplugged_list.exists(), "the edit wrote where the drive should be"
+# Reading it raises FileNotFoundError, exactly as a playlist that has been
+# deleted does, and it is not one: the file is sitting in the folder pointing
+# at a drive. So what tells the two apart has to be the directory entry rather
+# than the error, and this is the case that proves it.
+assert gui.playlist_contents(unplugged_list) == ([], False), (
+    "a playlist pointing onto an unplugged drive was read as one that had gone"
+)
 unplugged_list.unlink()
-# The same for one that has gone since the folder was listed: adding a track
-# to a playlist somebody deleted is not a reason to write it back.
-assert gui.add_entries(PLAYLISTS / "Never Made.m3u", [str(first)]) is None
-assert not (PLAYLISTS / "Never Made.m3u").exists(), "an edit revived a playlist"
+
+# A playlist that has gone since the folder was listed is neither of those.
+# Nothing failed - the file is the playlist, so another program deleting one
+# is how it stops existing - and there is nothing to write, because writing
+# would revive a list somebody deleted. Answered apart from a file that could
+# not be read, which is a folder to go and look at: told only "None", a caller
+# sends the user to check the permissions on a folder that was never the
+# trouble while its rail keeps showing a playlist that is gone.
+never_made = PLAYLISTS / "Never Made.m3u"
+assert gui.playlist_contents(never_made) == ([], gui.PLAYLIST_GONE)
+assert gui.add_entries(never_made, [str(first)]) is gui.PLAYLIST_GONE
+assert gui.remove_entry(never_made, first) is gui.PLAYLIST_GONE
+assert gui.move_entry(never_made, 0, 0) is gui.PLAYLIST_GONE
+assert not never_made.exists(), "an edit revived a playlist"
+# Falsy like every other failure in the store, and not the other answer about
+# something that has gone: a drag reads two rows off one painted list, and a
+# caller told the playlist had gone when only the row it was dropped on had
+# would take a playlist that is still there off the rail.
+assert not gui.add_entries(never_made, [str(first)])
+assert gui.PLAYLIST_GONE != gui.TARGET_GONE, (
+    "the two answers about something that had gone were one answer"
+)
+
+# A folder that cannot be listed at all answers neither: the playlist may be
+# sitting in it perfectly well. Only a definite "nothing is at that path"
+# takes a playlist off the rail, because that claims more than saying it could
+# not be read does, and the doubt goes to the smaller claim.
+#
+# Reached here with a plain file where the folder should be, so that both the
+# read and the entry check refuse with "that is not a directory" rather than
+# with "nothing is there". Deliberately not a permission bit: root ignores
+# those, so a container running the suite as root would read the playlist
+# straight through the folder meant to shut it away and the check would pass
+# while proving nothing.
+blocked = Path(tempfile.mkdtemp(prefix="blocked-")) / "Playlists"
+blocked.write_bytes(b"a file where the folder should be")
+assert gui.playlist_contents(blocked / "Locked Away.m3u") == ([], False), (
+    "a playlist behind a folder that could not be read was called deleted"
+)
+assert gui.add_entries(blocked / "Locked Away.m3u", [str(second)]) is None
+# And as the user actually meets it, which is a folder whose permissions
+# refuse a listing. Only as an unprivileged user, for the reason above.
+if os.geteuid() != 0:
+    shut = Path(tempfile.mkdtemp(prefix="shut-"))
+    gui.write_playlist_entries(shut / "Locked Away.m3u", [str(first)])
+    shut.chmod(0o000)
+    try:
+        assert gui.playlist_contents(shut / "Locked Away.m3u") == ([], False), (
+            "a playlist behind a folder with no read permission was called "
+            "deleted"
+        )
+        assert gui.add_entries(shut / "Locked Away.m3u", [str(second)]) is None
+    finally:
+        shut.chmod(0o700)
+
+# A folder that is not there at all is the same unanswered question, and the
+# one that matters most: an ENOENT names the whole path rather than the last
+# name in it, so a playlist inside a folder that has gone reports exactly what
+# a deleted playlist reports, and the playlists in it have gone nowhere. The
+# entry is missing only where there is a folder that could have held it, so
+# these keep the "could not read" answer and stay on the rail. Nothing here
+# depends on permission bits, so it means the same thing whoever runs it.
+missing_folder = Path(tempfile.mkdtemp(prefix="unlisted-")) / "Music"
+in_missing = missing_folder / "On The Drive.m3u"
+assert gui.playlist_contents(in_missing) == ([], False), (
+    "a playlist in a folder that was not there was called deleted"
+)
+assert gui.add_entries(in_missing, [str(second)]) is None
+assert not missing_folder.exists(), "an edit rebuilt a folder that had gone"
+# The way the user meets that, which is the drive under it being unplugged:
+# the folder is an entry that is still perfectly there and names nothing.
+unplugged_folder = Path(tempfile.mkdtemp(prefix="unplugged-")) / "Music"
+unplugged_folder.symlink_to("/nowhere/mounted/Music")
+on_drive = unplugged_folder / "On The Drive.m3u"
+assert gui.playlist_contents(on_drive) == ([], False), (
+    "a playlist behind an unplugged drive was called deleted"
+)
+assert gui.add_entries(on_drive, [str(second)]) is None
+assert not on_drive.exists(), "an edit wrote where the drive should be"
+
 # A playlist whose entries are readable but whose files have gone is a
 # different thing again, and still perfectly editable.
 assert gui.playlist_contents(created) == ([str(first)], True)
@@ -479,6 +563,7 @@ class FakeWindow:
     _launch_pending_sync = gui.IpodWindow._launch_pending_sync
     _clear_pending = gui.IpodWindow._clear_pending
     _edit_step = staticmethod(gui.IpodWindow._edit_step)
+    _playlist_gone = gui.IpodWindow._playlist_gone
     _report_download_failure = gui.IpodWindow._report_download_failure
     _queue_sources = gui.IpodWindow._queue_sources
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
@@ -1416,6 +1501,115 @@ try:
     assert gone_drive.toasts[-1] == "Could not read On A Drive", gone_drive.toasts
 finally:
     (PLAYLISTS / "On A Drive.m3u").unlink()
+
+# A playlist another program deleted while its rows are still on screen is the
+# other half of that, and the opposite answer: nothing failed, so "could not
+# read" would send the user to check the permissions on a folder that is
+# perfectly writable while the rail went on offering a playlist that is gone.
+# Every edit answers it alike, because the read each one starts with is where
+# the missing file is met.
+deleted = FakeWindow()
+deleted.library_tracks([first, second])
+
+
+def deleted_under_us():
+    """Put the playlist back, let the window list it, then delete it again.
+
+    Before each edit rather than once, so every check below meets the same
+    window: one painted from a folder listing that is now out of date, which
+    is the only way a deleted playlist is ever reached.
+    """
+    gui.write_playlist_entries(PLAYLISTS / "Vanished.m3u", [str(first)])
+    deleted._load_local_playlists()
+    (PLAYLISTS / "Vanished.m3u").unlink()
+    return deleted.repaints
+
+
+painted = deleted_under_us()
+deleted._add_tracks_to_playlist("Vanished", [track_for(second)])
+assert deleted.toasts[-1] == "There is no playlist called Vanished", deleted.toasts
+assert deleted.repaints > painted, "the rail kept offering a playlist that had gone"
+assert not (PLAYLISTS / "Vanished.m3u").exists(), "an add revived a playlist"
+
+painted = deleted_under_us()
+deleted._remove_track_from_playlist("Vanished", track_for(first))
+assert deleted.toasts[-1] == "There is no playlist called Vanished", deleted.toasts
+assert deleted.repaints > painted, "the rail kept offering a playlist that had gone"
+
+# Dragging a row is an edit like any other. The playlist has gone rather than
+# only the row, so the sentence about a row is the wrong one to reach for.
+painted = deleted_under_us()
+deleted.current_playlist = "Vanished"
+assert deleted._reorder_playlist(1, 0) is False
+assert deleted.toasts[-1] == "There is no playlist called Vanished", deleted.toasts
+assert deleted.repaints > painted, "the rail kept offering a playlist that had gone"
+assert not (PLAYLISTS / "Vanished.m3u").exists(), "a reorder revived a playlist"
+
+# Moving a track writes twice, so either end can be the one that has gone. A
+# missing destination is the same answer as any other add, and the track stays
+# where it was: the source is only rewritten once the target holds it.
+new_playlist(deleted, "Keeper")
+gui.write_playlist_entries(PLAYLISTS / "Keeper.m3u", [str(first)])
+painted = deleted_under_us()
+deleted._move_track_between("Keeper", "Vanished", track_for(first))
+assert deleted.toasts[-1] == "There is no playlist called Vanished", deleted.toasts
+assert deleted.repaints > painted, "the rail kept offering a playlist that had gone"
+assert gui.read_playlist_entries(PLAYLISTS / "Keeper.m3u") == [str(first)], (
+    "a move onto a playlist that had gone emptied the one it came from"
+)
+
+# A missing source is not a failure at all: the track landed where it was
+# going, and there is nothing left to take it out of. Said rather than passed
+# over, because the rail is about to lose the row it was dragged from.
+painted = deleted_under_us()
+deleted._move_track_between("Vanished", "Keeper", track_for(second))
+assert deleted.toasts[-1].startswith(
+    "Moved to Keeper · Vanished is no longer there"
+), deleted.toasts
+assert gui.read_playlist_entries(PLAYLISTS / "Keeper.m3u") == [
+    str(first),
+    str(second),
+], gui.read_playlist_entries(PLAYLISTS / "Keeper.m3u")
+assert not (PLAYLISTS / "Vanished.m3u").exists(), "a move revived a playlist"
+gui.delete_local_playlist(PLAYLISTS / "Keeper.m3u")
+
+# A download reports back rather than toasting, and it has the same two things
+# to say: the playlist it was fetched for is gone, and the rail still says it
+# is not.
+painted = deleted_under_us()
+outcome = deleted._add_download_to_playlist("Vanished", "", [str(first)])
+assert outcome == "Downloaded, but Vanished is no longer there", outcome
+assert deleted.repaints > painted, "the rail kept offering a playlist that had gone"
+assert not (PLAYLISTS / "Vanished.m3u").exists(), "a download revived a playlist"
+
+# The window's own list can be the stale one instead of the folder's: a menu
+# is built from what the rail is showing, so one opened over a playlist that
+# has been deleted since is pressed against a name nothing answers to any
+# more. Found a step earlier than the edit finds it, and worth the same
+# answer: a menu that closed on nothing leaves the rail exactly as wrong.
+stale_menu = FakeWindow()
+stale_menu.library_tracks([first, second])
+painted = stale_menu.repaints
+stale_menu._remove_track_from_playlist("Never Listed", track_for(first))
+assert stale_menu.toasts[-1] == "There is no playlist called Never Listed", (
+    stale_menu.toasts
+)
+assert stale_menu.repaints > painted, "the rail kept offering a playlist that had gone"
+
+painted = stale_menu.repaints
+stale_menu._move_track_between("Never Listed", "Nor This", track_for(first))
+assert stale_menu.toasts[-1] == "That playlist is no longer there", stale_menu.toasts
+assert stale_menu.repaints > painted, "the rail kept offering a playlist that had gone"
+
+painted = stale_menu.repaints
+stale_menu._add_result_to_playlist("Never Listed", result)
+assert stale_menu.toasts[-1] == "There is no playlist called Never Listed", (
+    stale_menu.toasts
+)
+assert stale_menu.repaints > painted, "the rail kept offering a playlist that had gone"
+assert stale_menu.downloads == [], (
+    "a download started for a playlist there was nothing to add it to"
+)
 
 gui.volume_identity = original_volume_identity
 

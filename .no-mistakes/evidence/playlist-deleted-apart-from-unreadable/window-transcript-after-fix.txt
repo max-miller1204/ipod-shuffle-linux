@@ -1,0 +1,17 @@
+rail as the user sees it: ['Gym', 'On A Drive', 'Road Trip']
+screenshot: after-1-before.png
+--- another program deletes Road Trip.m3u ---
+rail still offering: ['Gym', 'On A Drive', 'Road Trip']
+Add to playlist -> Road Trip says: 'There is no playlist called Road Trip'
+rail afterwards: ['Gym', 'On A Drive']
+screenshot: after-2-deleted-playlist.png
+--- On A Drive is left pointing at an unplugged drive ---
+Add to playlist -> On A Drive says: 'Could not read On A Drive'
+rail afterwards: ['Gym', 'On A Drive']
+screenshot: after-3-unreadable-playlist.png
+--- Road Trip is listed again, then deleted again ---
+Gym holds before the drag: ['/tmp/ipod-deleted-playlist-s8z9eu5l/Music/Reps/Barbell.mp3']
+drag Gym -> Road Trip says: 'There is no playlist called Road Trip'
+Gym holds after the drag: ['/tmp/ipod-deleted-playlist-s8z9eu5l/Music/Reps/Barbell.mp3']
+screenshot: after-4-drag-onto-deleted-playlist.png
+playlist folder now holds: ['Gym.m3u', 'On A Drive.m3u']

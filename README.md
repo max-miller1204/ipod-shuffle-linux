@@ -722,6 +722,7 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - Taking the last song out of a playlist leaving the list on the device, pointing at nothing
 - An edit that moved a track between playlists staging only the playlist it landed in, so the one it left synced with the track still listed
 - A playlist shortened by another program reporting the next drag as a write that failed, sending the user to check the permissions on a folder that was perfectly writable
+- A playlist another program deleted while its rows were on screen reporting the next edit as a read that failed, so the rail went on offering a list that was gone while the user was sent to a folder that was perfectly readable
 - An import refusing a name it had chosen itself rather than moving to the next free one, so pressing Import again produced the same rejected name for as long as the file holding it sat there
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.

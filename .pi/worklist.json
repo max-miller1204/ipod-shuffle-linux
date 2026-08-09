@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 121,
+  "revision": 124,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -174,11 +174,12 @@
     {
       "id": "answer-a-deleted-playlist-apart-from",
       "title": "Answer a deleted playlist apart from one that could not be read",
-      "description": "playlist_contents catches every OSError alike, so a playlist another program deleted while its rows are on screen answers complete=False and the window says it could not write - sending the user to check permissions on a folder that is perfectly writable, while the rail keeps showing a playlist that is gone. Making playlist_contents answer FileNotFoundError apart from a genuine read failure closes it for add_entries, remove_entry and move_entry at once, rather than at each of the three edit sites. A deleted playlist should repaint, the way a vanished row already does; a real read failure should keep saying so. Raised by review on playlist-edit-failure-wording, which fixed the shortened-file half of the same symptom. Deliberate and module-wide today: tests/gui-playlists.py asserts the current answer for add_entries on a deleted file, so those assertions move with the change.",
-      "status": "open",
+      "description": "playlist_contents catches every OSError alike, so a playlist another program deleted while its rows are on screen answers complete=False and the window says it could not write - sending the user to check permissions on a folder that is perfectly writable, while the rail keeps showing a playlist that is gone. Making playlist_contents answer FileNotFoundError apart from a genuine read failure closes it for add_entries, remove_entry and move_entry at once, rather than at each of the three edit sites. A deleted playlist should repaint, the way a vanished row already does; a real read failure should keep saying so. Raised by review on playlist-edit-failure-wording, which fixed the shortened-file half of the same symptom. Deliberate and module-wide today: tests/gui-playlists.py asserts the current answer for add_entries on a deleted file, so those assertions move with the change.\n\nDone 2026-08-08. Told apart in playlist_contents, which closes it for add_entries, remove_entry and move_entry at once: every edit here begins by reading the list it is about to rewrite, so that read is the one place the missing file is met. The three of them answer PLAYLIST_GONE, a second falsy sentinel beside TARGET_GONE - both are now one _Gone class with two named singletons, and identity is what keeps a playlist that has gone from being read as the row it was dropped on having gone.\n\nThe error is not what tells them apart, which is the trap the naive fix falls into. A playlist symlinked onto a drive that is not plugged in raises FileNotFoundError exactly as a deleted one does, and it is still sitting in the folder - so the directory entry is asked instead, with lstat rather than a read. Only a definite nothing-is-at-that-path answers PLAYLIST_GONE: a folder that cannot be stat'ed leaves it unanswered, and unanswered keeps the old answer, because taking a playlist off the rail claims more than saying it could not be read does.\n\nThe window repaints and names the playlist for every edit that meets one: adding, removing, reordering, either end of a move, and a download landing in a playlist. A move whose source has gone is not a failure at all - the track arrived where it was going and there is nothing left to take it out of - so it reports the move and says the source has gone. The move's target mattered more than a wrong sentence: PLAYLIST_GONE is not None, so without the check the old test fell through and removed the track from the source it had never landed beside. Three stale-cache siblings were answered the same way while they were open, being the same thing found one step earlier from the window's own list: removing a track was silent, and the move and the YouTube add left the vanished playlist on the rail.\n\nReproduced before the fix and verified after it against the real window under a display, with real widgets and no stand-in: the rail loses the row and the toast reads There is no playlist called Road Trip, where the same script got Could not read Road Trip and a rail that still held it. Every new check was mutation-tested, including the FileNotFoundError-alone fix, which fails on the unplugged drive, and the dropped target check, which silently empties the source playlist. The assertions tests/gui-playlists.py made about the old answer moved with the change. Full product-e2e.sh passes, 69 checks.",
+      "status": "done",
       "createdAt": "2026-08-06T23:00:08.764Z",
-      "updatedAt": "2026-08-07T22:20:08.959Z",
-      "group": "UI"
+      "updatedAt": "2026-08-09T00:06:02.931Z",
+      "group": "UI",
+      "completedAt": "2026-08-09T00:06:02.931Z"
     },
     {
       "id": "add-covers-to-playlists",
