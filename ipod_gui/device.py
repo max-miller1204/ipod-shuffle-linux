@@ -401,8 +401,15 @@ def speakable_id(name):
     playlist can be announced therefore means deriving the id and looking for
     that file - a WAV named after the playlist would be a file the firmware
     never reads.
+
+    Names arrive decoded from a FAT volume, and a volume mounted under a
+    non-UTF-8 iocharset hands back bytes no UTF-8 decode accepts, escaped into
+    lone surrogates. Encoding those back the way they were decoded hashes the
+    bytes actually on the volume; encoding strictly would raise instead, on the
+    thread the whole device reading runs on.
     """
-    digest = hashlib.md5(name.encode("utf-8"), usedforsecurity=False).digest()[:8]
+    encoded = name.encode("utf-8", "surrogateescape")
+    digest = hashlib.md5(encoded, usedforsecurity=False).digest()[:8]
     return "".join(f"{byte:02x}" for byte in reversed(digest))
 
 

@@ -1027,6 +1027,29 @@ assert volume_probe.spoken == {"party"}, volume_probe.spoken
 assert volume_probe.track_count == 1, volume_probe.track_count
 assert volume_probe.usage is not None, volume_probe.usage
 
+# A playlist whose name holds a byte no UTF-8 decode accepts, as a FAT volume
+# mounted under a non-UTF-8 iocharset hands one back. Deriving an id from it
+# has to answer, because the probe runs on a worker thread whose only reply to
+# the window is the reading it returns: a raise there leaves the window on the
+# searching page for as long as the device stays plugged in.
+with open(os.path.join(os.fsencode(fake_volume), b"Caf\xe9.m3u"), "wb") as handle:
+    handle.write(b"#EXTM3U\n")
+gui.find_ipods = lambda: [str(fake_volume)]
+try:
+    undecodable_probe = gui.probe_device()
+finally:
+    gui.find_ipods = original_find_ipods
+assert undecodable_probe.readable is True, undecodable_probe.readable
+assert [name for name, _entries in undecodable_probe.playlists] == [
+    "Caf\udce9",
+    "Party",
+    "Radio",
+    "mix..v2",
+], undecodable_probe.playlists
+# Still the one recording on the volume: the unreadable name has none, and it
+# did not take the rest of the answer down with it.
+assert undecodable_probe.spoken == {"party"}, undecodable_probe.spoken
+
 # ------------------------------------------------------------------ youtube
 
 assert gui.is_downloadable_url("https://www.youtube.com/watch?v=abc")
