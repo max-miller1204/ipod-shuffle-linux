@@ -860,9 +860,15 @@ class LibraryViewMixin:
         # What pressing it would actually stage: neither what is already on the
         # device nor what is already waiting to be. Offering to queue a record
         # every row of which reads "Queued" is a button whose only answer is
-        # that there was nothing to do.
+        # that there was nothing to do. A previewed track is left out for a
+        # different reason: it is not a file the sync can be pointed at yet,
+        # because it sits in the cache the pruner empties rather than in a
+        # music folder, and keeping it is what moves it into one. That is its
+        # own row's Add, and this button stages what it is given directly.
         missing = [
-            t for t in tracks if not t.on_ipod and t.state != STATE_QUEUED
+            t
+            for t in tracks
+            if not t.on_ipod and t.state not in (STATE_QUEUED, STATE_PREVIEW)
         ]
         if missing and self.mount_point:
             add_all = Gtk.Button(label=f"Queue {plural(len(missing), 'track')}")

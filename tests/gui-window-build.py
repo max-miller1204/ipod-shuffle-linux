@@ -202,6 +202,16 @@ def library_track(path, title, album, state=None):
     )
 
 
+def album_queue_buttons(window):
+    """What the album page is offering to stage, in its own words."""
+    return [
+        found
+        for found in walk(window.album_actions)
+        if isinstance(found, Gtk.Button)
+        and (found.get_label() or "").startswith("Queue ")
+    ]
+
+
 def check_queued_state(window):
     """The fourth state, from the merge that decides it to the pill.
 
@@ -469,6 +479,105 @@ def check_queued_outside_the_library(window):
     window.mount_point = None
     window.device_identity = None
     window.library.tracks = []
+    window._library_scan_tracks = {}
+    window._merge_states()
+    window._populate_albums()
+
+
+def check_album_bulk_queue_leaves_previews(window):
+    """The album page's "Queue N tracks", over a record holding a preview.
+
+    A previewed download sits in the cache the pruner empties and in no music
+    folder, so it is not yet a file the sync can be pointed at: keeping it is
+    what moves it into one, and that is the row's own Add. This button stages
+    what it is handed, straight to the queue, so a preview left in its list
+    would be staged out of the cache - and the merge builds a track for every
+    staged path no music folder holds, which would then draw the same download
+    twice over: once "Previewed only" offering Add, once "Queued" offering
+    Unqueue, counted twice by every pill above them.
+
+    Driven through the real button rather than the filter behind it, because
+    what is wrong in that case is what the page offers to do.
+    """
+    preview_path = Path(gui.PREVIEW_CACHE, "Road Song.mp3")
+    preview_path.parent.mkdir(parents=True, exist_ok=True)
+    preview_path.write_bytes(b"a download kept only in the cache")
+    preview = library_track(
+        str(preview_path), "Road Song", "Night Drive", gui.STATE_PREVIEW
+    )
+    kept_path = Path(_SANDBOX, "Music", "Night Drive", "Kept Song.mp3")
+    kept_path.parent.mkdir(parents=True, exist_ok=True)
+    kept_path.write_bytes(b"a song a music folder holds")
+    held = library_track(str(kept_path), "Kept Song", "Night Drive")
+    window.library.tracks = [held]
+    window._library_scan_tracks = {held.path: held}
+    window.library.previews = [preview]
+    window.mount_point = "/media/alex/iPod"
+    window.device_identity = "fixture-ipod"
+    window.device_tracks = []
+    window._merge_states()
+    window._populate_albums()
+
+    album = next(
+        (a for a in window.library.albums() if a.title == "Night Drive"), None
+    )
+    if album is None or len(album.tracks) != 2:
+        failures.append(
+            "the fixture never built one record out of the previewed download "
+            f"and the song beside it: {album and [t.path for t in album.tracks]}"
+        )
+        return
+    window._show_album(album)
+
+    offered = [button.get_label() for button in album_queue_buttons(window)]
+    if offered != ["Queue 1 track"]:
+        failures.append(
+            f"the album page offers {offered!r} over a record whose two tracks "
+            "are one previewed download and one file in a music folder, when "
+            "only the second is a file the next sync could copy"
+        )
+    for button in album_queue_buttons(window):
+        button.emit("clicked")
+    if window.pending != {held.path}:
+        failures.append(
+            f"queueing the album staged {sorted(window.pending)}, rather than "
+            "only the track a music folder holds"
+        )
+    drawn = [
+        track
+        for track in window.library.all_tracks()
+        if track.path == str(preview_path)
+    ]
+    if len(drawn) != 1:
+        failures.append(
+            f"the previewed download is in the library {len(drawn)} times "
+            "after the album was queued, once as the file in the cache and "
+            "once as a copy the next sync had been told to make of it"
+        )
+    elif drawn[0].state != gui.STATE_PREVIEW:
+        failures.append(
+            f"the previewed download reads {drawn[0].state!r} with nothing "
+            "having moved it out of the cache the pruner empties"
+        )
+    # Repainted by the queueing, and with the one track the sync could copy
+    # now staged there is nothing left on this record to offer.
+    still_offered = [button.get_label() for button in album_queue_buttons(window)]
+    if still_offered:
+        failures.append(
+            f"the album still offers {still_offered!r} with its one queueable "
+            "track staged, so the button is naming the previewed download"
+        )
+
+    window.show_view("library")
+    window.current_album = None
+    window.pending.clear()
+    window.pending_sources.clear()
+    window.pending_records.clear()
+    window.pending_device_identity = None
+    window.mount_point = None
+    window.device_identity = None
+    window.library.tracks = []
+    window.library.previews = []
     window._library_scan_tracks = {}
     window._merge_states()
     window._populate_albums()
@@ -748,6 +857,7 @@ def inspect(window):
 
     check_queued_state(window)
     check_queued_outside_the_library(window)
+    check_album_bulk_queue_leaves_previews(window)
     check_delete_from_library(window)
 
     # Naming a playlist and renaming one are one dialog assembled in one place,
