@@ -112,6 +112,25 @@ def local_playlist_file(root, name):
     return Path(root) / f"{name}{PLAYLIST_SUFFIX}"
 
 
+def _folder_reachable(path):
+    """Whether this folder is still there to be looked in.
+
+    stat rather than lstat, because what is wanted is the folder and not the
+    entry naming it: a Music folder symlinked onto a drive that has been
+    unplugged is an entry that is perfectly present and names nothing, and
+    nothing is what a playlist inside it would be read out of.
+
+    Any error at all is a no, the same way only a definite no counts below.
+    Both questions are asked for permission to make the larger claim, so both
+    answer no when they cannot be sure.
+    """
+    try:
+        os.stat(path)
+    except OSError:
+        return False
+    return True
+
+
 def _entry_missing(path):
     """Whether nothing at all sits at this path.
 
@@ -125,11 +144,18 @@ def _entry_missing(path):
     this unanswered, and unanswered is not gone: taking a playlist off the
     rail claims more than saying it could not be read does, so the doubt goes
     to the smaller claim.
+
+    Which is why the folder is asked as well, and not only the entry. An
+    ENOENT names the whole path rather than the last name in it, so a Music
+    folder that has gone - unplugged with the drive it was symlinked onto -
+    answers "nothing is at that path" about every playlist the user owns,
+    while all of them are sitting on the drive. The entry is missing only
+    where there is a folder that could have held it.
     """
     try:
         os.lstat(path)
     except FileNotFoundError:
-        return True
+        return _folder_reachable(Path(path).parent)
     except OSError:
         return False
     return False

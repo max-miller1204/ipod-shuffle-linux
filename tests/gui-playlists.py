@@ -216,6 +216,32 @@ if os.geteuid() != 0:
         assert gui.add_entries(shut / "Locked Away.m3u", [str(second)]) is None
     finally:
         shut.chmod(0o700)
+
+# A folder that is not there at all is the same unanswered question, and the
+# one that matters most: an ENOENT names the whole path rather than the last
+# name in it, so a playlist inside a folder that has gone reports exactly what
+# a deleted playlist reports, and the playlists in it have gone nowhere. The
+# entry is missing only where there is a folder that could have held it, so
+# these keep the "could not read" answer and stay on the rail. Nothing here
+# depends on permission bits, so it means the same thing whoever runs it.
+missing_folder = Path(tempfile.mkdtemp(prefix="unlisted-")) / "Music"
+in_missing = missing_folder / "On The Drive.m3u"
+assert gui.playlist_contents(in_missing) == ([], False), (
+    "a playlist in a folder that was not there was called deleted"
+)
+assert gui.add_entries(in_missing, [str(second)]) is None
+assert not missing_folder.exists(), "an edit rebuilt a folder that had gone"
+# The way the user meets that, which is the drive under it being unplugged:
+# the folder is an entry that is still perfectly there and names nothing.
+unplugged_folder = Path(tempfile.mkdtemp(prefix="unplugged-")) / "Music"
+unplugged_folder.symlink_to("/nowhere/mounted/Music")
+on_drive = unplugged_folder / "On The Drive.m3u"
+assert gui.playlist_contents(on_drive) == ([], False), (
+    "a playlist behind an unplugged drive was called deleted"
+)
+assert gui.add_entries(on_drive, [str(second)]) is None
+assert not on_drive.exists(), "an edit wrote where the drive should be"
+
 # A playlist whose entries are readable but whose files have gone is a
 # different thing again, and still perfectly editable.
 assert gui.playlist_contents(created) == ([str(first)], True)
