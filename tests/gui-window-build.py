@@ -348,6 +348,17 @@ def check_queued_outside_the_library(window):
         )
     if not window.queued_row.get_visible():
         failures.append("the sidebar never said a staged folder was queued")
+    elif window.queued_label.get_text() != "+1.5 KB queued to sync":
+        # 520 bytes and 1040, the two files written above. Read rather than
+        # taken on trust from the row being visible, which says only that
+        # something is staged and would say it just as readily of nothing:
+        # the size is what the merge stats each staged file for, and a stat
+        # that failed would leave the row up saying "+0 B queued to sync".
+        failures.append(
+            f"the sidebar reads {window.queued_label.get_text()!r} beside "
+            "1560 bytes of staged files, so the size the merge stages is not "
+            "the size the sidebar is agreeing with"
+        )
 
     # The grid counts records, and the two staged tracks are one of them.
     if pill_text(window, gui.STATE_QUEUED) != "Queued 1":
