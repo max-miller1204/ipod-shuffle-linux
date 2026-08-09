@@ -795,11 +795,17 @@ class LibraryViewMixin:
         # the one line this deletion took out of it.
         self.unqueue_deleted_path(track.path)
         self._forget_files([track.path])
+        # Everything the deletion changed, painted once here rather than a
+        # piece at a time as each of them is taken out.
         self._merge_states()
+        self._populate_device_summary()
         self._refresh_current_view()
         # The playlists that listed it, and the covers they were taking from
         # it, are both drawn from the library this has just changed.
         self._populate_playlist_rail()
+        # So is what Device & Settings says each music folder holds, whose
+        # whole job is to count the files under a root this has just shortened.
+        self._populate_folders()
 
     def _show_album(self, album):
         self.current_album = album

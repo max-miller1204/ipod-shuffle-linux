@@ -292,6 +292,14 @@ def check_delete_from_library(window):
     window.pending_sources = {track.path: {track.path}}
     window._merge_states()
     window._populate_albums()
+    # Device & Settings counts what each music folder holds, painted here the
+    # way a finished scan paints it so the deletion is what changes it next.
+    window._populate_folders()
+    if "1 file" not in menu_text(window.folder_list):
+        failures.append(
+            "the music folder card never counted the song about to be deleted: "
+            f"{menu_text(window.folder_list)}"
+        )
 
     menu = window.track_menu(track)
     row = find_button(menu.get_child(), "Delete from library…")
@@ -334,6 +342,13 @@ def check_delete_from_library(window):
     if window.pending or window.pending_sources:
         failures.append(
             f"the deleted track is still queued for the next sync: {window.pending}"
+        )
+    # Nothing else repaints that card until the next scan, so a deletion that
+    # does not do it leaves Device & Settings counting a song that has gone.
+    if "0 files" not in menu_text(window.folder_list):
+        failures.append(
+            "Device & Settings still counts the deleted song under its music "
+            f"folder: {menu_text(window.folder_list)}"
         )
     if album_cards(window):
         failures.append("the album grid still holds the record it was the whole of")

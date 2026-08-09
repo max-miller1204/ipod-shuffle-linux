@@ -483,6 +483,8 @@ class FakeWindow:
         self.downloads = []
         self.forgotten = []
         self.repaints = 0
+        self.refreshes = 0
+        self.folder_repaints = 0
         self._library_scan_tracks = {}
         self._load_local_playlists()
 
@@ -510,7 +512,10 @@ class FakeWindow:
         pass
 
     def _refresh_current_view(self):
-        pass
+        self.refreshes += 1
+
+    def _populate_folders(self):
+        self.folder_repaints += 1
 
     def _update_device_controls(self):
         pass
@@ -574,6 +579,7 @@ class FakeWindow:
     unqueue_deleted_path = gui.IpodWindow.unqueue_deleted_path
     _forget_deleted_track = gui.IpodWindow._forget_deleted_track
     _prune_pending = gui.IpodWindow._prune_pending
+    _drop_unclaimed = gui.IpodWindow._drop_unclaimed
     _queue_playlists = gui.IpodWindow._queue_playlists
     _scan_queued_sources = gui.IpodWindow._scan_queued_sources
     is_playlist_queued = gui.IpodWindow.is_playlist_queued
@@ -922,8 +928,22 @@ assert deleting_window.pending_sources == {
 # would be refused for want of a device and leave the deleted file queued.
 deleting_window.mount_point = None
 deleting_window.device_identity = None
+painted, counted = deleting_window.refreshes, deleting_window.folder_repaints
 deleting_window._forget_deleted_track(track_for(doomed))
 deleting_window._forget_deleted_track(track_for(alone))
+# One repaint per deletion. A deletion changes the library, the queue and the
+# player, and each of them painting as it is edited rebuilds every card in the
+# grid again for the same one song.
+assert deleting_window.refreshes - painted == 2, (
+    f"two deletions repainted the library {deleting_window.refreshes - painted} "
+    "times"
+)
+# Including the card that counts what each music folder holds, which is drawn
+# from the library this has just shortened and is repainted nowhere else until
+# the next scan: left out, Device & Settings keeps the old count on screen.
+assert deleting_window.folder_repaints - counted == 2, (
+    "a deletion left the music folder counts as they were"
+)
 assert deleting_window.pending_sources == {
     road_trip: {road_trip, str(spared)}
 }, deleting_window.pending_sources

@@ -137,10 +137,22 @@ class QueueMixin:
             self._prune_pending()
 
     def _prune_pending(self):
-        """Forget whatever no source claims any more, and repaint.
+        """Forget whatever no source claims any more, and repaint."""
+        self._drop_unclaimed()
+        self._merge_states()
+        self._populate_device_summary()
+        self._refresh_current_view()
+
+    def _drop_unclaimed(self):
+        """The bookkeeping half of `_prune_pending`, for a caller that repaints.
 
         The queue is its sources: a track is staged because something staged
         it, so dropping the last source that named one drops the track with it.
+
+        Apart from the repaint because a caller that changes more than the
+        queue - the deletion, which takes a song out of the library, the queue
+        and the player in one press - paints once at the end over everything it
+        changed, rather than once here in the middle and again after.
         """
         owned = (
             set().union(*self.pending_sources.values())
@@ -155,9 +167,6 @@ class QueueMixin:
         }
         if not self.pending_sources:
             self.pending_device_identity = None
-        self._merge_states()
-        self._populate_device_summary()
-        self._refresh_current_view()
 
     def _pending_change_count(self):
         return self._pending_accounting()[1]
@@ -363,6 +372,10 @@ class QueueMixin:
         unplug and a song can be deleted with no iPod attached: asking to queue
         would refuse for want of a device and leave the deleted file staged for
         the next sync to fail on.
+
+        The caller repaints. A deletion is the library, the queue and the
+        player at once, and the window it leaves behind is the one its own last
+        repaint paints.
         """
         key = str(path)
         for source, members in list(self.pending_sources.items()):
@@ -371,7 +384,7 @@ class QueueMixin:
             members.discard(key)
             if not members:
                 self.pending_sources.pop(source, None)
-        self._prune_pending()
+        self._drop_unclaimed()
 
     # ------------------------------------------------------ the sync itself
 
