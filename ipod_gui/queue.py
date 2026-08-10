@@ -608,8 +608,7 @@ class QueueMixin:
         """Read a folder's tags off the main loop, then queue what it holds.
 
         Takes the path rather than choosing one, so the folder can come from
-        anywhere: the library's own music roots today, and whatever drives this
-        window from outside it later.
+        whatever drives this window from outside it.
         """
         self.source_generation += 1
         generation = self.source_generation

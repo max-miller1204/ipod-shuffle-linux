@@ -117,11 +117,14 @@ assert "--auto-id3-playlists" in saved_options, saved_options
 command_options = gui.IpodWindow._sync_options(FakeWindow())
 assert command_options == ["--voiceover", "--playlist-voiceover"], command_options
 
-# Without an engine to generate the recordings, asking for spoken names would
-# produce none. --forget-options clears the saved file just as passing flags
-# overwrites it, so the stale grouping goes either way.
+# The same flags on a machine with no speech engine, which records none of
+# them. Asking for less would leave the grouping above saved on the device for
+# the next bare rebuild to replay, and would rebuild the iPod without the names
+# an engine-equipped computer already recorded onto it.
 speechless_options = gui.IpodWindow._sync_options(FakeWindow(speech=False))
-assert speechless_options == ["--forget-options"], speechless_options
+assert speechless_options == ["--voiceover", "--playlist-voiceover"], (
+    speechless_options
+)
 
 print(
     json.dumps(

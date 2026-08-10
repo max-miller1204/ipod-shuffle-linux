@@ -138,7 +138,7 @@ A track that exists only on the iPod is taken off it with the row's own **Remove
 On a volume with nowhere to trash to, the deletion is refused and the app says why rather than unlinking the file behind the same word.
 
 Local music folders are configurable under **Device & Settings**, which is also where the preview cache, **Rebuild database**, **Wipe** and **Eject** live.
-That page has no options of its own: every sync groups nothing automatically, and speaks both track and playlist names whenever this machine has an engine to generate the recordings, so the playlists on the device are the ones you put there.
+That page has no options of its own: every sync asks for spoken track and playlist names and groups nothing automatically, so the playlists on the device are the ones you put there.
 The only thing the page says about it is when this machine has no speech engine to generate the recordings with, which it warns about at the top.
 Adding a folder of music is one press there and nothing else to decide: its songs join the library, and the ones you want go in the queue from the **Library** view like any others.
 
@@ -172,7 +172,8 @@ Taking such a playlist off the device is under the `⋯` beside the copy, which 
 Neither kind of playlist is sortable by column: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
 
 A playlist another program wrote is adopted by copying the `.m3u` into `~/Music/Playlists`, which is the folder the window reads: press **Refresh** and it is there among your own, an ordinary playlist you can edit from then on.
-Its entries have to name files this computer holds, since nothing rewrites them on the way in.
+Its entries have to be absolute paths to files this computer holds, since nothing rewrites them on the way in: a relative entry is read against `~/Music/Playlists` rather than the folder the list came from, and an entry naming a file that is not there is a line that finds nothing.
+Only `.m3u` is read, so a `.pls` does not appear in the window at all until it is converted.
 
 The search field at the top of the window queries two sources at once.
 Your indexed music folders answer immediately, matching every word of the query in any order across title, artist and album, so "queen rhapsody" finds a track tagged *Bohemian Rhapsody* by *Queen*.
@@ -453,9 +454,7 @@ The list is an M3U the app keeps in `~/Music/Playlists`, and syncing hands that 
 A playlist put on the device by the command above, rather than by the app, is adopted from the other end: open it under **Playlists** and press **Copy to this computer**.
 The app does not offer the folder and tag groupings at all, and passes `--voiceover --playlist-voiceover` on every sync and rebuild, so a device it has synced holds the playlists you made and can announce each of them.
 That is also what retires a grouping an earlier version of the app was told to use: the flags overwrite the saved options rather than replaying them, so the generated playlists stop after one sync.
-With no speech engine installed there is nothing to generate the recordings with, so the app passes `--forget-options` instead.
-That retires a saved grouping the same way, by clearing `iPod_Control/.sync-options` rather than overwriting it.
-It also rebuilds the database with neither voiceover flag, so a device that had been announcing its tracks and playlists stops until an engine is installed and the next sync saves the flags again.
+A machine with no speech engine passes the same two flags: the builder writes no recordings rather than failing, and reuses any it already finds on the device, so tracks copied from that machine arrive unnamed while the names an engine-equipped one recorded go on working.
 The playlist file and its tracks join the staged queue until you press **Sync**.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.

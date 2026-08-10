@@ -227,8 +227,9 @@ class DeviceViewMixin:
         icon.set_valign(Gtk.Align.START)
         warn.append(icon)
         text = label(
-            "No speech engine installed, so track and playlist names cannot "
-            "be spoken. Install pico2wave, espeak or say: the device has no "
+            "No speech engine installed, so this computer cannot record the "
+            "names every sync asks for, and tracks it copies over arrive "
+            "unnamed. Install pico2wave, espeak or say: the device has no "
             "screen, so a name it cannot read out is no name at all, and "
             "playlists stay on this computer until one is there.",
             "sf-caption",
@@ -846,11 +847,19 @@ class DeviceViewMixin:
     def _sync_options(self):
         """The flags every sync, rebuild and playlist reorder is run with.
 
-        Fixed rather than chosen. The device stores a name only as spoken
-        audio, so a name it cannot say is no name at all and both voiceovers
-        are always worth their space; and with no automatic grouping, the
-        playlists on the device are the ones that were put there rather than
-        ones a sync invented out of folder or tag names.
+        Fixed rather than chosen, and the same on every machine. The device
+        stores a name only as spoken audio, so a name it cannot say is no name
+        at all and both voiceovers are always worth their space; and with no
+        automatic grouping, the playlists on the device are the ones that were
+        put there rather than ones a sync invented out of folder or tag names.
+
+        Asked for even where nothing can record them. A missing speech engine
+        makes the builder write no recordings rather than fail, and a recording
+        already on the device is reused rather than regenerated, so a machine
+        that cannot speak leaves the names an engine-equipped one established
+        intact. Asking for less would not: the flags are also what overwrite
+        the options saved on the iPod, and a run that named none of them would
+        rebuild the device mute and take that saved state with it.
 
         Passing them explicitly is also what retires a grouping an earlier
         version was told to use: ipod-sync.sh replays iPod_Control/.sync-options
@@ -858,11 +867,4 @@ class DeviceViewMixin:
         back over that file, so a device still carrying --auto-dir-playlists
         stops grouping on its next sync without a migration to go and find it.
         """
-        if not self.speech_engine_available:
-            # Nothing to generate the recordings with, so asking for spoken
-            # names would write none and leave that request saved on the device
-            # as though it had been met. --forget-options clears the saved file,
-            # which is the same overwrite by another route: the flags above
-            # cannot be there to do it.
-            return ["--forget-options"]
         return ["--voiceover", "--playlist-voiceover"]

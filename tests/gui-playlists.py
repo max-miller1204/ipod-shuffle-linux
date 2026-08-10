@@ -1828,15 +1828,16 @@ tracks_only._launch_pending_sync()
 assert "--playlist-voiceover" in tracks_only.commands[-1]
 assert "--voiceover" in tracks_only.commands[-1]
 
-# With no speech engine there is nothing to speak a name with, so the flags are
-# not passed to a sync that would record nothing for them. --forget-options
-# goes instead, which clears whatever an earlier run saved on the device rather
-# than leaving it to be replayed by the next bare rebuild.
+# A machine with no speech engine asks for the same names, and records none of
+# them. The flags go anyway because they are also what overwrites the options
+# saved on the iPod: dropping them would clear that file and rebuild the device
+# without the names a computer that can speak had already recorded onto it.
 speechless = FakeWindow(speech=False)
 speechless.pending_sources = {str(PLAYLISTS / "Later.m3u"): {str(first)}}
 speechless._launch_pending_sync()
-assert "--playlist-voiceover" not in speechless.commands[-1]
-assert "--forget-options" in speechless.commands[-1], speechless.commands
+assert "--playlist-voiceover" in speechless.commands[-1], speechless.commands
+assert "--voiceover" in speechless.commands[-1], speechless.commands
+assert "--forget-options" not in speechless.commands[-1], speechless.commands
 
 # A download that fails after the window has moved on says so somewhere. Add
 # to a new playlist takes the user to the Playlists view while the download is
