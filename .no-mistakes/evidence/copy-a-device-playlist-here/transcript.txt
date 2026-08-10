@@ -1,0 +1,70 @@
+== the machine in the report ==
+playlist folder holds: ['Inspo.m3u']
+volume root holds: ['2000.m3u', '2016.m3u', 'Inspo.m3u', 'More alt shii.m3u', 'YN.m3u']
+rail as the user sees it: ['Inspo', '2000', '2016', 'More alt shii', 'YN']
+screenshot: 01-five-playlists-on-the-rail.png
+
+== the ⋯ on a song, pressed ==
+Add to playlist offers: ['ADD TO PLAYLIST', 'Inspo', 'Only on the iPod: 2000, 2016, More alt shii and 1 more. Open one to copy it here.', '＋  New playlist…', 'Delete from library…']
+screenshot: 02-add-menu-names-what-it-leaves-out.png
+
+== 2000, opened from the rail ==
+page note: ['3 tracks · the device can announce this playlist · only on the iPod until you copy it here']
+page buttons: ['Copy to this computer']
+screenshot: 03-a-device-playlist-offers-a-copy.png
+the ⋯ on that page holds: ['2000', 'Remove from iPod…']
+screenshot: 04-remove-from-ipod-under-the-dots.png
+
+== Copy to this computer, pressed ==
+says: '2000 copied here · 3 tracks'
+playlist folder now holds: ['2000.m3u', 'Inspo.m3u']
+2000.m3u holds:
+    ~/Music/spotify-final/Enrique Iglesias/Enrique Iglesias - Tonight.mp3
+    ~/Music/spotify-final/Taio Cruz/Taio Cruz - Break Your Heart.mp3
+    ~/Music/spotify-final/Flo Rida/Flo Rida - Wild Ones.mp3
+page buttons now: ['Add songs', 'Send to iPod']
+staged for sync by the copy: nothing
+screenshot: 05-copied-here-and-now-editable.png
+
+== the same ⋯, after the copy ==
+Add to playlist now offers: ['ADD TO PLAYLIST', '2000', 'Inspo', 'Only on the iPod: 2016, More alt shii, YN. Open one to copy it here.', '＋  New playlist…', 'Delete from library…']
+screenshot: 06-the-copied-playlist-is-offered.png
+adding it says: '1 track added to 2000 · queued for sync'
+2000.m3u now holds:
+    ~/Music/spotify-final/Enrique Iglesias/Enrique Iglesias - Tonight.mp3
+    ~/Music/spotify-final/Taio Cruz/Taio Cruz - Break Your Heart.mp3
+    ~/Music/spotify-final/Flo Rida/Flo Rida - Wild Ones.mp3
+    ~/Music/spotify-final/Grimes/Grimes - Oblivion.mp3
+
+== the sidebar, for a staged change that copies nothing ==
+Sync button: 'Sync 1 change'
+sidebar says: 'Queued to sync · no new tracks to copy'
+screenshot: 07-sidebar-queued-nothing-to-copy.png
+unplugged, sidebar says: '21.4 KB queued — reconnect the same iPod'
+
+== YN, half of which is not here ==
+page note: ['2 tracks · the device can announce this playlist · only on the iPod, with 1 track this computer does not have']
+screenshot: 08-a-partial-copy-is-counted-on-the-page.png
+dialog heading: 'Copy this playlist here?'
+dialog body: 'YN\n\nThis computer holds 1 of the 2 tracks in YN. The copy lists those, and the next sync writes it back to the iPod, so 1 track would go from the playlist there. The songs themselves stay on the iPod.'
+default response: 'cancel'
+screenshot: 09-a-partial-copy-asks-first.png
+after Cancel the folder holds: ['2000.m3u', 'Inspo.m3u']
+after Copy it says: 'YN copied here · 1 track · 1 track left on the iPod'
+YN.m3u holds:
+    ~/Music/spotify-final/Taio Cruz/Taio Cruz - Break Your Heart.mp3
+the device's own YN still holds: ['iPod_Control/Music/Taio Cruz/Taio Cruz - Break Your Heart.mp3', 'iPod_Control/Music/OT7 Quanny/OT7 Quanny - Ghost.mp3']
+screenshot: 10-yn-copied-what-it-could.png
+
+rail now: ['2000', 'Inspo', 'YN', '2016', 'More alt shii']
+Add to playlist finally offers: ['ADD TO PLAYLIST', '2000', '✓', 'Inspo', 'YN', 'Only on the iPod: 2016, More alt shii. Open one to copy it here.', '＋  New playlist…', 'Delete from library…']
+screenshot: 11-every-playlist-copied-here-is-offered.png
+
+== a row inside the copied playlist ==
+its ⋯ holds: ['MOVE TO PLAYLIST', 'Inspo', 'YN', 'Only on the iPod: 2016, More alt shii. Open one to copy it here.', '＋  New playlist…', 'Remove from 2000', 'Delete from library…']
+says: 'Removed from 2000 · queued for sync'
+2000.m3u now holds:
+    ~/Music/spotify-final/Enrique Iglesias/Enrique Iglesias - Tonight.mp3
+    ~/Music/spotify-final/Taio Cruz/Taio Cruz - Break Your Heart.mp3
+    ~/Music/spotify-final/Flo Rida/Flo Rida - Wild Ones.mp3
+screenshot: 12-the-copy-edits-like-any-other-playlist.png

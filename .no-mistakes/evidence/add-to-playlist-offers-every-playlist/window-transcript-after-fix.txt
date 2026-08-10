@@ -1,0 +1,36 @@
+playlist folder holds: ['Inspo.m3u']
+volume root holds: ['2000.m3u', '2016.m3u', 'Inspo.m3u', 'YN.m3u']
+rail as the user sees it: ['Inspo', '2000', '2016', 'YN']
+
+Add to playlist offers: ['ADD TO PLAYLIST', 'Inspo', 'Only on the iPod: 2000, 2016, YN. Open one to copy it here.', '＋  New playlist…', 'Delete from library…']
+  -> 2000 is not offered, though the rail lists it
+
+screenshot: after-add-menu.png
+Inspo page note: ['1 track · the device can announce this playlist']
+Inspo page buttons: ['Add songs', 'Send to iPod']
+screenshot: after-inspo-page.png
+2000 page note: ['3 tracks · the device can announce this playlist · only on the iPod until you copy it here']
+2000 page buttons: ['Copy to this computer']
+screenshot: after-2000-page.png
+
+screenshot: after-playlists.png
+--- Copy to this computer, pressed on 2000 ---
+says: '2000 copied here · 3 tracks'
+playlist folder now holds: ['2000.m3u', 'Inspo.m3u']
+2000.m3u holds: ['/tmp/ipod-add-to-playlist-d1vhunrw/Music/spotify-final/Enrique Iglesias/Enrique Iglesias - Tonight.mp3', '/tmp/ipod-add-to-playlist-d1vhunrw/Music/spotify-final/Taio Cruz/Taio Cruz - Break Your Heart.mp3', '/tmp/ipod-add-to-playlist-d1vhunrw/Music/spotify-final/Flo Rida/Flo Rida - Wild Ones.mp3']
+2000 page buttons: ['Add songs', 'Send to iPod']
+rail: ['2000', 'Inspo', '2016', 'YN']
+
+Add to playlist now offers: ['ADD TO PLAYLIST', '2000', '✓', 'Inspo', 'Only on the iPod: 2016, YN. Open one to copy it here.', '＋  New playlist…', 'Delete from library…']
+
+adding i just wanna be loved to 2000 says: '1 track added to 2000 · queued for sync'
+2000.m3u holds: ['/tmp/ipod-add-to-playlist-d1vhunrw/Music/spotify-final/Enrique Iglesias/Enrique Iglesias - Tonight.mp3', '/tmp/ipod-add-to-playlist-d1vhunrw/Music/spotify-final/Taio Cruz/Taio Cruz - Break Your Heart.mp3', '/tmp/ipod-add-to-playlist-d1vhunrw/Music/spotify-final/Flo Rida/Flo Rida - Wild Ones.mp3', '/tmp/ipod-add-to-playlist-d1vhunrw/Music/youtube/kobzx2z/kobzx2z - i just wanna be loved.mp3']
+screenshot: after-2000-copied.png
+
+YN page note: ['2 tracks · the device can announce this playlist · only on the iPod, with 1 track this computer does not have']
+YN page buttons: ['Copy to this computer']
+YN page caption: ['Copy to this computer']
+dialog: 'Copy this playlist here?'
+        'YN\n\nThis computer holds 1 of the 2 tracks in YN. The copy lists those, and the next sync writes it back to the iPod, so 1 track would go from the playlist there. The songs themselves stay on the iPod.'
+screenshot: after-yn-dialog.png
+after Cancel, folder holds: ['2000.m3u', 'Inspo.m3u']

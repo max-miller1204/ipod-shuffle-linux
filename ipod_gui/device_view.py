@@ -78,7 +78,14 @@ class DeviceViewMixin:
         queued_swatch.add_css_class("sf-dot")
         queued_swatch.add_css_class("ipod")
         self.queued_row.append(queued_swatch)
-        self.queued_label = label("", "sf-caption", "sf-accent")
+        # Wrapped rather than ellipsised, and rather than held to sentences
+        # short enough to fit: this card sits in a sidebar pinned to 236px, of
+        # which about 178px reach this label, and every sentence written here
+        # is longer than that - the queued size beside the iPod to reconnect,
+        # what a scan is checking, why a staged change copies nothing. An
+        # ellipsis would cut whichever half came second, and the second half
+        # is the one saying what to do about it.
+        self.queued_label = label("", "sf-caption", "sf-accent", wrap=True)
         self.queued_row.append(self.queued_label)
         self.queued_row.set_visible(False)
         inner.append(self.queued_row)
@@ -567,9 +574,15 @@ class DeviceViewMixin:
         _tracks, changes, queued_bytes = self._pending_accounting()
         if self.pending_sources:
             self.queued_row.set_visible(True)
+            # A size of zero is a reading that failed to be worked out rather
+            # than an amount, the same way round as the attached card: what is
+            # staged here is a playlist every song of which the device already
+            # holds, and the sync copies no bytes for it.
             self.queued_label.set_text(
                 f"{human_size(queued_bytes)} queued "
                 "— reconnect the same iPod"
+                if queued_bytes
+                else "No new tracks to copy — reconnect the same iPod"
             )
             self.sync_button.set_label(
                 f"Sync {plural(changes, 'change')}"
@@ -624,8 +637,15 @@ class DeviceViewMixin:
 
         if self.pending_sources:
             self.queued_row.set_visible(True)
+            # The row reports what the sync would add to the device, and a
+            # change that adds nothing is routine rather than a figure of
+            # zero: editing a playlist every song of which is already over
+            # there stages the list and not one byte, and "+0 B queued to
+            # sync" reads as a size that failed to be worked out.
             self.queued_label.set_text(
                 f"+{human_size(queued_bytes)} queued to sync"
+                if queued_bytes
+                else "Queued to sync · no new tracks to copy"
             )
             self.sync_button.set_label(f"Sync {plural(changes, 'change')}")
             self.sync_button.set_sensitive(not self.busy)

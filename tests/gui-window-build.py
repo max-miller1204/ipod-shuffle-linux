@@ -718,6 +718,252 @@ def check_delete_from_library(window):
     window._populate_albums()
 
 
+def check_copying_a_device_playlist(window):
+    """A playlist that arrived from somewhere else, made one of ours.
+
+    The window shows two kinds of playlist and can only edit one of them, so
+    the list a track's ⋯ offers is not the list on the rail - which is how a
+    window showing five playlists came to offer one when a song was added.
+    Driven through the real widgets because the whole finding was about what
+    a menu had in it: the sentence naming what is missing, the button that
+    fixes it, and the row that appears in that menu afterwards.
+    """
+    entry = "The Fixture/Roadside.mp3"
+    stranger = "The Fixture/Stranger.mp3"
+    here = library_track("/music/The Fixture/Roadside.mp3", "Roadside", "Roads")
+    window.library.tracks = [here]
+    window._library_scan_tracks = {here.path: here}
+    window.device_tracks = [
+        gui.Track(
+            f"/media/fixture/iPod_Control/Music/{entry}",
+            {"title": "Roadside", "album": "Roads", "artist": "The Fixture"},
+            gui.STATE_IPOD,
+            relpath=entry,
+        ),
+        # A song that reached the iPod from another machine: the device holds
+        # it and this computer does not, so the copy cannot carry it.
+        gui.Track(
+            f"/media/fixture/iPod_Control/Music/{stranger}",
+            {"title": "Stranger", "album": "Roads", "artist": "The Fixture"},
+            gui.STATE_IPOD,
+            relpath=stranger,
+        ),
+    ]
+    window.pending = set()
+    window.pending_sources = {}
+    # Both readings a copy is resolved from have landed, which is what the
+    # window is in once a scan finishes - and what the block below takes away
+    # one at a time.
+    window._library_scan_running = False
+    window._device_snapshot_ready = True
+    window._merge_states()
+    window.playlists = [("Road Trip", [entry, stranger])]
+    window._populate_playlist_rail()
+
+    said = menu_text(window.track_menu(here).get_child())
+    if "Only on the iPod: Road Trip" not in said:
+        failures.append(
+            "the add menu left out the playlist on the iPod without saying so: "
+            f"{said}"
+        )
+
+    # Before any of it can be answered: this page is repainted on every batch
+    # a library scan publishes, and again from the probe with device_tracks
+    # still empty, and in both states every entry resolves to nothing. The
+    # copy is what a later sync writes back and create_local_playlist will not
+    # overwrite it, so a press taken here is a permanently short playlist on
+    # the device. The page has to refuse to answer rather than answer wrong.
+    # Each of the two names the reading it is actually waiting for: they are
+    # not the same wait, and a plug-in with a fully scanned library waits only
+    # on the second.
+    for flag, value, named in (
+        ("_library_scan_running", True, "your music folders"),
+        ("_device_snapshot_ready", False, "the tracks on the iPod"),
+    ):
+        was = getattr(window, flag)
+        setattr(window, flag, value)
+        window._select_playlist("Road Trip")
+        mid_scan = find_button(window.playlist_actions, "Copy to this computer")
+        if mid_scan is not None and mid_scan.get_sensitive():
+            failures.append(
+                f"the copy was pressable with {flag}={value}, which resolves "
+                "every entry to nothing"
+            )
+        reading = menu_text(window.playlist_voice_note)
+        if f"still reading {named}" not in reading:
+            failures.append(
+                f"with {flag}={value} the note reads {reading!r} rather than "
+                f"naming {named!r} as what it is waiting for"
+            )
+        standing_mid = window.get_visible_dialog()
+        asked = window.on_copy_playlist_here("Road Trip")
+        opened = window.get_visible_dialog()
+        if asked is not None or opened is not standing_mid:
+            # The truncation is confirmed rather than silent: the dialog states
+            # a count off the half-read library, and answering it writes that
+            # count down. So the press must not get as far as asking.
+            failures.append(
+                f"a copy pressed with {flag}={value} asked "
+                f"{opened.get_body()!r} off a partial reading"
+                if isinstance(opened, Adw.AlertDialog)
+                else f"a copy pressed with {flag}={value} returned {asked!r}"
+            )
+            if isinstance(opened, Adw.AlertDialog):
+                opened.force_close()
+        written = gui.local_playlist_file(gui.PLAYLIST_LIBRARY, "Road Trip")
+        if written.exists():
+            failures.append(
+                f"a copy pressed with {flag}={value} wrote "
+                f"{gui.read_playlist_entries(written)}"
+            )
+            gui.delete_local_playlist(written)
+        setattr(window, flag, was)
+
+    window._select_playlist("Road Trip")
+    copy = find_button(window.playlist_actions, "Copy to this computer")
+    if copy is None:
+        failures.append(
+            "a device playlist whose songs are here offers no way to copy it: "
+            f"{menu_text(window.playlist_actions)}"
+        )
+        return
+    if not copy.get_sensitive():
+        failures.append("the copy was refused for a playlist half of which is here")
+    # In the note rather than beside the buttons, where a third control would
+    # put this page past the width the window advertises. Read all the same:
+    # what a copy cannot carry is the one thing about it worth knowing before
+    # pressing anything.
+    said_above = menu_text(window.playlist_voice_note)
+    if "1 track this computer does not have" not in said_above:
+        failures.append(
+            f"the page never said what the copy would leave behind: {said_above}"
+        )
+    # Taking a playlist off the device is the thing on this page that choosing
+    # again does not undo, so it is in the ⋯ where the rest of those live -
+    # and it has to still be reachable, not merely moved out of the row.
+    opener = next(
+        (
+            found
+            for found in walk(window.playlist_actions)
+            if isinstance(found, Gtk.MenuButton)
+        ),
+        None,
+    )
+    if opener is None or not opener.get_sensitive():
+        failures.append("a device playlist's page carries no ⋯ to press")
+    else:
+        under_it = window._playlist_actions_menu("Road Trip")
+        if find_button(under_it.get_child(), "Remove from iPod…") is None:
+            failures.append(
+                "a device playlist's ⋯ offers no way to take it off the iPod: "
+                f"{menu_text(under_it.get_child())}"
+            )
+        if find_button(under_it.get_child(), "Rename…") is not None:
+            failures.append(
+                "a device playlist's ⋯ offers a rename, which needs a file "
+                "here to rename and would do nothing"
+            )
+
+    standing = window.get_visible_dialog()
+    copy.emit("clicked")
+    dialog = window.get_visible_dialog()
+    if dialog is standing or not isinstance(dialog, Adw.AlertDialog):
+        failures.append(f"a copy that leaves a track behind opened {dialog!r}")
+        return
+    body = dialog.get_body()
+    for expected in ("Road Trip", "1 of the 2 tracks", "stay on the iPod"):
+        if expected not in body:
+            failures.append(f"the copy dialog never mentions {expected!r}: {body!r}")
+    if dialog.get_default_response() != "cancel":
+        failures.append(
+            f"the copy dialog defaults to {dialog.get_default_response()!r}"
+        )
+    dialog.emit("response", "copy")
+    dialog.force_close()
+
+    copied = gui.local_playlist_file(gui.PLAYLIST_LIBRARY, "Road Trip")
+    if gui.read_playlist_entries(copied) != [here.path]:
+        failures.append(
+            f"the copy holds {gui.read_playlist_entries(copied)} rather than the "
+            "file this computer answers for"
+        )
+    if window.pending_sources:
+        failures.append(
+            "copying a playlist the device already holds staged a sync: "
+            f"{window.pending_sources}"
+        )
+    if find_button(window.playlist_actions, "Add songs") is None:
+        failures.append(
+            "the copied playlist is still shown as one that cannot be edited: "
+            f"{menu_text(window.playlist_actions)}"
+        )
+    offered = window.track_menu(here)
+    if find_button(offered.get_child(), "Road Trip") is None:
+        failures.append(
+            "the copied playlist is still not offered when a song is added: "
+            f"{menu_text(offered.get_child())}"
+        )
+    if "Only on the iPod" in menu_text(offered.get_child()):
+        failures.append(
+            "the menu still names the playlist as one only the iPod has: "
+            f"{menu_text(offered.get_child())}"
+        )
+
+    # Editing a copied playlist stages a change that copies nothing, because
+    # every song in it is already on the device - the ordinary case for a list
+    # that came off one. The sidebar reports what the sync would add, and a
+    # size of zero reads as a figure that failed to be worked out rather than
+    # as a playlist being rewritten.
+    window.mount_point = "/media/alex/iPod"
+    window.device_identity = "fixture-ipod"
+    window.pending = {here.path}
+    window.pending_sources = {str(copied): {here.path}}
+    window.pending_records = {}
+    window._merge_states()
+    window._populate_device_summary()
+    if window.sync_button.get_label() != "Sync 1 change":
+        failures.append(
+            f"the Sync button reads {window.sync_button.get_label()!r} with a "
+            "playlist staged whose songs are all on the device"
+        )
+    if window.queued_label.get_text() != "Queued to sync · no new tracks to copy":
+        failures.append(
+            f"the sidebar reads {window.queued_label.get_text()!r} for a change "
+            "that copies nothing"
+        )
+    # The same reading once the iPod is unplugged. That queue outlives the
+    # unplug - _select_mount only discards one belonging to a different device
+    # - so the other writer of this row paints the same staged change, and it
+    # must not go back to calling a figure of zero a size.
+    window.mount_point = None
+    window.device_identity = None
+    window._populate_device_summary()
+    if "0 B" in window.queued_label.get_text():
+        failures.append(
+            f"the disconnected sidebar reads {window.queued_label.get_text()!r} "
+            "for a change that copies nothing"
+        )
+    if "reconnect the same iPod" not in window.queued_label.get_text():
+        failures.append(
+            "the disconnected sidebar stopped saying which iPod to reconnect: "
+            f"{window.queued_label.get_text()!r}"
+        )
+
+    gui.delete_local_playlist(copied)
+    window.mount_point = None
+    window.device_identity = None
+    window._device_snapshot_ready = False
+    window.playlists = []
+    window.device_tracks = []
+    window.library.tracks = []
+    window._library_scan_tracks = {}
+    window.pending = set()
+    window.pending_sources = {}
+    window._merge_states()
+    window._populate_playlist_rail()
+    window._populate_device_summary()
+
+
 def inspect(window):
     # Where the window says it is the moment it opens, read before anything
     # below calls show_view and answers the question for it. The stack shows
@@ -859,6 +1105,7 @@ def inspect(window):
     check_queued_outside_the_library(window)
     check_album_bulk_queue_leaves_previews(window)
     check_delete_from_library(window)
+    check_copying_a_device_playlist(window)
 
     # Naming a playlist and renaming one are one dialog assembled in one place,
     # so a break in it is a break in both, and neither is built until the user

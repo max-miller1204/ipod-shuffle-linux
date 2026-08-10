@@ -73,9 +73,11 @@ class Playlist:
     """One playlist, as its file currently reads.
 
     `path` is the M3U this app owns, or None for a playlist that exists only on
-    the device: those are shown but not edited here, because their entries name
-    scrambled four-letter files on the iPod and there is nothing local to write
-    down in their place.
+    the device: those are shown but not edited in place, because their entries
+    name scrambled four-letter files on the iPod rather than files in your
+    music folders. Such a list is copied here instead, `create_local_playlist`
+    writing those entries down again as the files they were made from, after
+    which it has a path like any other.
     """
 
     __slots__ = ("name", "path", "entries")
@@ -319,12 +321,18 @@ def unique_name(wanted, taken):
     return f"{wanted} {number}"
 
 
-def create_local_playlist(root, name):
-    """Make an empty playlist and return its file, or None if it cannot."""
+def create_local_playlist(root, name, entries=()):
+    """Make a playlist and return its file, or None if it cannot.
+
+    Empty is what naming one gives, and holding something already is what
+    copying a list off the device gives. One writer for both, because the two
+    differ in nothing else: a name that is taken is refused either way, rather
+    than overwriting a playlist that is sitting there.
+    """
     path = local_playlist_file(root, name)
     if path.exists():
         return None
-    return path if write_playlist_entries(path, []) else None
+    return path if write_playlist_entries(path, entries) else None
 
 
 def delete_local_playlist(path):

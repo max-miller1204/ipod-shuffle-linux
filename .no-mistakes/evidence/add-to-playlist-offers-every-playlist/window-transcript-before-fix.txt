@@ -1,0 +1,16 @@
+playlist folder holds: ['Inspo.m3u']
+volume root holds: ['2000.m3u', '2016.m3u', 'Inspo.m3u', 'YN.m3u']
+rail as the user sees it: ['Inspo', '2000', '2016', 'YN']
+
+Add to playlist offers: ['ADD TO PLAYLIST', 'Inspo', '＋  New playlist…', 'Delete from library…']
+  -> 2000 is not offered, though the rail lists it
+
+Inspo page note: ['1 track · the device can announce this playlist']
+Inspo page buttons: ['Add songs', 'Send to iPod']
+screenshot: before-inspo-page.png
+2000 page note: ['3 tracks · the device can announce this playlist']
+2000 page buttons: ['Remove from iPod']
+screenshot: before-2000-page.png
+
+screenshot: before-playlists.png
+this build offers no way to copy a device playlist here

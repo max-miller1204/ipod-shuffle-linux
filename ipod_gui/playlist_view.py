@@ -8,9 +8,12 @@ hands that file to ipod-sync.sh exactly as choosing a playlist file used to, so
 nothing about how a playlist reaches the device has changed.
 
 The device's own playlists are shown beside them - a folder or tag grouping the
-sync generated, or a list made on another computer. Those are read-only here,
-because their entries name scrambled four-letter files on the iPod and there is
-nothing local to write down in their place.
+sync generated, or a list made on another computer. Those are not edited in
+place, because their entries name scrambled four-letter files on the iPod
+rather than files in your music folders. Copying one here is the way out of
+that: the library has already matched every copy on the device to the file it
+was made from, so the same list is written down again as an M3U of our own,
+and from then on it is an ordinary playlist.
 
 Owns the sidebar rail, the Playlists view's rail and detail, the shelf of tiles
 at the top of the library page, the ⋯ menu every track row carries, and the
@@ -23,10 +26,11 @@ falls back to the placeholder its name generates.
 Borrows from the window: `playlists` and `spoken` as the probe left them,
 `device_tracks` and `library` to resolve an entry into a track, `mount_point`,
 `device_identity`, `busy` and `speech_engine_available` to know what can reach
-the device, and `show_view`, `_run`, `_toast`, `_confirmed_device`,
-`_sync_options`, `_queue_playlists`, `is_queued`, `unqueue_source`,
-`focus_search`, `on_delete_track` and `_keep_preview` to act on what an edit
-changed.
+the device, `_library_scan_running` and `_device_snapshot_ready` to know
+whether those two readings can be quoted yet, and `show_view`, `_run`,
+`_toast`, `_confirmed_device`, `_sync_options`, `_queue_playlists`,
+`is_queued`, `unqueue_source`, `focus_search`, `on_delete_track` and
+`_keep_preview` to act on what an edit changed.
 """
 
 from pathlib import Path
@@ -93,6 +97,21 @@ class PlaylistViewMixin:
     def _shown_playlists(self):
         return merge_with_device(self.local_playlists, self.playlists)
 
+    def _shown_playlist(self, name):
+        """The one playlist a name means on this page, or None.
+
+        The first of them, and asked here so that everything working from a
+        name picks the same row: two shown playlists can carry one name, since
+        `merge_with_device` only keeps the local names apart and a volume root
+        holding both "Gym.m3u" and "Gym.pls" is two device playlists keyed on
+        the same stem. A page reading one and a press reading the other is a
+        dialog quoting a count the page never showed.
+        """
+        for playlist in self._shown_playlists():
+            if playlist.name == name:
+                return playlist
+        return None
+
     def _local_playlist(self, name):
         folded = (name or "").casefold()
         for playlist in self.local_playlists:
@@ -103,6 +122,125 @@ class PlaylistViewMixin:
     def _playlist_on_device(self, name):
         folded = (name or "").casefold()
         return any(other.casefold() == folded for other, _entries in self.playlists)
+
+    def _playlists_only_on_device(self):
+        """The shown playlists that no file here backs, in the order shown.
+
+        The one thing a playlist made here can do that these cannot is be
+        edited, so this is who every menu offering a list of playlists is
+        leaving out - and, once copied here, who it would go on to offer.
+        """
+        return [
+            playlist
+            for playlist in self._shown_playlists()
+            if not playlist.editable
+        ]
+
+    def _still_reading(self):
+        """Which of the two readings a copy is worked out from is outstanding.
+
+        Named rather than merely counted, because the page says while refusing
+        what it is waiting for, and the two waits are not the same wait: the
+        library scan is this computer's music folders, while the device
+        snapshot is the tag read over USB that every plug-in starts and a
+        failed read leaves undone. Telling someone with a fully scanned
+        library that their music folders are being read is answering wrong in
+        a quieter way.
+
+        None once both have landed, which is the only state a figure is given
+        in.
+        """
+        if self._library_scan_running:
+            return "your music folders"
+        if not self._device_snapshot_ready:
+            return "the tracks on the iPod"
+        return None
+
+    def _entries_here_for(self, playlist):
+        """A device playlist's entries as files this computer holds.
+
+        Returns those paths in the order the device lists them, and how many
+        entries nothing here answers for - or None while either reading this
+        is drawn from is still going on.
+
+        An entry names a copy under iPod_Control/Music, and which of this
+        computer's files that copy was made from is a question the library has
+        already answered: a track claimed by the device carries the device's
+        path as its relpath, because that is what the row it draws points at.
+        So the mapping is read back off the library rather than worked out
+        again here, and a copy this computer cannot account for - a song added
+        from another machine, or one since deleted here - is counted instead
+        of guessed at.
+
+        Both of those readings arrive late, and both repaint this page while
+        they are still arriving: a library scan republishes `library.tracks`
+        in batches of 25, and `device_tracks` is empty from the probe until
+        the tag read over USB finishes, so no track is claimed at all. A count
+        taken from either is a strict undercount of what is here, and it is
+        the count a copy is offered on - so there is no figure to give until
+        both have finished, and None is that answer rather than a number the
+        caller cannot tell apart from a real one. A press is refused for the
+        same second the note refuses to quote it: the file this writes is what
+        the next sync puts back on the device, and `create_local_playlist`
+        will not overwrite it afterwards.
+        """
+        if self._still_reading() is not None:
+            return None
+        here = {}
+        for track in (*self.library.tracks, *self.library.queued_only):
+            if track.on_ipod:
+                here.setdefault(track.relpath, track.path)
+        found, missing = [], 0
+        for entry in playlist.entries:
+            path = here.get(entry)
+            if path is None:
+                missing += 1
+            else:
+                found.append(path)
+        return found, missing
+
+    def _copy_here_offer(self, playlist, resolved):
+        """What copying this device playlist here would do: one answer, thrice.
+
+        Whether the press is on offer, what the note above the buttons says
+        about it, and what the button's own tooltip says - decided together
+        because they were decided apart, and disagreed: a playlist the device
+        holds nothing in read as one with nothing missing, so the note invited
+        a press ("until you copy it here") the button was already refusing
+        ("nothing here to make a list out of").
+
+        `resolved` is what `_entries_here_for` answered, None included.
+        """
+        if resolved is None:
+            reading = self._still_reading()
+            return (
+                False,
+                f"only on the iPod · still reading {reading}",
+                f"Still reading {reading}, so what a copy would carry is not "
+                "known yet",
+            )
+        if not playlist.entries:
+            return (
+                False,
+                "empty on the iPod, so there is nothing here to copy",
+                "This playlist lists no tracks on the iPod, so there is "
+                "nothing here to make a list out of",
+            )
+        here, missing = resolved
+        note = (
+            "only on the iPod until you copy it here"
+            if not missing
+            else "only on the iPod, with "
+            f"{plural(missing, 'track')} this computer does not have"
+        )
+        if not here:
+            return (
+                False,
+                note,
+                "None of the songs in this playlist are on this computer, so "
+                "there is nothing here to make a list out of",
+            )
+        return True, note, "Make this a playlist you can edit and add songs to"
 
     def _playlists_listing(self, track):
         """The names of the playlists made here that list this file.
@@ -243,7 +381,7 @@ class PlaylistViewMixin:
         rail_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         # The stack hands every page the width of its widest one, so this rail
         # sets the floor for the whole window: at 240 it put the content pane's
-        # minimum above the 640 the window advertises, and a window narrower
+        # minimum above the 660 the window advertises, and a window narrower
         # than its own contents lays out wrong rather than clipping.
         rail_box.set_size_request(200, -1)
         # Explicitly, because both the heading and every row expand to push
@@ -437,18 +575,18 @@ class PlaylistViewMixin:
         self.shelf_section.set_visible(bool(shown))
 
     def _show_playlist(self, name):
-        playlist = None
-        for candidate in self._shown_playlists():
-            if candidate.name == name:
-                playlist = candidate
-                break
+        playlist = self._shown_playlist(name)
         if playlist is None:
             self._clear_playlist_detail()
             return
 
         self.playlist_heading.set_text(playlist.name)
-        self._fill_playlist_note(playlist)
-        self._fill_playlist_actions(playlist)
+        # The note and the Copy button ask the library the same question about
+        # a device playlist, and this page is repainted on every batch a
+        # library scan publishes, so it is asked once for the pair.
+        resolved = None if playlist.editable else self._entries_here_for(playlist)
+        self._fill_playlist_note(playlist, resolved)
+        self._fill_playlist_actions(playlist, resolved)
 
         tracks = self._playlist_tracks(playlist)
         fill_tracks(self.playlist_tracks, tracks)
@@ -462,7 +600,7 @@ class PlaylistViewMixin:
                 "device still holds."
             )
 
-    def _fill_playlist_note(self, playlist):
+    def _fill_playlist_note(self, playlist, resolved):
         clear_children(self.playlist_voice_note)
 
         state = self._playlist_state(playlist)
@@ -483,10 +621,22 @@ class PlaylistViewMixin:
             parts.append(f"{self.playlist_unavailable}, so it cannot be synced")
         else:
             parts.append("kept on this computer until you sync")
+        # Said outright rather than left to be inferred from a page with no Add
+        # songs on it: this is the whole difference between the two kinds of
+        # playlist, and the button below it is what closes it. What a copy
+        # could not carry is said here as well, rather than beside the buttons
+        # where it would be a third thing in a row that has to fit the window's
+        # minimum width - this line wraps, and that row does not.
+        if not playlist.editable:
+            _offered, note, _tooltip = self._copy_here_offer(playlist, resolved)
+            parts.append(note)
         self.playlist_voice_note.append(label(" · ".join(parts), "sf-body", wrap=True))
 
-    def _fill_playlist_actions(self, playlist):
-        """The two things a playlist is for, and a menu holding the rest.
+    def _fill_playlist_actions(self, playlist, resolved):
+        """What this playlist is for, in buttons, and a menu holding the rest.
+
+        Two of them for a playlist made here, one for a playlist only the
+        device has, and the ⋯ beside either.
 
         Two buttons rather than four: a row of four set a minimum width the
         whole window then had to honour, 90px past the point where the sidebar
@@ -507,12 +657,36 @@ class PlaylistViewMixin:
             self.playlist_actions.append(button)
             return button
 
-        if not playlist.editable:
-            action(
-                "Remove from iPod",
-                lambda: self.on_remove_playlist(playlist.name),
-                sensitive=bool(self.mount_point) and self.device_identity is not None,
+        def more_menu():
+            button = row_menu_button(
+                lambda: self._playlist_actions_menu(playlist.name),
+                f"More for {playlist.name}",
+                dim=False,
             )
+            button.set_sensitive(not self.busy)
+            self.playlist_actions.append(button)
+
+        if not playlist.editable:
+            # One button and the ⋯, the way a playlist made here is laid out,
+            # and for the same two reasons. Taking a playlist off the device is
+            # the thing here that choosing again does not undo, which is where
+            # this window keeps that; and a third control in this row added
+            # 25px to the minimum width the whole window has to advertise,
+            # which every other page would then be held to as well.
+            # tests/gui-window-minimum.py measures that rather than eyeing it.
+            #
+            # The copy leads the row because everything this page cannot offer
+            # - adding songs, reordering, being one of the playlists a track's
+            # ⋯ lists - is on the other side of it.
+            offered, _note, tooltip = self._copy_here_offer(playlist, resolved)
+            action(
+                "Copy to this computer",
+                lambda: self.on_copy_playlist_here(playlist.name),
+                "accent",
+                tooltip=tooltip,
+                sensitive=offered,
+            )
+            more_menu()
             return
 
         action(
@@ -528,28 +702,34 @@ class PlaylistViewMixin:
             tooltip=self._send_tooltip(playlist, queued),
             sensitive=not queued and self._can_send_playlist(playlist),
         )
-        more = row_menu_button(
-            lambda: self._playlist_actions_menu(playlist.name),
-            f"More for {playlist.name}",
-            dim=False,
-        )
-        more.set_sensitive(not self.busy)
-        self.playlist_actions.append(more)
+        more_menu()
 
     def _playlist_actions_menu(self, name):
+        """What a playlist's ⋯ holds, which is not the same for both kinds.
+
+        A playlist only the device has cannot be renamed - the name is the
+        filename, and there is no file here to rename - so what is left is
+        taking it off the iPod, which is exactly what this menu is for.
+        """
         popover = Gtk.Popover()
-        return self._menu_popover(
-            name,
-            [
+        if self._local_playlist(name) is None:
+            rows = [
+                self._menu_row(
+                    popover,
+                    "Remove from iPod…",
+                    lambda: self.on_remove_playlist(name),
+                )
+            ]
+        else:
+            rows = [
                 self._menu_row(
                     popover, "Rename…", lambda: self.on_rename_playlist(name)
                 ),
                 self._menu_row(
                     popover, "Delete…", lambda: self.on_remove_playlist(name)
                 ),
-            ],
-            popover,
-        )
+            ]
+        return self._menu_popover(name, rows, popover)
 
     def _can_send_playlist(self, playlist):
         return bool(
@@ -679,6 +859,20 @@ class PlaylistViewMixin:
         ),)
 
     @staticmethod
+    def _named_briefly(playlists, most=3):
+        """These playlists by name, as a sentence can carry them.
+
+        Named rather than counted, because the reader is looking for one
+        playlist in particular and a number cannot tell them whether it is in
+        there. Capped all the same: a device holding twenty lists would
+        otherwise put twenty names inside a menu.
+        """
+        names = [playlist.name for playlist in playlists]
+        if len(names) <= most:
+            return ", ".join(names)
+        return ", ".join(names[:most]) + f" and {len(names) - most} more"
+
+    @staticmethod
     def _unaddable_note():
         return label(
             "Playlists made here list files in your music folders, and this "
@@ -714,6 +908,24 @@ class PlaylistViewMixin:
         if not rows:
             rows.append(
                 label(empty_note, "sf-caption", "sf-dim", margin_start=6)
+            )
+        # What this list is leaving out, named rather than left silent. The
+        # playlists on the rail and the playlists a track can be added to are
+        # not the same set, and a menu that simply omits the difference reads
+        # as a list that has lost the playlist the user is looking for.
+        left_out = self._playlists_only_on_device()
+        if left_out:
+            rows.append(
+                label(
+                    f"Only on the iPod: {self._named_briefly(left_out)}. Open "
+                    "one to copy it here.",
+                    "sf-caption",
+                    "sf-dim",
+                    wrap=True,
+                    max_width_chars=26,
+                    margin_start=6,
+                    margin_top=4,
+                )
             )
         rows.append(
             self._menu_row(popover, "＋  New playlist…", lambda: on_pick(None))
@@ -1243,6 +1455,101 @@ class PlaylistViewMixin:
             if not self._confirmed_device(device_identity):
                 return
             self._remove_device_playlist(old_name)
+
+    # ------------------------------------------------------- copying it here
+
+    def on_copy_playlist_here(self, name):
+        """Make a playlist made somewhere else into one of ours.
+
+        A list that reached the device from another program, another computer,
+        or a sync run from the terminal is shown here but cannot be touched,
+        because its entries name copies on the iPod and a playlist made here
+        lists files in your music folders. The songs are usually still sitting
+        in one: the library has already matched every copy on the device to
+        the file it was made from, so the same list can be written down again
+        in terms of this computer, and from then on it is an ordinary playlist.
+
+        Confirmed only when something would be left behind. A copy that
+        carries every track leaves the list on the device exactly as it was,
+        so the press itself changes nothing over there; one that cannot is a
+        decision, because the file written here becomes what the next sync
+        writes back. Deleting the copy is not a way back out of that: a
+        playlist that is both here and on the device is deleted from both,
+        which is what its own dialog says before it does it.
+
+        Refused outright while either reading it would be worked out from is
+        still going on, and says which of the two it is waiting for, because a
+        count from a half-read library is an undercount and this file is not
+        offered twice.
+        """
+        playlist = self._shown_playlist(name)
+        if playlist is None or playlist.editable:
+            return None
+        resolved = self._entries_here_for(playlist)
+        if resolved is None:
+            self._toast(
+                f"Still reading {self._still_reading()} · try {name} again "
+                "in a moment"
+            )
+            return None
+        here, missing = resolved
+        if not playlist.entries:
+            self._toast(f"{name} is empty on the iPod, so there is nothing to copy")
+            return None
+        if not here:
+            self._toast(f"None of the songs in {name} are on this computer")
+            return None
+        if not missing:
+            self._copy_playlist_here(name, here, 0)
+            return None
+        dialog = Adw.AlertDialog(
+            heading="Copy this playlist here?",
+            body=(
+                f"{name}\n\n"
+                f"This computer holds {len(here)} of the "
+                f"{plural(len(playlist.entries), 'track')} in {name}. The copy "
+                f"lists those, and the next sync writes it back to the iPod, "
+                f"so {plural(missing, 'track')} would go from the playlist "
+                f"there. The songs themselves stay on the iPod."
+            ),
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("copy", "Copy")
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect(
+            "response", self._on_copy_here_response, name, here, missing
+        )
+        dialog.present(self)
+        return dialog
+
+    def _on_copy_here_response(self, _dialog, response, name, here, missing):
+        if response != "copy":
+            return
+        self._copy_playlist_here(name, here, missing)
+
+    def _copy_playlist_here(self, name, entries, missing):
+        """Write the copy, then show the playlist it has become.
+
+        Nothing is staged for a sync. The device is holding this playlist
+        already, so copying it asks for no change over there - and where the
+        copy is shorter than the list it came from, staging it would be the
+        window quietly sending that shortening to the device on the strength
+        of a press that said "copy".
+        """
+        path = create_local_playlist(PLAYLIST_LIBRARY, name, entries)
+        if path is None:
+            self._toast(
+                f"Could not copy {name} into {home_relative(PLAYLIST_LIBRARY)}"
+            )
+            return
+        self._load_local_playlists()
+        self._populate_playlist_rail()
+        self._select_playlist(path.stem)
+        left = f" · {plural(missing, 'track')} left on the iPod" if missing else ""
+        self._toast(
+            f"{path.stem} copied here · {plural(len(entries), 'track')}{left}"
+        )
 
     # ------------------------------------------------ importing and removing
 

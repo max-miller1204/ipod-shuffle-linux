@@ -1,0 +1,22 @@
+device: /media/max/MAX_SHUFFLE · settled: True
+library holds 75 local tracks, 74 on the device
+playlists on the device: ['2000', '2016', 'Inspo', 'More alt shii', 'YN']
+playlists made here: ['Inspo']
+  2000: 12 entries · 12 here · 0 only on the iPod
+    note: ['12 tracks · the device can announce this playlist · only on the iPod until you copy it here']
+    row : ['Copy to this computer', '⋯ [view-more-symbolic]']
+  2016: 13 entries · 13 here · 0 only on the iPod
+    note: ['13 tracks · the device can announce this playlist · only on the iPod until you copy it here']
+    row : ['Copy to this computer', '⋯ [view-more-symbolic]']
+  More alt shii: 33 entries · 33 here · 0 only on the iPod
+    note: ['33 tracks · the device can announce this playlist · only on the iPod until you copy it here']
+    row : ['Copy to this computer', '⋯ [view-more-symbolic]']
+  YN: 15 entries · 15 here · 0 only on the iPod
+    note: ['15 tracks · the device can announce this playlist · only on the iPod until you copy it here']
+    row : ['Copy to this computer', '⋯ [view-more-symbolic]']
+Add to playlist on 'My Shit':
+    ADD TO PLAYLIST
+    Inspo
+    Only on the iPod: 2000, 2016, More alt shii and 1 more. Open one to copy it here.
+    ＋  New playlist…
+    Delete from library…

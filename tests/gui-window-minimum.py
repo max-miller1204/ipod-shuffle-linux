@@ -199,6 +199,66 @@ def populate(window):
         window._show_album(collections[0])
 
 
+def device_playlist_page(window):
+    """The playlists page while showing a playlist only the iPod has.
+
+    Left in place afterwards rather than put back: this is the wider of the
+    two states, so the pane measured further down should be measured in it,
+    and every page above has already been read.
+
+    One of its two entries is claimed by a track in the library, the way a
+    finished scan claims it, and the other names a song this computer does not
+    hold - which is what puts the longest sentence this page has into the note
+    under its heading, and leaves the copy on offer rather than refused.
+    """
+    # Both readings the page quotes have landed, which is the state a settled
+    # window is in. Left as a fresh window has them, the copy is refused and
+    # the note says so instead of stating the count - so the page measured
+    # would be the narrow refusal rather than the widest real one, and the two
+    # entries chosen below would decide nothing that gets drawn.
+    window._library_scan_running = False
+    window._device_snapshot_ready = True
+    here = window.library.tracks[0]
+    window.device_tracks = [
+        gui.Track(
+            "/media/max/MAX SHUFFLE/iPod_Control/Music/an-artist/track.mp3",
+            {
+                "title": here.title,
+                "artist": here.artist,
+                "album": here.album,
+                "duration": here.duration,
+            },
+            gui.STATE_IPOD,
+            relpath="an-artist/track.mp3",
+        )
+    ]
+    window._merge_states()
+    window.playlists = [
+        (
+            "A Playlist With A Long Name That Is Only On The iPod",
+            ["an-artist/track.mp3", "another-artist/a track from elsewhere.mp3"],
+        )
+    ]
+    window._populate_playlist_rail()
+    window._show_playlist(window.playlists[0][0])
+    # Read back rather than assumed. With either reading still outstanding the
+    # page refuses the copy and the note drops the count for a shorter
+    # sentence, so what is measured below would be the narrow state wearing
+    # this one's name - and the minimum the window advertises rests on it.
+    offered = [
+        found
+        for found in walk(window.playlist_actions)
+        if isinstance(found, Gtk.Button)
+        and found.get_label() == "Copy to this computer"
+    ]
+    if not offered or not offered[0].get_sensitive():
+        failures.append(
+            "the playlists page measured for a playlist only on the iPod is "
+            "the one refusing the copy, not the one this fixture is for"
+        )
+    return minimum_width(window.views.get_child_by_name("playlists"))
+
+
 def check(window):
     limit, limit_height = window.get_size_request()
     if limit <= 0:
@@ -219,6 +279,26 @@ def check(window):
                 f"the {name} page needs {width}px but the window offers to be "
                 f"{limit}px wide; widest thing in it: {widest(page)}"
             )
+
+    # The playlists page again, showing the other kind of playlist. The
+    # fixture above shows one made here, holding tracks that are not on the
+    # device; this is one that is only on the iPod, holding tracks that are.
+    #
+    # It is the wider of the two, and not by its buttons: every row of a
+    # playlist whose tracks are on the device carries a Remove where a library
+    # track carries an Add, and that column is what sets the page's width. It
+    # went unmeasured for as long as this fixture only ever painted the other
+    # state, and the window was advertising a minimum eight pixels under what
+    # this page needs.
+    device_page = device_playlist_page(window)
+    measured.append(("page playlists on iPod", device_page))
+    if device_page > limit:
+        failures.append(
+            f"the playlists page needs {device_page}px while showing a playlist "
+            f"that is only on the iPod, but the window offers to be {limit}px "
+            f"wide; widest thing in it: "
+            f"{widest(window.views.get_child_by_name('playlists'))}"
+        )
 
     # Named on its own as well as counted inside the search page. It is hidden
     # at rest like the clipboard offer, so a paint that stopped putting it up
@@ -331,6 +411,47 @@ def check(window):
     # of the pane. Left hidden it comes out about thirty pixels light, and a
     # heading that stopped ellipsising would put the real figure over the
     # threshold with this check still green.
+    # The sidebar's queue row, hidden at rest and so measured as nothing by
+    # everything above - including the two numbers below it. It carries the
+    # longest sentences in the window, each of which has to say both what is
+    # staged and what to do about it, inside a card in a sidebar pinned to a
+    # width the split view never negotiates. Painted here through the two
+    # methods that actually write it, in both the states each is reached in,
+    # rather than trusting that a sentence someone adds later will fit.
+    was_mount = window.mount_point
+    bare = minimum_width(window.split.get_sidebar())
+    staged = {
+        "tracks to copy": {window.library.tracks[0].path},
+        "nothing to copy": {"/music/A Playlist With A Long Name.m3u"},
+    }
+    for what, members in staged.items():
+        window.pending = set(members)
+        window.pending_sources = {"/music/A Playlist With A Long Name.m3u": members}
+        window.pending_records = {}
+        for state in ("attached", "unplugged"):
+            window.mount_point = was_mount if state == "attached" else None
+            window._populate_device_summary()
+            if not window.queued_row.get_visible():
+                failures.append(
+                    f"the {state} queue row stayed hidden with {what} staged, "
+                    "so nothing here measured the sentence it carries"
+                )
+                continue
+            painted = minimum_width(window.split.get_sidebar())
+            measured.append((f"sidebar {state[:3]} {what}", painted))
+            if painted > bare:
+                failures.append(
+                    f"with {what} staged and the iPod {state}, the sidebar "
+                    f"needs {painted}px against {bare}px with the queue row "
+                    f"hidden: {window.queued_label.get_text()!r} does not fit "
+                    f"the card it sits in; widest thing in it: "
+                    f"{widest(window.split.get_sidebar())}"
+                )
+    window.mount_point = was_mount
+    window.pending = set()
+    window.pending_sources = {}
+    window._populate_device_summary()
+
     was_titled = window.view_title.get_visible()
     window.view_title.set_visible(True)
     sidebar_width = minimum_width(window.split.get_sidebar())

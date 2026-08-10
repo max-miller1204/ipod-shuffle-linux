@@ -74,11 +74,13 @@ SHARED_STATE = {
     # the spinner the refresh button shows. The window owns the widget and
     # both scans have to be able to say they have started or finished, so the
     # two flags are read where the chrome is and written where the work is.
-    "_library_scan_running": ("library_view", "window"),
+    # The playlists page reads them too: copying a device playlist here is
+    # worked out from both readings, so it waits for both to land.
+    "_library_scan_running": ("library_view", "playlist_view", "window"),
     # What a device read found, which a running script invalidates.
     "_device_scan_active": ("commands", "device_view", "window"),
     "_device_scan_tracks": ("commands", "device_view"),
-    "_device_snapshot_ready": ("commands", "device_view"),
+    "_device_snapshot_ready": ("commands", "device_view", "playlist_view"),
     "device_track_count": ("commands", "device_view"),
     "track_names": ("commands", "device_view"),
     # Generation counters, each bumped by the seam that supersedes the work.
