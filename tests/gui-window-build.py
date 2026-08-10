@@ -309,10 +309,11 @@ def check_queued_state(window):
 def check_queued_outside_the_library(window):
     """A folder staged for sync that no music folder holds.
 
-    The header's "Add music folder…" queues a folder without making it a music
-    root - that is Device & Settings' own button, and a different one - so
-    nothing scans those files and the queue is the only part of the window that
-    knows they exist. Left out of the library the grid is drawn from, they were
+    Staging never makes a folder a music root - a download is queued the moment
+    it finishes, before any scan of the roots has seen it, and stays outside
+    them for good when the roots do not cover where it landed - so nothing
+    scans those files and the queue is the only part of the window that knows
+    they exist. Left out of the library the grid is drawn from, they were
     counted in the sidebar and named on the Sync button while every pill above
     the grid read zero of them and no view in the app would show one.
 

@@ -1220,11 +1220,9 @@ class PlaylistViewMixin:
             return ""
         if self.playlist_unavailable:
             return f" · not queued: {self.playlist_unavailable.lower()}"
-        # A named playlist implies wanting the name read aloud, which the sync
-        # decides from what is staged rather than from the switch. Setting the
-        # switch here as well would outlive the queue that justified it: the
-        # sync writes the options back onto the device, so a list edited once
-        # would turn spoken names on for every track-only sync after it.
+        # Nothing to ask for beyond the queue itself: every sync is run with
+        # spoken playlist names, so a list staged here already carries the one
+        # thing that makes it findable on a device with no screen.
         queued = self._queue_playlists(
             [playlist.path for playlist in wanted], show_toast=False
         )

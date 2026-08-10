@@ -590,10 +590,10 @@ class QueueMixin:
         The merge re-derives everything the queue leaves behind rather than
         this rebuilding it: the index the accounting reads, the state on every
         track that had been staged, and the tracks that were in the window only
-        because they were queued - a downloaded file is never in a music root,
-        so its songs leave with the queue that named them. Written out here
-        instead, that would be the merge's rule kept in two places, and this
-        one would be the copy that goes stale.
+        because they were queued - a download that landed outside the music
+        roots is named by nothing but the queue, so its songs leave with it.
+        Written out here instead, that would be the merge's rule kept in two
+        places, and this one would be the copy that goes stale.
         """
         self.pending.clear()
         self.pending_sources.clear()

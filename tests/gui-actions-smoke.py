@@ -1652,9 +1652,8 @@ for attribute, value, why in (
     assert refusing.commands == [], why
 
 # Add all is the other download the section offers, and the one thing that
-# keeps a pasted playlist from being three tracks of itself. It is the dialog's
-# Whole playlist switch by another name: no --single, so yt-dlp takes the list
-# rather than the first video of it.
+# keeps a pasted playlist from being three tracks of itself: no --single, so
+# yt-dlp takes the list rather than the first video of it.
 playlist_window = FakeWindow()
 playlist_window._set_search_note = lambda _text: None
 playlist_window.search_playlist = gui.LinkedPlaylist(
@@ -1925,7 +1924,7 @@ class OfferWindow:
         self._offered_links = set()
 
 
-# What was pre-filled into the link dialog is offered under the field instead,
+# A link on the clipboard is offered under the field rather than put into it,
 # and offering is the whole of it: a clipboard that happens to hold a link must
 # never silently change what the next search is about.
 offering = OfferWindow()
