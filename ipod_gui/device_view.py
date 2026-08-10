@@ -108,8 +108,9 @@ class DeviceViewMixin:
         box.append(self._build_device_summary())
         # Built only when there is nothing to speak names with. Every sync asks
         # for spoken track and playlist names, so an engine that is installed
-        # is the ordinary case and needs no line of its own; the checks below
-        # are the same reading, made once at startup.
+        # is the ordinary case and needs no line of its own. Read once here
+        # rather than repainted, because window.py works the answer out at
+        # startup and nothing this window does can change it.
         if not self.speech_engine_available:
             box.append(self._build_speech_warning())
         columns = Gtk.Box(spacing=16, homogeneous=True)
@@ -228,10 +229,12 @@ class DeviceViewMixin:
         warn.append(icon)
         text = label(
             "No speech engine installed, so this computer cannot record the "
-            "names every sync asks for, and tracks it copies over arrive "
-            "unnamed. Install pico2wave, espeak or say: the device has no "
-            "screen, so a name it cannot read out is no name at all, and "
-            "playlists stay on this computer until one is there.",
+            "names every sync asks for. Syncing or rebuilding from here drops "
+            "every spoken name already on the iPod, including ones another "
+            "computer recorded, and cannot put them back. Install pico2wave, "
+            "espeak or say first: the device has no screen, so a name it "
+            "cannot read out is no name at all, and playlists stay on this "
+            "computer until one is there.",
             "sf-caption",
             wrap=True,
             hexpand=True,
@@ -854,12 +857,17 @@ class DeviceViewMixin:
         put there rather than ones a sync invented out of folder or tag names.
 
         Asked for even where nothing can record them. A missing speech engine
-        makes the builder write no recordings rather than fail, and a recording
-        already on the device is reused rather than regenerated, so a machine
-        that cannot speak leaves the names an engine-equipped one established
-        intact. Asking for less would not: the flags are also what overwrite
-        the options saved on the iPod, and a run that named none of them would
-        rebuild the device mute and take that saved state with it.
+        makes the builder write no recordings rather than fail, and a rebuild
+        run from such a machine leaves the device with none at all: the builder
+        empties iPod_Control/Speakable/Tracks and Playlists at the start of
+        every run and only refills what it can speak, so the names an
+        engine-equipped computer recorded do not survive a sync from one that
+        cannot. Nothing here can prevent that, which is what the warning on the
+        Device & Settings page is for. What asking anyway does buy is the way
+        back: the flags are also what is written into the options saved on the
+        iPod, so the next rebuild from a machine that can speak records every
+        name again. A run that named none of them would clear that file too,
+        and leave the device mute with nothing recording the intent to fix it.
 
         Passing them explicitly is also what retires a grouping an earlier
         version was told to use: ipod-sync.sh replays iPod_Control/.sync-options

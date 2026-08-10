@@ -118,9 +118,12 @@ command_options = gui.IpodWindow._sync_options(FakeWindow())
 assert command_options == ["--voiceover", "--playlist-voiceover"], command_options
 
 # The same flags on a machine with no speech engine, which records none of
-# them. Asking for less would leave the grouping above saved on the device for
-# the next bare rebuild to replay, and would rebuild the iPod without the names
-# an engine-equipped computer already recorded onto it.
+# them. Such a run leaves the device unnamed either way, because the builder
+# empties the Speakable directories every time and only refills what it can
+# speak. What the flags buy is the way back: they are saved to the device, so
+# the next rebuild from a machine that can speak records every name again.
+# Asking for less would clear that file instead, and leave the grouping above
+# for the next bare rebuild to replay.
 speechless_options = gui.IpodWindow._sync_options(FakeWindow(speech=False))
 assert speechless_options == ["--voiceover", "--playlist-voiceover"], (
     speechless_options

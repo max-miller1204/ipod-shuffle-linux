@@ -1829,9 +1829,11 @@ assert "--playlist-voiceover" in tracks_only.commands[-1]
 assert "--voiceover" in tracks_only.commands[-1]
 
 # A machine with no speech engine asks for the same names, and records none of
-# them. The flags go anyway because they are also what overwrites the options
-# saved on the iPod: dropping them would clear that file and rebuild the device
-# without the names a computer that can speak had already recorded onto it.
+# them. Either way that rebuild leaves the device unnamed, since the builder
+# empties the Speakable directories on every run. The flags go anyway because
+# they are also what overwrites the options saved on the iPod, so the next
+# rebuild from a computer that can speak records every name again; dropping
+# them would clear that file and take the way back with it.
 speechless = FakeWindow(speech=False)
 speechless.pending_sources = {str(PLAYLISTS / "Later.m3u"): {str(first)}}
 speechless._launch_pending_sync()
