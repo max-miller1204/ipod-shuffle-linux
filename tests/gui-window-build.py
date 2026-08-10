@@ -99,9 +99,8 @@ EXPECTED = {
         "device_card", "device_dot", "device_name", "sidebar_meter",
         "device_free", "device_count", "queued_row", "queued_label",
         "settings_meter", "settings_name", "settings_path", "settings_dot",
-        "settings_figures", "device_banner", "playlist_mode", "track_voiceover",
-        "playlist_voiceover", "folder_list", "sync_button", "add_button",
-        "playlist_button", "youtube_button", "wipe_button", "wipe_note",
+        "settings_figures", "device_banner", "folder_list", "sync_button",
+        "wipe_button", "wipe_note",
     ],
     "commands": [
         "sync_revealer", "sync_spinner", "sync_title", "sync_count",

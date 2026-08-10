@@ -35,7 +35,7 @@ whether those two readings can be quoted yet, and `show_view`, `_run`,
 
 from pathlib import Path
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gtk
 
 from .config import (
     AUDIO_EXTENSIONS,
@@ -1553,35 +1553,17 @@ class PlaylistViewMixin:
 
     # ------------------------------------------------ importing and removing
 
-    def on_import_playlist(self, _button):
+    def _import_playlist(self, source):
         """Take a playlist another program wrote, and adopt it as one of ours.
 
         The compatibility path: an M3U or PLS exported from Rhythmbox,
         Strawberry or anything else is copied into the playlist folder with its
         entries resolved, so from then on it is an ordinary playlist here
         rather than a file that has to be found again to change anything.
+
+        Takes the file rather than choosing one, so what adopts it can be
+        anything that has a path in hand.
         """
-        dialog = Gtk.FileDialog(title="Import a playlist file")
-        playlist_filter = Gtk.FileFilter()
-        playlist_filter.set_name("Playlists (M3U, PLS)")
-        playlist_filter.add_suffix("m3u")
-        playlist_filter.add_suffix("pls")
-        dialog.set_default_filter(playlist_filter)
-
-        def chosen(dlg, result):
-            try:
-                chosen_file = dlg.open_finish(result)
-            except GLib.Error:
-                return
-            path = chosen_file.get_path()
-            if not path:
-                self._toast("That location is not a local file")
-                return
-            self._import_playlist(path)
-
-        dialog.open(self, None, chosen)
-
-    def _import_playlist(self, source):
         taken = [playlist.name for playlist in self._shown_playlists()]
         path, tracks, problem = import_playlist_file(PLAYLIST_LIBRARY, source, taken)
         if path is None:

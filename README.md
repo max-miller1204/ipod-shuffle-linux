@@ -137,8 +137,10 @@ It is offered only for songs this computer holds.
 A track that exists only on the iPod is taken off it with the row's own **Remove**, and a previewed one lives in the cache **Device & Settings** empties in one press, so neither is a file this deletes.
 On a volume with nowhere to trash to, the deletion is refused and the app says why rather than unlinking the file behind the same word.
 
-Local music folders are configurable under **Device & Settings**, which is also where the sync options, **Rebuild database**, **Wipe** and **Eject** live.
-**Add music folder…** on that page is the other kind of add: it stages a folder for the next sync without making it one of your music folders, and its songs appear in the library marked *Queued* like anything else staged, rather than only in the sidebar's figure and the **Sync** button's count.
+Local music folders are configurable under **Device & Settings**, which is also where the preview cache, **Rebuild database**, **Wipe** and **Eject** live.
+That page has no options of its own: every sync speaks both track and playlist names and groups nothing automatically, so the playlists on the device are the ones you put there.
+The only thing the page says about it is when this machine has no speech engine to generate the recordings with, which it warns about at the top.
+Adding a folder of music is one press there and nothing else to decide: its songs join the library, and the ones you want go in the queue from the **Library** view like any others.
 
 Making a playlist is a name and nothing else.
 **＋ New** under **Playlists** offers the next free *Playlist N*, and the list exists the moment you accept it: there is no file to choose, no iPod to have plugged in, and no sync to wait for.
@@ -151,7 +153,7 @@ Tracks can also be dragged into a new order, and that order is the playlist, so 
 
 Every edit stages the playlist and its songs for the next sync, and **Sync** copies them and writes the list onto the device under its own name.
 Editing with no iPod attached is fine - **Send to iPod** stages it whenever one turns up.
-Because the device stores playlist names only as spoken audio, a playlist reaching it switches spoken names on automatically; without a speech engine installed the playlist stays on this computer and the page says so.
+Because the device stores playlist names only as spoken audio, every sync asks for them; without a speech engine installed to generate the recordings the playlist stays on this computer, and the page says so.
 The dot beside a playlist means what it means beside a track: on the iPod, or here and waiting to be.
 A playlist wears the first cover the songs in it carry, so a list made out of records you have artwork for looks like those records rather than like a coloured tile.
 
@@ -169,7 +171,8 @@ Taking such a playlist off the device is under the `⋯` beside the copy, which 
 
 Neither kind of playlist is sortable by column: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
 
-**Import playlist file…** under **Device & Settings** adopts an M3U or PLS another program wrote, resolving its entries and copying it into the playlist folder, so from then on it is an ordinary playlist you can edit here.
+A playlist another program wrote is adopted by copying the `.m3u` into `~/Music/Playlists`, which is the folder the window reads: press **Refresh** and it is there among your own, an ordinary playlist you can edit from then on.
+Its entries have to name files this computer holds, since nothing rewrites them on the way in.
 
 The search field at the top of the window queries two sources at once.
 Your indexed music folders answer immediately, matching every word of the query in any order across title, artist and album, so "queen rhapsody" finds a track tagged *Bohemian Rhapsody* by *Queen*.
@@ -203,10 +206,10 @@ The two halves fail independently and each explains problems inline in its own s
 Searching needs only `yt-dlp`, because reading a title is not the part YouTube protects.
 Downloading needs `ffmpeg` and a JavaScript runtime as well, so the search field stays useful on a machine where the download would fail.
 
-**Add from YouTube…** under **Device & Settings** does the same thing from a link, offering whatever is already on the clipboard, and can take a whole playlist rather than one video.
+Downloading is the search field's own job and has no separate dialog: paste the link, press **Add** on the result, or **Add all** for a whole playlist.
 When `yt-dlp` can report the files it fetched, only the tracks that download produced are queued, so pasting a second link does not push a growing library back onto a 2GB device, and pasting a link you have already fetched reports that there is nothing new rather than doing it again.
 
-That button explains itself when a download could not succeed, and says which piece is missing: `yt-dlp`, `ffmpeg`, or a JavaScript runtime.
+Every **Add** explains itself when a download could not succeed, and says which piece is missing: `yt-dlp`, `ffmpeg`, or a JavaScript runtime.
 Checking beforehand is worth the trouble because every one of those failures otherwise appears several steps later as something else, most memorably as `HTTP Error 403` on every track but the oldest.
 
 ### Preview playback
@@ -447,9 +450,10 @@ Hand-placed files like this are left alone by the automatic upkeep above, except
 
 **From the GUI,** by making one under **Playlists**: name it, add songs from your library or from YouTube with the `⋯` beside any track, and press **Sync**.
 The list is an M3U the app keeps in `~/Music/Playlists`, and syncing hands that file to `ipod-sync.sh` exactly as the command above does, so the two routes produce the same thing on the device.
-**Playlist grouping** under **Device & Settings** still drives the folder and tag groupings, and **Import playlist file…** adopts a list another program wrote.
 A playlist put on the device by the command above, rather than by the app, is adopted from the other end: open it under **Playlists** and press **Copy to this computer**.
-Choosing a grouping switches spoken playlist names on there and then, and a sync that carries a playlist file switches them on for that run, for the reason above; the playlist file and its tracks join the staged queue until you press **Sync**.
+The app does not offer the folder and tag groupings at all, and passes `--voiceover --playlist-voiceover` on every sync and rebuild, so a device it has synced holds the playlists you made and can announce each of them.
+That is also what retires a grouping an earlier version of the app was told to use: the flags overwrite the saved options rather than replaying them, so the generated playlists stop after one sync.
+The playlist file and its tracks join the staged queue until you press **Sync**.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
 
@@ -498,7 +502,7 @@ The nano supported ALAC; the shuffle never did.
 ./ipod-fetch.sh 'https://www.youtube.com/watch?v=...'
 ```
 
-The GUI's **Add from YouTube** button, the **Add** on a search result and the **Add all** beside a pasted playlist all run this script, so all four share every setting below.
+The **Add** on a search result, the `⋯` that files one into a playlist and the **Add all** beside a pasted playlist all run this script, so all three share every setting below.
 
 This wraps `yt-dlp` with the settings the shuffle needs, saving into `~/Music/youtube` with one folder per artist so the result is ready for `--dir-playlists`.
 Downloaded video IDs are recorded in `<output>/.fetched` and skipped on later runs, so re-running a playlist URL collects only what is new.
