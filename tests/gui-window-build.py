@@ -964,6 +964,77 @@ def check_copying_a_device_playlist(window):
     window._populate_device_summary()
 
 
+def speech_warnings(window):
+    """What the settings page says about a missing speech engine.
+
+    Read off the built page rather than by calling the builder, because the
+    branch being checked is the append in _build_settings_view: a card that is
+    built and never added would answer any question put to the builder alone
+    exactly as it does now. Matched on the warning styling rather than on
+    position, so moving the card within the page is a change to the layout
+    rather than a broken check.
+    """
+    said = []
+    for widget in walk(window.views.get_child_by_name("settings")):
+        if not isinstance(widget, Gtk.Label):
+            continue
+        card = widget.get_parent()
+        if card is None or not card.has_css_class("sf-warn-card"):
+            continue
+        if card.get_visible() and "speech engine" in widget.get_text().lower():
+            said.append(widget.get_text())
+    return said
+
+
+def check_speech_warning(app):
+    """The card that only a machine with no speech engine ever builds.
+
+    The window the rest of this file inspects is built against whatever the
+    machine actually has, and CI installs espeak, so that build always takes
+    the other branch and nothing here would notice the card had stopped being
+    appended - or had started appearing on a machine that can speak. Both
+    states are therefore asked for outright rather than inherited from the
+    runner. A window of its own each time, because the flag is read once
+    during construction and the page is built from it there and then.
+    """
+    engine = gui.has_speech_engine
+    try:
+        for available in (False, True):
+            gui.has_speech_engine = lambda ready=available: ready
+            try:
+                window = gui.IpodWindow(application=app)
+            except Exception:  # noqa: BLE001 - the construction is the subject
+                failures.append(
+                    "building the window with a speech engine "
+                    f"{'present' if available else 'absent'} raised:\n"
+                    f"{traceback.format_exc()}"
+                )
+                continue
+            said = speech_warnings(window)
+            if available and said:
+                failures.append(
+                    "the settings page warned about a missing speech engine on "
+                    f"a machine that has one: {said}"
+                )
+            elif not available:
+                if len(said) != 1:
+                    failures.append(
+                        "the settings page of a machine with no speech engine "
+                        f"carries {len(said)} warnings about it, not one: {said}"
+                    )
+                elif not any(
+                    engine_name in said[0]
+                    for engine_name in ("pico2wave", "espeak", "say")
+                ):
+                    failures.append(
+                        "the speech warning names nothing to install, so it "
+                        f"says only that something is wrong: {said[0]!r}"
+                    )
+            window._on_close_request(window)
+    finally:
+        gui.has_speech_engine = engine
+
+
 def inspect(window):
     # Where the window says it is the moment it opens, read before anything
     # below calls show_view and answers the question for it. The stack shows
@@ -1400,6 +1471,7 @@ def on_activate(app):
         # showed up while this file was being written.
         try:
             inspect(window)
+            check_speech_warning(app)
         except Exception:  # noqa: BLE001
             failures.append(f"inspecting the window raised:\n{traceback.format_exc()}")
         app.quit()

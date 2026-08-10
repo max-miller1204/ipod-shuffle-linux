@@ -859,9 +859,10 @@ class DeviceViewMixin:
         stops grouping on its next sync without a migration to go and find it.
         """
         if not self.speech_engine_available:
-            # Nothing to generate the recordings with, so asking for them would
-            # fail the run rather than produce silent names. --forget-options
-            # clears the saved file, which is the same overwrite by another
-            # route: the flags above cannot be there to do it.
+            # Nothing to generate the recordings with, so asking for spoken
+            # names would write none and leave that request saved on the device
+            # as though it had been met. --forget-options clears the saved file,
+            # which is the same overwrite by another route: the flags above
+            # cannot be there to do it.
             return ["--forget-options"]
         return ["--voiceover", "--playlist-voiceover"]

@@ -1829,9 +1829,9 @@ assert "--playlist-voiceover" in tracks_only.commands[-1]
 assert "--voiceover" in tracks_only.commands[-1]
 
 # With no speech engine there is nothing to speak a name with, so the flags are
-# not passed to a sync that could only fail on them. --forget-options goes
-# instead, which clears whatever an earlier run saved on the device rather than
-# leaving it to be replayed by the next bare rebuild.
+# not passed to a sync that would record nothing for them. --forget-options
+# goes instead, which clears whatever an earlier run saved on the device rather
+# than leaving it to be replayed by the next bare rebuild.
 speechless = FakeWindow(speech=False)
 speechless.pending_sources = {str(PLAYLISTS / "Later.m3u"): {str(first)}}
 speechless._launch_pending_sync()

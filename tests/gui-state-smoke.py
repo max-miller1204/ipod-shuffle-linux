@@ -118,8 +118,8 @@ command_options = gui.IpodWindow._sync_options(FakeWindow())
 assert command_options == ["--voiceover", "--playlist-voiceover"], command_options
 
 # Without an engine to generate the recordings, asking for spoken names would
-# only fail the run. --forget-options clears the saved file just as passing
-# flags overwrites it, so the stale grouping goes either way.
+# produce none. --forget-options clears the saved file just as passing flags
+# overwrites it, so the stale grouping goes either way.
 speechless_options = gui.IpodWindow._sync_options(FakeWindow(speech=False))
 assert speechless_options == ["--forget-options"], speechless_options
 
