@@ -1,0 +1,30 @@
+Device & Settings: the flags a GUI sync now passes, and what they do to a
+device still carrying a grouping the removed Sync options card once chose.
+
+Demo device built by tools/demo-library.py, driven through the real app
+under Xephyr (screenshots 04/05).
+
+1. Seeded before launching the app - the state a user of the old GUI has:
+   $ cat "MAX SHUFFLE/iPod_Control/.sync-options"
+   --auto-dir-playlists
+   --playlist-voiceover
+
+2. Queued the album Nightbus in the app and pressed Sync 1 change.
+
+3. Same file after that sync - the grouping is gone, both voiceovers are on:
+   $ cat "MAX SHUFFLE/iPod_Control/.sync-options"
+   --track-voiceover
+   --playlist-voiceover
+
+4. The spoken names those flags asked for, recorded onto the device:
+   iPod_Control/Speakable/Playlists/841c7a9ae1b8fbde.wav
+   iPod_Control/Speakable/Playlists/f33b082a1701e524.wav
+   iPod_Control/Speakable/System/battery.wav
+   iPod_Control/Speakable/Tracks/11337344613c8009.wav
+   iPod_Control/Speakable/Tracks/173231d1cdf14745.wav
+   iPod_Control/Speakable/Tracks/2b31a356d6f4e26f.wav
+
+5. No generated per-folder playlist came back with the sync - the only
+   playlist on the device is the one that was put there:
+   iPod_Control
+   Morning Ride.m3u

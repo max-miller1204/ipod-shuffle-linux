@@ -114,7 +114,7 @@ A coloured marker on every album and track says which of four states it is in, a
 | Dashed | Previewed only | Downloaded just so it could be heard, never added |
 
 *Previewed only* is what previewing a YouTube result produces: the file is kept in a cache outside your music folders until you add it, so hearing twenty songs does not add twenty of them to your library.
-*Queued* is not a place the file is - it sits in your music folder like any other, or in a folder you staged for one sync without making it one of your music folders - but a sync that is coming, so its marker is filled in the colour the storage meter shows that same change in, and ringed like a track that has already reached the device.
+*Queued* is not a place the file is - it sits in your music folder like any other, or outside them all when a download landed somewhere no music folder covers - but a sync that is coming, so its marker is filled in the colour the storage meter shows that same change in, and ringed like a track that has already reached the device.
 
 An album counts as *On iPod* only when all of it is, because a half-synced album badged otherwise would be a lie the shuffle gives you no way to investigate.
 *Queued* follows that rule one step earlier: an album is queued when the next sync will leave all of it on the device, so one staged track out of twelve leaves the record itself *In library*.
@@ -123,7 +123,7 @@ The table is the view that answers track by track, and its pills count and filte
 Adding no longer copies immediately.
 Queueing an album or a track shows it as pending space in the storage meter, marks it *Queued* wherever it appears, and one **Sync** button commits the batch, so a session's worth of changes costs a single database rebuild instead of one per track.
 A staged track's own button becomes **Unqueue**, which takes back out whatever staged it: a track you queued on its own leaves on its own, and one that joined the queue as part of a playlist or a folder takes that whole list or folder with it.
-That is what the button is for - a folder queued by mistake is otherwise a hundred tracks to take back one at a time - and the sync is a batch you are still assembling, so nothing has been copied either way.
+That is what the button is for - a playlist queued by mistake is otherwise a hundred tracks to take back one at a time - and the sync is a batch you are still assembling, so nothing has been copied either way.
 The copy reports each file as it lands, which a 2GB device over USB 2.0 badly needed: the progress bar, the file list and the raw script output all sit in a bar above the player.
 
 The grid groups by album or by artist, and swaps for a sortable table of every track: click a column to sort by title, album, state or length.
@@ -140,7 +140,7 @@ On a volume with nowhere to trash to, the deletion is refused and the app says w
 Local music folders are configurable under **Device & Settings**, which is also where the preview cache, **Rebuild database**, **Wipe** and **Eject** live.
 That page has no options of its own: every sync asks for spoken track and playlist names and groups nothing automatically, so the playlists on the device are the ones you put there.
 The only thing the page says about it is when this machine has no speech engine to generate the recordings with, which it warns about at the top.
-Adding a folder of music is one press there and nothing else to decide: its songs join the library, and the ones you want go in the queue from the **Library** view like any others.
+Adding a folder of music is one press there and nothing else to decide: its songs join the library, and the ones you want go in the queue from **Your Library** like any others.
 
 Making a playlist is a name and nothing else.
 **＋ New** under **Playlists** offers the next free *Playlist N*, and the list exists the moment you accept it: there is no file to choose, no iPod to have plugged in, and no sync to wait for.
@@ -743,7 +743,7 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - A wipe leaving `.sync-options` behind, so configuration reappeared afterwards
 - A wipe destroying Apple's `Speakable` prompts, which nothing can regenerate
 - Mount detection using `findmnt` raw mode, which escapes a space as `\x20` and so cannot find an iPod whose name contains one
-- The GUI choosing between several connected iPods rather than refusing, when Add Music and Wipe both act destructively on the choice
+- The GUI choosing between several connected iPods rather than refusing, when Sync and Wipe both act destructively on the choice
 - Options persisted without reporting a failed write, which would silently resurrect the playlist loss
 - `yt-dlp` selecting YouTube's 5.1 AAC stream, a 30MB download on a 2GB device that has to be downmixed to stereo anyway
 - Downloading as AAC, which the shuffle 4G is specified to decode but whose firmware crackles continuously on frames packed near the AAC-LC ceiling, as a 256k encode of dense music produces

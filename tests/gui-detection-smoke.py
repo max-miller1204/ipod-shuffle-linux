@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Checks that the GUI refuses to guess between several connected iPods.
 
-Add Music and Wipe both act destructively on whichever device is selected, so
+Sync and Wipe both act destructively on whichever device is selected, so
 picking the first of several silently is a data-loss path. The command line
 already refuses to guess; this asserts the GUI holds the same invariant.
 

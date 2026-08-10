@@ -264,8 +264,7 @@ class SearchViewMixin:
         playlist with three tracks in it. Capping the rows is right - an album
         link must not flood the section - but presenting what the cap left out
         as the whole thing is not, and Add all is what puts the rest back
-        within reach, at the moment the playlist is on screen rather than
-        behind a switch on a settings page.
+        within reach, at the moment the playlist is on screen.
         """
         self.search_playlist_row = Gtk.Box(spacing=12)
         self.search_playlist_row.add_css_class("sf-playlist-header")

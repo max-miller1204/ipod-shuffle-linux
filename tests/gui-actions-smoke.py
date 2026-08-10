@@ -1614,8 +1614,8 @@ assert gui.local_search_matches(search_library, "races")[0].state == gui.STATE_I
 assert gui.local_search_matches(search_library, "   ") == []
 assert gui.local_search_matches(search_library, "queen rain") == []
 
-# Adding a result runs the same download the dialog does, and refuses in every
-# case where it could not finish.
+# Adding a result runs the same download every other Add does, and refuses in
+# every case where it could not finish.
 result_window = FakeWindow()
 found_result = gui.SearchResult(
     title="Bohemian Rhapsody",
