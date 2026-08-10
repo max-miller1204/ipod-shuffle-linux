@@ -214,7 +214,7 @@ class DeviceViewMixin:
         return wrapper
 
     def _build_speech_warning(self):
-        """What a sync cannot do on a machine with no speech engine.
+        """What no run from this window can do on a machine with no speech engine.
 
         Its own card rather than a note beside a control, because there is no
         control to sit beside: the flags a sync is run with are fixed, so this
@@ -229,12 +229,12 @@ class DeviceViewMixin:
         warn.append(icon)
         text = label(
             "No speech engine installed, so this computer cannot record the "
-            "names every sync asks for. Syncing or rebuilding from here drops "
-            "every spoken name already on the iPod, including ones another "
-            "computer recorded, and cannot put them back. Install pico2wave, "
-            "espeak or say first: the device has no screen, so a name it "
-            "cannot read out is no name at all, and playlists stay on this "
-            "computer until one is there.",
+            "names every sync asks for. Syncing, rebuilding or removing from "
+            "here drops every spoken name already on the iPod, including ones "
+            "another computer recorded, and cannot put them back. Install "
+            "pico2wave, espeak or say first: the device has no screen, so a "
+            "name it cannot read out is no name at all, and playlists stay on "
+            "this computer until one is there.",
             "sf-caption",
             wrap=True,
             hexpand=True,
