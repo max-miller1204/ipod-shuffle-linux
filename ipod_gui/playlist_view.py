@@ -1545,7 +1545,15 @@ class PlaylistViewMixin:
         # above is what makes it safe - by here the new name is staged, or the
         # playlist lists nothing for a sync to stage, and either way this
         # takes nothing off the iPod that will not be replaced or is not
-        # wanted there. Against the iPod the rename was started on, though -
+        # wanted there. A track the library has not read yet only defers the
+        # first of those: staging goes away to read tags and commit later, so
+        # this runs before the queue has heard anything, and a scan superseded
+        # while it reads returns without queueing or saying so. What that
+        # leaves behind is reachable, which is the whole difference - a
+        # machine that got this far has the engine, so Send to iPod is on
+        # offer and puts the playlist back, and the rename refused above is
+        # the one with no such way back. Against the iPod the rename was
+        # started on, though -
         # this deletes a playlist and rebuilds a database, and the one under
         # the mount now may be a different device that happens to carry a list
         # of the same name.
