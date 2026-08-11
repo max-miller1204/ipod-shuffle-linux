@@ -626,10 +626,3 @@ class IpodWindow(
     def _toast(self, message):
         self.toasts.add_toast(Adw.Toast(title=message))
         return False
-
-    @staticmethod
-    def _children(container):
-        child = container.get_first_child()
-        while child is not None:
-            yield child
-            child = child.get_next_sibling()
