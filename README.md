@@ -454,10 +454,10 @@ The list is an M3U the app keeps in `~/Music/Playlists`, and syncing hands that 
 A playlist put on the device by the command above, rather than by the app, is adopted from the other end: open it under **Playlists** and press **Copy to this computer**.
 The app does not offer the folder and tag groupings at all, and passes `--voiceover --playlist-voiceover` on every sync and rebuild, so a device it has synced holds the playlists you made and can announce each of them.
 That is also what retires a grouping an earlier version of the app was told to use: the flags overwrite the saved options rather than replaying them, so the generated playlists stop after one sync.
-A machine with no speech engine passes the same two flags, and the builder writes no recordings rather than failing - but it empties `iPod_Control/Speakable/Tracks` and `Speakable/Playlists` at the start of every run and only refills what it can speak, so syncing or rebuilding from such a machine leaves the whole device unnamed, including names another computer recorded.
-Removing a track or a playlist costs the same names, because `ipod-remove.sh` rebuilds the database with the saved options and that rebuild empties those two directories as well.
+A machine with no speech engine passes the same two flags, and the builder writes no recordings rather than failing - but it empties `iPod_Control/Speakable/Tracks` and `Speakable/Playlists` at the start of every run and only refills what it can speak, so anything done from such a machine that rebuilds the database leaves the whole device unnamed, including names another computer recorded.
+Which action asked for the rebuild makes no difference: every change to the device ends in one, and `ipod-remove.sh` reaches the same builder through the options saved on the iPod rather than through anything the app passes.
 Passing the flags anyway is what makes that recoverable rather than permanent: they are saved to the device, so the next rebuild from a machine that can speak records every name again, whereas dropping them would clear the saved options too.
-Install a speech engine before syncing, rebuilding or removing anything if the iPod already announces its playlists; the **Device & Settings** page warns when this machine has none.
+Install a speech engine before changing anything on an iPod that already announces its playlists; the **Device & Settings** page warns when this machine has none.
 The playlist file and its tracks join the staged queue until you press **Sync**.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.

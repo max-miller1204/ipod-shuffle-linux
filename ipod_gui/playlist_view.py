@@ -1583,11 +1583,18 @@ class PlaylistViewMixin:
         ):
             self._toast("Connect an iPod before removing its playlists")
             return
+        spoken_cost = (
+            ""
+            if self.speech_engine_available or not on_device
+            else "With no speech engine installed, the rebuild that removal "
+            "runs leaves the iPod's spoken names gone. "
+        )
         if playlist is not None and on_device:
             body = (
                 f"{name}\n\n"
-                "The playlist is deleted here and removed from the iPod. The "
-                "songs it lists stay in your library and on the iPod."
+                "The playlist is deleted here and removed from the iPod. "
+                f"{spoken_cost}"
+                "The songs it lists stay in your library and on the iPod."
             )
         elif playlist is not None:
             body = (
@@ -1599,6 +1606,7 @@ class PlaylistViewMixin:
             body = (
                 f"{name}\n\n"
                 "Only the playlist is removed and the database is rebuilt. "
+                f"{spoken_cost}"
                 "The songs it lists stay on the iPod."
             )
         dialog = Adw.AlertDialog(heading="Delete this playlist?", body=body)

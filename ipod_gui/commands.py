@@ -8,6 +8,7 @@ itself, and the destructive and D-Bus actions: rebuild, wipe, remove, eject and
 mount.
 
 Borrows from the window: `mount_point` and `device_identity` to aim a command,
+`speech_engine_available` to say what a rebuild costs the iPod's spoken names,
 `_toast`, `_children`, `refresh`, `_rescan_library`, `_sync_options`,
 `_merge_states`, `_populate_device_summary`, `_populate_cache_card` and
 `_update_device_controls`.
@@ -357,11 +358,17 @@ class CommandsMixin:
             self._toast("Connect an iPod before removing tracks")
             return
         name = self.track_names.get(relpath, Path(relpath).name)
+        rebuilt = "It is deleted from the iPod and the database is rebuilt."
+        if not self.speech_engine_available:
+            rebuilt += (
+                " With no speech engine installed, that rebuild leaves the "
+                "iPod's spoken names gone."
+            )
         dialog = Adw.AlertDialog(
             heading="Remove this track?",
             body=(
                 f"{name}\n\n"
-                "It is deleted from the iPod and the database is rebuilt. "
+                f"{rebuilt} "
                 "Any copy in your own music folder is left alone."
             ),
         )

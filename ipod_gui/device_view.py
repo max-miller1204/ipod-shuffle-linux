@@ -214,11 +214,13 @@ class DeviceViewMixin:
         return wrapper
 
     def _build_speech_warning(self):
-        """What no run from this window can do on a machine with no speech engine.
+        """What a machine with no speech engine costs the iPod, whatever is pressed.
 
         Its own card rather than a note beside a control, because there is no
         control to sit beside: the flags a sync is run with are fixed, so this
         is a statement about the machine rather than about a choice made here.
+        Stated as the condition rather than as the list of actions that meet
+        it, so an action nobody has written yet is not read as exempt.
         """
         warn = Gtk.Box(spacing=9)
         warn.add_css_class("sf-warn-card")
@@ -229,12 +231,12 @@ class DeviceViewMixin:
         warn.append(icon)
         text = label(
             "No speech engine installed, so this computer cannot record the "
-            "names every sync asks for. Syncing, rebuilding or removing from "
-            "here drops every spoken name already on the iPod, including ones "
-            "another computer recorded, and cannot put them back. Install "
-            "pico2wave, espeak or say first: the device has no screen, so a "
-            "name it cannot read out is no name at all, and playlists stay on "
-            "this computer until one is there.",
+            "names every sync asks for. Anything it does that rebuilds the "
+            "iPod's database drops every spoken name already on the device, "
+            "including ones another computer recorded, and cannot put them "
+            "back. Install pico2wave, espeak or say first: the device has no "
+            "screen, so a name it cannot read out is no name at all, and "
+            "playlists stay on this computer until one is there.",
             "sf-caption",
             wrap=True,
             hexpand=True,
@@ -848,7 +850,7 @@ class DeviceViewMixin:
     # -------------------------------------------------------- the sync flags
 
     def _sync_options(self):
-        """The flags every sync, rebuild and playlist reorder is run with.
+        """The flags handed to every ipod-sync.sh run this window starts.
 
         Fixed rather than chosen, and the same on every machine. The device
         stores a name only as spoken audio, so a name it cannot say is no name
@@ -861,12 +863,13 @@ class DeviceViewMixin:
         run from such a machine leaves the device with none at all: the builder
         empties iPod_Control/Speakable/Tracks and Playlists at the start of
         every run and only refills what it can speak, so the names an
-        engine-equipped computer recorded do not survive a sync from one that
-        cannot. Nothing here can prevent that, which is what the warning on the
-        Device & Settings page is for. What asking anyway does buy is the way
-        back: the flags are also what is written into the options saved on the
-        iPod, so the next rebuild from a machine that can speak records every
-        name again. A run that named none of them would clear that file too,
+        engine-equipped computer recorded do not survive a rebuild from one
+        that cannot - whichever action reached the builder, here or through
+        ipod-remove.sh. Nothing here can prevent that, which is what the
+        warning on the Device & Settings page is for. What asking anyway does
+        buy is the way back: the flags are also what is written into the
+        options saved on the iPod, so the next rebuild from a machine that can
+        speak records every name again. A run that named none of them would clear that file too,
         and leave the device mute with nothing recording the intent to fix it.
 
         Passing them explicitly is also what retires a grouping an earlier
