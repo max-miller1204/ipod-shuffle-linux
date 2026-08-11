@@ -59,6 +59,7 @@ Everything else is installed or reported for you:
 | [Supported JavaScript runtime](#downloading-from-youtube) | system | Solving YouTube's signature challenge |
 
 Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
+Run `./install.sh --check` to be told what this machine already has without installing anything at all; see [what is installed](#what-is-installed).
 System packages are never installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
 
 ### Why not put everything in the virtualenv
@@ -633,7 +634,7 @@ This is the same reading the window takes when you plug the iPod in, and it cove
 | `storage` | `total_bytes`, `used_bytes` and `free_bytes`, or `null` when the volume will not report its size |
 | `track_count` | How many tracks are on the device |
 | `tracks` | Each track's path under `iPod_Control/Music`, which is exactly what `ipod-remove.sh` takes back as an argument |
-| `playlists` | Each playlist at the volume root: its `name`, its `entries`, and whether the device can say its name out loud |
+| `playlists` | Each playlist at the volume root: its `name`, its `entries`, and `spoken`, whether the device can say its name out loud |
 | `sync_options` | The playlist and voiceover flags the last sync saved on the device |
 | `schema` | `1`, and bumped only when a field changes meaning or leaves |
 
@@ -648,7 +649,16 @@ Without `--json`, `--list` still prints nothing but the track paths, so the two 
 
 `--check` installs nothing and writes nothing.
 It reports each capability the project needs, whether this machine has it, and the packages that would provide it, then exits `0` when they are all there and `6` when one is not.
-So a caller can find out whether a sync would work before deciding to run one, and `missing_packages` gives it the apt names for everything missing as one list rather than one per capability.
+So a caller can find out whether a sync would work before deciding to run one.
+
+With `--json` the same reading arrives as a document instead of as lines of prose:
+
+| Field | What it holds |
+| --- | --- |
+| `satisfied` | Whether every capability is there, which is the same answer the exit code gives |
+| `capabilities` | One entry per capability: its `id`, whether it is `available`, the `label` the installer prints for it, the `detail` it prints beside it, and the `packages` that provide it |
+| `missing_packages` | The apt names for everything missing, as one list rather than one per capability, so a caller can install them in a single transaction |
+| `schema` | `1`, on the same rule as the device report above |
 
 The same report closes a real install, in the same words, because a caller that asked what this machine could do and a person watching an install finish have to be told the same thing.
 

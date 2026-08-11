@@ -23,6 +23,8 @@ what this machine can actually do.
 | `08-install-check-missing-packages.png` | the same probe on a machine with no ffmpeg and no speech engine, read as one apt line |
 | `09-exit-codes.png` | the five states, each asserted as the number it is |
 | `10-never-stale-and-table.png` | the refusals that print nothing at all, and the resulting table |
+| `11-install-completes.txt` | an install driven all the way to `Done.`, with `--check` asked either side of it |
+| `12-install-completes.png` | that session rendered: the `Verifying` report between the two `--check` reports |
 
 ## The device report
 
@@ -73,10 +75,23 @@ The last pair is a machine with no `python3` anywhere on `PATH`: `--json` says s
 once and leaves with 6, and plain `--list` still lists the device, because a
 caller cannot install an interpreter to read a folder.
 
-## What is not here
+## The install's own copy of the report
 
-The post-install `Verifying` section is not exercised: it needs a privileged
-install to reach.
-It calls the same `probe_capabilities` and `report_capabilities` pair that
-`07-install-check.png` shows rendering, so what is unproven here is the second
-call site rather than the report.
+The other place the capability report is printed is the last thing an install
+does, and `driver-install-completes.sh` drives one all the way there.
+Two stand-ins take the place of the network, a local git repository for the
+database builder and a virtualenv whose pip has no index to reach, and the
+shipped `install.sh` does the rest.
+
+`12-install-completes.png` is the result.
+The same nine capabilities appear three times: `--check` before the install,
+`Verifying` at the end of it, and `--check` after, with the same verdicts and
+the same details each time.
+Metadata support is the row that moves, because pip puts mutagen in the
+virtualenv during the run, so it reads unavailable before and ok in both reports
+afterwards.
+That is what tells a report taken after an install from one taken before it, and
+it is what the suite asserts alongside the two documents matching.
+
+The exit code follows the document rather than being decided separately: 6
+before, when metadata support was missing, and 0 after.
