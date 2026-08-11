@@ -869,8 +869,9 @@ class DeviceViewMixin:
         warning on the Device & Settings page is for. What asking anyway does
         buy is the way back: the flags are also what is written into the
         options saved on the iPod, so the next rebuild from a machine that can
-        speak records every name again. A run that named none of them would clear that file too,
-        and leave the device mute with nothing recording the intent to fix it.
+        speak records every name again. A run that named none of them would
+        clear that file too, and leave the device mute with nothing recording
+        the intent to fix it.
 
         Passing them explicitly is also what retires a grouping an earlier
         version was told to use: ipod-sync.sh replays iPod_Control/.sync-options

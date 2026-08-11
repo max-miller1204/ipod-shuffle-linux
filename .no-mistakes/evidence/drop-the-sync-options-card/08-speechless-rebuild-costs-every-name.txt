@@ -1,0 +1,61 @@
+What a rebuild from a machine with no speech engine costs the iPod, and what
+the two flags the GUI now always passes buy back.
+
+This is the sentence the warning card on Device & Settings makes, run against
+the real ipod-shuffle-4g builder rather than read out of it. The device is the
+demo volume tools/demo-library.py builds: one album and one playlist, put there
+by ipod-sync.sh. "A machine with no speech engine" is a PATH with pico2wave,
+espeak, say and RHVoice taken out of it - the same question ipod_gui's
+has_speech_engine and the builder's own Text2Speech.check_support each ask.
+
+Step 2 is the loss the card now states outright: an engine-equipped computer's
+four recordings are gone after one rebuild from a speechless one, and that
+rebuild cannot put them back. Step 3 is what passing the flags anyway buys -
+they are still in .sync-options, so the next rebuild from a machine that can
+speak records every name again without being told to. Step 4 is the same trip
+on a device the --forget-options fallback had been run against: the file is
+gone, and with it the way back.
+
+== the flags the GUI hands every sync, on any machine ==
+  $ IpodWindow._sync_options()  ->  ['--voiceover', '--playlist-voiceover']
+
+== 1. synced from this machine, which has pico2wave ==
+  | ==> Rebuilding iTunesSD database
+  | ==> iPod now holds 2 track(s)
+  Speakable/Tracks     2 recording(s)
+  Speakable/Playlists  2 recording(s)
+  saved on the device: --track-voiceover --playlist-voiceover 
+
+== 2. the same iPod, rebuilt from a machine with no speech engine ==
+  $ PATH=/tmp/nospeech-bin ipod-sync.sh --ipod "…/MAX SHUFFLE" \
+        --voiceover --playlist-voiceover --rebuild-only
+  | ==> Rebuilding iTunesSD database
+  | Error: Did not find any voiceover program. Voiceover disabled.
+  | ==> iPod now holds 2 track(s)
+  Speakable/Tracks     0 recording(s)
+  Speakable/Playlists  0 recording(s)
+  saved on the device: --track-voiceover --playlist-voiceover 
+
+== 3. plugged back in here, and rebuilt with no flags of its own ==
+  | ==> Reusing saved options: --track-voiceover --playlist-voiceover
+  | ==> Rebuilding iTunesSD database
+  | ==> iPod now holds 2 track(s)
+  Speakable/Tracks     2 recording(s)
+  Speakable/Playlists  2 recording(s)
+
+== 4. the same trip, on an iPod the GUI had run --forget-options against ==
+  $ ipod-sync.sh --ipod "…/MAX SHUFFLE" --forget-options --rebuild-only
+  | ==> Rebuilding iTunesSD database
+  | ==> iPod now holds 2 track(s)
+  Speakable/Tracks     0 recording(s)
+  Speakable/Playlists  0 recording(s)
+  saved on the device: (no .sync-options file)
+  ...then the same rebuild from the machine with no speech engine,
+  and back here again with no flags of its own:
+  | ==> Rebuilding iTunesSD database
+  | ==> iPod now holds 2 track(s)
+  | ==> Rebuilding iTunesSD database
+  | ==> iPod now holds 2 track(s)
+  Speakable/Tracks     0 recording(s)
+  Speakable/Playlists  0 recording(s)
+  saved on the device: (no .sync-options file)

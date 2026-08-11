@@ -1570,6 +1570,12 @@ class PlaylistViewMixin:
         entries resolved, so from then on it is an ordinary playlist here
         rather than a file that has to be found again to change anything.
 
+        Nothing in the window reaches it: the file dialog that opened it went
+        with the Device & Settings card, so meanwhile a foreign list is adopted
+        by hand, by copying an .m3u into the playlist folder - which resolves
+        none of its entries and reads no .pls at all. Kept as the seam the
+        headless CLI and the Gio actions will hand a path to.
+
         Takes the file rather than choosing one, so what adopts it can be
         anything that has a path in hand.
         """

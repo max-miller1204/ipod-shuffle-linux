@@ -14,11 +14,13 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 # show for an operation that can run for minutes.
 COPIED_LINE = re.compile(r"^\s*\+ (?P<name>.+?) -> (?P<dest>.+?)\s*$")
 
-# Said by every confirmation whose answer rebuilds the iPod's database, and
-# said once here so the same consequence does not reach the user in three
-# wordings. The builder empties iPod_Control/Speakable at the start of every
-# run and refills only what it can speak, so a machine with no engine takes
-# the names down with it - see _sync_options for the whole of it.
+# Said by every confirmation whose answer rebuilds the database over names the
+# device goes on holding, and said once here so the same consequence does not
+# reach the user in three wordings. The builder empties iPod_Control/Speakable
+# at the start of every run and refills only what it can speak, so a machine
+# with no engine takes the names down with it - see _sync_options for the whole
+# of it. A wipe rebuilds too and says none of this: it takes the tracks and
+# playlists themselves, so it leaves nothing behind that had a name to lose.
 SPOKEN_NAMES_LOST = (
     "With no speech engine installed, the rebuild that removal runs leaves "
     "the iPod's spoken names gone."
