@@ -1424,6 +1424,33 @@ assert swapped_rename.commands == [], swapped_rename.commands
 assert "changed" in swapped_rename.toasts[-1], swapped_rename.toasts
 gui.delete_local_playlist(PLAYLISTS / "Renamed.m3u")
 
+# The same rename on a machine with no speech engine, which is what the
+# confirmation warns about: the removal still runs, and nothing can be staged
+# to replace what it takes, so the playlist goes from the iPod and stays gone
+# until an engine is installed. A run where the new name was queued after all
+# would mean the dialog is warning about a loss that does not happen; one
+# where the removal did not run would mean it warns about a press that does
+# nothing.
+mute_renamer = FakeWindow(speech=False)
+mute_renamer.library_tracks([first])
+new_playlist(mute_renamer, "Mute")
+gui.write_playlist_entries(PLAYLISTS / "Mute.m3u", [str(first)])
+mute_renamer._load_local_playlists()
+mute_renamer.playlists = [("Mute", ["F00/AAAA.mp3"])]
+mute_renamer.current_playlist = "Mute"
+mute_renamer._on_rename_response(
+    None, "rename", "Mute", Entry("Muted"), "uuid:test-ipod"
+)
+assert (PLAYLISTS / "Muted.m3u").is_file(), "the rename wrote no file"
+assert "not queued" in mute_renamer.toasts[-1], mute_renamer.toasts
+assert not mute_renamer.is_queued(PLAYLISTS / "Muted.m3u"), (
+    mute_renamer.pending_sources
+)
+mute_removal = mute_renamer.commands[-1]
+assert mute_removal[0].endswith("ipod-remove.sh"), mute_removal
+assert mute_removal[-2:] == ["--", "Mute"], mute_removal
+gui.delete_local_playlist(PLAYLISTS / "Muted.m3u")
+
 # And neither unstages anything when the file did not budge. Being told a
 # rename or a delete failed, while the sync it was queued for has silently
 # stopped carrying it, leaves a playlist that is still there and a Sync that

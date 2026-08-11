@@ -1400,11 +1400,16 @@ class PlaylistViewMixin:
         if self._playlist_on_device(name):
             asked = (
                 "The name is what the iPod says out loud, so renaming a "
-                "playlist that is already on the device removes the old one "
-                "and syncs the new name."
+                "playlist that is already on the device removes the old one"
             )
-            if not self.speech_engine_available:
-                asked += f" {SPOKEN_NAMES_LOST}"
+            if self.speech_engine_available:
+                asked += " and stages the new name for the next sync."
+            else:
+                asked += (
+                    f". {SPOKEN_NAMES_LOST} The new name cannot be staged "
+                    "until one is installed, so the playlist leaves the iPod "
+                    "and does not come back."
+                )
         else:
             asked = "The name is what the iPod will say out loud."
         return self._name_dialog(

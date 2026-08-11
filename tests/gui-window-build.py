@@ -1063,6 +1063,35 @@ def check_removals_say_what_the_rebuild_costs(window):
                     )
             dialog.emit("response", "cancel")
             dialog.force_close()
+
+    # What the rename goes on to say it will do, which is the half of that
+    # dialog the shared clause does not cover. _on_rename_response stages the
+    # new name and removes the old one from the device either way, so with an
+    # engine the new name is queued for the next sync rather than synced by
+    # this press - and with none it cannot be queued at all, which is a
+    # playlist off the iPod with nothing able to put it back.
+    for available, promised in (
+        (True, "stages the new name for the next sync"),
+        (False, "cannot be staged"),
+    ):
+        window.speech_engine_available = available
+        dialog = window.on_rename_playlist("Built")
+        if not isinstance(dialog, Adw.AlertDialog):
+            failures.append(
+                "renaming a playlist on the iPod with a speech engine "
+                f"{'present' if available else 'absent'} opened {dialog!r}"
+            )
+            continue
+        body = dialog.get_body()
+        if promised not in body:
+            failures.append(f"the rename dialog never says {promised!r}: {body!r}")
+        if not available and "leaves the iPod" not in body:
+            failures.append(
+                "the rename dialog never says the playlist itself goes from "
+                f"the device, not only its recording: {body!r}"
+            )
+        dialog.emit("response", "cancel")
+        dialog.force_close()
     (
         window.mount_point,
         window.device_identity,
