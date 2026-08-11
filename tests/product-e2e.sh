@@ -2031,6 +2031,44 @@ test "$report_gone_code" -eq "$lib_gone_code"
 test ! -s "$EVIDENCE_DIR/report-device-gone.json"
 grep -Fq 'stopped answering' "$EVIDENCE_DIR/report-device-gone.txt"
 
+# A machine with no python3 on it, which is the one dependency every report
+# goes through. Run against a PATH holding everything but the interpreter, and
+# under a timeout, because the way out of a missing dependency asks the device
+# who it is - and asking through the interpreter that is missing is a question
+# that answers itself forever rather than a code the caller can read.
+#
+# The report needs the writer and says so, once, with the missing-dependency
+# code and nothing on stdout. The plain listing never needed it and still
+# answers, because a caller cannot install an interpreter to read a folder.
+NO_PYTHON_BIN="$TEST_ROOT/no-python-bin"
+mkdir -p "$NO_PYTHON_BIN"
+for tool in /usr/bin/* /bin/*; do
+    case "${tool##*/}" in python|python3*) continue ;; esac
+    ln -sf "$tool" "$NO_PYTHON_BIN/${tool##*/}" 2> /dev/null || true
+done
+test ! -e "$NO_PYTHON_BIN/python3"
+test -x "$NO_PYTHON_BIN/find"
+
+no_python_json_status=0
+timeout 60 env PATH="$NO_PYTHON_BIN" "$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" --list --json \
+    > "$EVIDENCE_DIR/no-python-list.json" \
+    2> "$EVIDENCE_DIR/no-python-list-json.txt" || no_python_json_status=$?
+test "$no_python_json_status" -eq 6
+test ! -s "$EVIDENCE_DIR/no-python-list.json"
+test "$(grep -c 'python3 is required' "$EVIDENCE_DIR/no-python-list-json.txt")" -eq 1
+
+"$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" --list \
+    > "$EVIDENCE_DIR/with-python-list.txt"
+no_python_list_status=0
+timeout 60 env PATH="$NO_PYTHON_BIN" "$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" --list \
+    > "$EVIDENCE_DIR/no-python-list.txt" \
+    2> "$EVIDENCE_DIR/no-python-list-stderr.txt" || no_python_list_status=$?
+test "$no_python_list_status" -eq 0
+test -s "$EVIDENCE_DIR/no-python-list.txt"
+diff -u "$EVIDENCE_DIR/with-python-list.txt" "$EVIDENCE_DIR/no-python-list.txt"
+
 # --check answers what this machine can do without installing anything, which
 # is the point of it: a caller has to be able to ask before deciding to.
 CHECK_TOOLS="$TEST_ROOT/check-tools-dir"
@@ -2182,6 +2220,7 @@ printf '%s\n' \
     "PASS: no iPod, several iPods, a vanished one, a missing dependency and a refusal each got their own code" \
     "PASS: a builder that failed with the iPod still connected stayed a plain failure" \
     "PASS: the report writer answered a vanished device with the scripts' own code" \
+    "PASS: a machine without python3 got the dependency code once, and still listed" \
     "PASS: --check reported what is installed without installing, and its code matched its document" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 

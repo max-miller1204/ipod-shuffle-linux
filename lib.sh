@@ -76,9 +76,15 @@ DEVICE_WATCH_MOUNT=""
 DEVICE_WATCH_IDENTITY=""
 
 # Ask the volume who it is, or print nothing when it will not say.
+#
+# A machine with no python3 on it is one more volume that will not say, and
+# not a failure of its own: this is what the way out re-reads to decide
+# whether the device went away, so a question asked here must always come back
+# with an answer. The work that genuinely needs the interpreter - the JSON
+# report and the database builder - asks for it by name and leaves with the
+# missing-dependency code, while a listing that never needed it still runs.
 device_identity() {
-    command -v python3 >/dev/null \
-        || die_with "$EXIT_MISSING_DEPENDENCY" "python3 is required but not installed."
+    command -v python3 >/dev/null || return 0
     python3 "$REPORT_TOOL" identity "$1" 2>/dev/null || true
 }
 
@@ -130,11 +136,21 @@ device_vanished() {
     return 1
 }
 
+# Whether a script is already on its way out.
+LEAVING=""
+
 # Leave with a status, re-read as a vanished device when that is what happened.
+#
+# The look at the device is the last thing a script does, and anything that
+# died while taking it would arrive back here: the second pass leaves with the
+# status it was given rather than asking again, so the way out is always a way
+# out.
 leave() {
     local code="$1"
     # First, so that the checks below cannot re-enter this through the trap.
     trap - ERR
+    [[ -z "$LEAVING" ]] || exit "$code"
+    LEAVING=1
     if [[ "$code" != 0 && "$code" != "$EXIT_DEVICE_GONE" ]] && device_vanished; then
         err "The iPod stopped answering; it was unplugged or replaced mid-operation."
         code="$EXIT_DEVICE_GONE"
