@@ -14,6 +14,16 @@ IPOD=""
 EJECT=0
 LIST=0
 JSON=0
+PROGRESS_TARGET=""
+
+# Declared before anything can fail, because the result event is written from
+# wherever the run ends rather than from where the counting happens. What was
+# removed is counted as it goes rather than taken from what was about to be:
+# a run stopped at the prompt has removed nothing, and saying otherwise would
+# be the report contradicting the device.
+removing=0
+removed_tracks=0
+removed_playlists=0
 
 usage() {
     cat <<'EOF'
@@ -40,6 +50,10 @@ Options:
   -P, --playlist    Treat the arguments as playlist names, not tracks
   -y, --yes         Answer yes to every prompt
   -e, --eject       Unmount the iPod when finished
+      --progress-json[=FD]
+                    Report progress as one JSON object per line on descriptor
+                    FD (default 3), which the caller opens. The output below
+                    is unchanged.
   -h, --help        Show this message
 
 Examples:
@@ -72,6 +86,7 @@ while [[ $# -gt 0 ]]; do
         -P|--playlist) PLAYLIST_MODE=1; shift ;;
         -y|--yes)  ASSUME_YES=1; shift ;;
         -e|--eject) EJECT=1; shift ;;
+        --progress-json|--progress-json=*) progress_flag "$1"; shift ;;
         -h|--help) usage; exit 0 ;;
         # Everything after this is a track path, however much it looks like an
         # option, because track names are whatever the tags happened to say.
@@ -83,9 +98,26 @@ done
 
 (( JSON == 0 || LIST )) || die "--json only reports; add --list."
 
+# What the run did, for the last event on the stream. The track total is only
+# known once the removal has finished, so it is reported when there is one
+# rather than as a zero that would read as an emptied iPod.
+progress_result_fields() {
+    printf '%s\n' removed "$removed_tracks" playlists "$removed_playlists"
+    [[ -z "${total:-}" ]] || printf '%s\n' tracks "$total"
+}
+
+# Opened before the iPod is looked for, so that a run with no iPod to work on
+# still reports why on the stream the caller is reading.
+progress_open remove "$PROGRESS_TARGET"
+# From here on every failure leaves through leave(), which is what reports
+# the run's last event: the search below runs in a command substitution and
+# can fail before there is a device to watch.
+watch_failures
+
 IPOD="$(find_ipod "$IPOD")"
 assert_shuffle "$IPOD"
 watch_device "$IPOD"
+progress_event device ipod "$IPOD"
 
 MUSIC_DIR="$IPOD/iPod_Control/Music"
 [[ -d "$MUSIC_DIR" ]] || die "No iPod_Control/Music in $IPOD - nothing to remove."
@@ -131,10 +163,10 @@ if (( LIST )); then
     else
         find "$MUSIC_REAL" -type f -printf '%P\n' | sort
     fi
-    exit 0
+    leave 0
 fi
 
-[[ $# -gt 0 ]] || { usage; exit 1; }
+[[ $# -gt 0 ]] || { usage; leave 1; }
 
 info "iPod: $IPOD"
 
@@ -179,7 +211,7 @@ if (( PLAYLIST_MODE )); then
             else
                 err "It has no playlists."
             fi
-            exit 1
+            leave 1
         fi
         TARGETS+=("$target")
     done
@@ -208,12 +240,21 @@ else
     done
 fi
 
-removing=0
+declare -a TARGET_TRACKS=()
 if (( ! PLAYLIST_MODE )); then
     for target in "${TARGETS[@]}"; do
-        removing=$(( removing + $(find "$target" -type f | wc -l) ))
+        # Kept per target as well as totalled, so that what each one took with
+        # it is known after it is gone and cannot be counted a second time.
+        TARGET_TRACKS+=("$(count_files "$target")")
+        removing=$(( removing + TARGET_TRACKS[-1] ))
     done
 fi
+
+# One item per thing the user named, rather than per file underneath it: what
+# was asked for is "remove this album", and an album that goes in one rm is
+# one piece of work whatever it holds. The result event still reports the
+# tracks, which is what the count above is for.
+progress_plan "${#TARGETS[@]}"
 
 require_db_tool
 db_python >/dev/null
@@ -253,12 +294,23 @@ prune_empty_dirs() {
 }
 
 if (( PLAYLIST_MODE )); then
+    # One rm for all of them, and the stream told afterwards: deleting them
+    # one at a time to report each would stop at the first that refused and
+    # leave the rest, where this attempts every one of them.
     rm -f -- "${TARGETS[@]}"
+    removed_playlists=${#TARGETS[@]}
+    for target in "${TARGETS[@]}"; do
+        playlist_name="$(basename -- "$target")"
+        progress_playlist removed "${playlist_name%.*}" 0
+    done
     info "Removed ${#TARGETS[@]} playlist(s); the songs they listed stay on the iPod."
 else
-    for target in "${TARGETS[@]}"; do
+    for index in "${!TARGETS[@]}"; do
+        target="${TARGETS[index]}"
         rm -rf -- "$target"
         prune_empty_dirs "$(dirname -- "$target")"
+        removed_tracks=$((removed_tracks + TARGET_TRACKS[index]))
+        progress_file removed "${target#"$MUSIC_REAL"/}"
     done
     info "Removed $removing track(s)"
 fi
@@ -298,9 +350,11 @@ prune_playlists() {
         if (( kept_tracks == 0 )); then
             rm -f -- "$list"
             info "Removed playlist '$playlist_name': every track it listed is gone"
+            progress_playlist removed "$playlist_name" 0
         else
             atomic_replace_lines "$list" "${kept[@]}"
             info "Playlist '$playlist_name': dropped $dropped removed track(s)"
+            progress_playlist written "$playlist_name" "$kept_tracks"
         fi
     done
 }
@@ -312,7 +366,7 @@ prune_playlists() {
 rebuild_database "$IPOD" "${DB_ARGS[@]+"${DB_ARGS[@]}"}"
 
 if (( ! PLAYLIST_MODE )); then
-    total="$(find "$MUSIC_REAL" -type f | wc -l)"
+    total="$(count_files "$MUSIC_REAL")"
     info "iPod now holds $total track(s)"
 fi
 
@@ -326,3 +380,7 @@ else
     warn "Unmount before unplugging, or the database may be corrupted:"
     warn "  ./ipod-sync.sh --rebuild-only --eject"
 fi
+
+# Out through the same door as every failure, so that the run reports how it
+# ended and the caller reading the stream has it before the script returns.
+leave 0

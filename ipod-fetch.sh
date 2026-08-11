@@ -207,8 +207,11 @@ else
 fi
 
 count_tracks() {
+    # Counted the way count_files counts, and for the same reason: a YouTube
+    # title can hold a newline, and this figure decides whether the download
+    # produced anything at all.
     find "$OUTPUT" -type f -regextype posix-extended \
-        -iregex ".*\.(${SUPPORTED_EXT})$" | wc -l
+        -iregex ".*\.(${SUPPORTED_EXT})$" -printf '.' | wc -c
 }
 
 before="$(count_tracks)"

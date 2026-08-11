@@ -1888,6 +1888,403 @@ assert "--js-runtimes" not in args, args
 PY
 grep -Fq 'yt-dlp is too old' "$EVIDENCE_DIR/old-yt-dlp-fallback.txt"
 
+# ------------------------------------------------------ progress as it happens
+#
+# The scripts report what they are doing on a second stream, one JSON object
+# per line, and that is what drives the window's sync bar. The whole promise is
+# that it is additional: the same run, told twice, and the terminal reading is
+# not touched by anything here.
+#
+# Two identical devices, one run with the stream and one without, because the
+# only convincing way to say the human output is unchanged is to produce both
+# and compare them.
+PROGRESS_SOURCE="$TEST_ROOT/progress-source/Odd Album"
+mkdir -p "$PROGRESS_SOURCE"
+printf 'first\n' > "$PROGRESS_SOURCE/01 - Plain.mp3"
+# The names a line-based protocol or a shell-written document would break on.
+# Every one of them is ordinary here: track names arrive from tags and from
+# YouTube titles.
+printf 'second\n' > "$PROGRESS_SOURCE/02 - Say \"hi\", it's \\ fine.mp3"
+printf 'third\n' > "$PROGRESS_SOURCE/03 - Line"$'\n'"break.mp3"
+printf 'artwork\n' > "$PROGRESS_SOURCE/cover.flac"
+ln -s /nowhere/at/all.mp3 "$PROGRESS_SOURCE/04 - Dangling.mp3"
+printf '%s\n' \
+    "$PROGRESS_SOURCE/01 - Plain.mp3" \
+    "/nowhere/not-on-this-computer.mp3" \
+    > "$TEST_ROOT/progress-source/Weekend.m3u"
+
+progress_ipod() {
+    local root="$1"
+    mkdir -p \
+        "$root/iPod_Control/iTunes" \
+        "$root/iPod_Control/Music" \
+        "$root/iPod_Control/Speakable" \
+        "$root/iPod_Control/Device"
+    printf 'device identity\n' > "$root/iPod_Control/Device/SysInfo"
+}
+
+PROGRESS_IPOD="$TEST_ROOT/progress-ipod"
+QUIET_IPOD="$TEST_ROOT/progress-ipod-quiet"
+progress_ipod "$PROGRESS_IPOD"
+progress_ipod "$QUIET_IPOD"
+
+"$ROOT/ipod-sync.sh" \
+    --ipod "$PROGRESS_IPOD" \
+    --playlist-voiceover \
+    --progress-json \
+    "$PROGRESS_SOURCE" "$TEST_ROOT/progress-source/Weekend.m3u" \
+    3> "$EVIDENCE_DIR/progress-sync.ndjson" \
+    > "$EVIDENCE_DIR/progress-sync-output.txt" 2>&1
+"$ROOT/ipod-sync.sh" \
+    --ipod "$QUIET_IPOD" \
+    --playlist-voiceover \
+    "$PROGRESS_SOURCE" "$TEST_ROOT/progress-source/Weekend.m3u" \
+    > "$EVIDENCE_DIR/progress-sync-quiet-output.txt" 2>&1
+
+# Read straight after the script returned, with nothing waiting on the writer:
+# the stream is closed and its encoder waited for before a run ends, so a
+# caller that has the exit code has the whole document too.
+test -s "$EVIDENCE_DIR/progress-sync.ndjson"
+
+diff -u \
+    <(sed "s|$QUIET_IPOD|IPOD|g" "$EVIDENCE_DIR/progress-sync-quiet-output.txt") \
+    <(sed "s|$PROGRESS_IPOD|IPOD|g" "$EVIDENCE_DIR/progress-sync-output.txt")
+
+"$ROOT/ipod-remove.sh" \
+    --ipod "$PROGRESS_IPOD" --yes --progress-json=7 \
+    'Odd Album/01 - Plain.mp3' \
+    7> "$EVIDENCE_DIR/progress-remove.ndjson" \
+    > "$EVIDENCE_DIR/progress-remove-output.txt" 2>&1
+
+"$ROOT/ipod-wipe.sh" \
+    --ipod "$PROGRESS_IPOD" --yes --backup "$TEST_ROOT/progress-backup" \
+    --progress-json \
+    3> "$EVIDENCE_DIR/progress-wipe.ndjson" \
+    > "$EVIDENCE_DIR/progress-wipe-output.txt" 2>&1
+
+/usr/bin/python3 - \
+    "$EVIDENCE_DIR/progress-sync.ndjson" \
+    "$EVIDENCE_DIR/progress-remove.ndjson" \
+    "$EVIDENCE_DIR/progress-wipe.ndjson" \
+    "$PROGRESS_IPOD" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+
+def stream(path):
+    """Every event of one run, as JSON rather than as text to search."""
+    events = [
+        json.loads(line)
+        for line in Path(path).read_text(encoding="utf-8").splitlines()
+        if line
+    ]
+    assert events, path
+    return events
+
+
+def counted(events):
+    """The events that are pieces of work, in the order they happened."""
+    return [event for event in events if event["event"] in ("file", "playlist")]
+
+
+def check_shape(events, script):
+    assert events[0] == {"event": "start", "schema": 1, "script": script}, events[0]
+    # One result, last, and nothing after it: a caller reads until the stream
+    # ends and takes that event as what happened.
+    results = [event for event in events if event["event"] == "result"]
+    assert len(results) == 1, results
+    assert events[-1] is results[0], events[-1]
+    assert results[0]["ok"] is (results[0]["code"] == 0), results[0]
+    return results[0]
+
+
+def check_counting(events):
+    """The count reaches the total, having gone up by one at a time.
+
+    A bar that stops at nine tenths is the failure this rules out, and it is
+    the one that comes back whenever the walk that counts and the walk that
+    copies stop agreeing about what they are counting.
+
+    Returns what the run planned, which is the total it should have ended on
+    unless it turned up work it could not have planned for.
+    """
+    plans = [event for event in events if event["event"] == "plan"]
+    assert len(plans) == 1, plans
+    items = counted(events)
+    assert [item["done"] for item in items] == list(range(1, len(items) + 1)), items
+    assert items[-1]["done"] == items[-1]["total"], items[-1]
+    assert items[-1]["total"] >= plans[0]["total"], (plans[0], items[-1])
+    return plans[0]["total"], items[-1]["total"]
+
+
+sync = stream(sys.argv[1])
+result = check_shape(sync, "sync")
+# A copy plans everything it will report on and reports nothing else, so the
+# total it ends on is the one it announced before it started.
+assert check_counting(sync) == (7, 7), sync
+assert result["copied"] == 3, result
+assert result["unsupported"] == 1, result
+assert result["broken"] == 1, result
+assert result["tracks"] == 3, result
+
+# The device it settled on, said once, so a caller that let it autodetect
+# knows which iPod it was talking about.
+assert [event for event in sync if event["event"] == "device"] == [
+    {"event": "device", "ipod": sys.argv[4]}
+], sync
+
+# A name arrives as it is on disk. A quote, a backslash and a newline in a
+# track name are all ordinary, and each one would have ended a record early
+# had the shell been writing this document itself.
+copied = {
+    event["name"] for event in sync
+    if event["event"] == "file" and event["status"] == "copied"
+}
+assert '02 - Say "hi", it\'s \\ fine.mp3' in copied, copied
+assert "03 - Line\nbreak.mp3" in copied, copied
+
+# Every file the run considered is accounted for, once, and by what became of
+# it rather than as a copy either way.
+statuses = {}
+for event in sync:
+    if event["event"] == "file":
+        statuses.setdefault(event["status"], []).append(event["name"])
+assert sorted(statuses) == ["broken", "copied", "duplicate", "missing"], statuses
+assert statuses["broken"] == ["04 - Dangling.mp3"], statuses
+assert statuses["missing"] == ["not-on-this-computer.mp3"], statuses
+# The playlist's own track was already copied with its folder, so the playlist
+# pass finds it there rather than copying it twice.
+assert statuses["duplicate"] == ["01 - Plain.mp3"], statuses
+# The artwork was never counted into the work: the firmware cannot play it, so
+# a bar including it could never reach its end.
+assert "cover.flac" not in [name for names in statuses.values() for name in names]
+
+playlists = [event for event in sync if event["event"] == "playlist"]
+assert playlists == [
+    {
+        "event": "playlist",
+        "status": "written",
+        "name": "Weekend",
+        "tracks": 1,
+        "done": playlists[0]["done"],
+        "total": playlists[0]["total"],
+    }
+], playlists
+
+# The stages a run passes through, in order, for the stretches that are one
+# long wait rather than a file at a time.
+assert [
+    (event["name"], event["state"]) for event in sync if event["event"] == "stage"
+] == [
+    ("copy", "start"), ("copy", "done"), ("rebuild", "start"), ("rebuild", "done"),
+], sync
+
+removal = stream(sys.argv[2])
+result = check_shape(removal, "remove")
+# One track was named and one playlist turned out to name it, which is work
+# the run could not have planned; the total follows the count rather than the
+# count passing the total.
+assert check_counting(removal) == (1, 2), removal
+assert result["removed"] == 1, result
+assert result["tracks"] == 2, result
+assert [
+    (event["status"], event["name"]) for event in removal if event["event"] == "file"
+] == [("removed", "Odd Album/01 - Plain.mp3")], removal
+# Removing a track takes it out of the playlists that named it, which is work
+# the run never planned; the total follows rather than the count passing it.
+assert [
+    (event["status"], event["name"], event["tracks"])
+    for event in removal
+    if event["event"] == "playlist"
+] == [("removed", "Weekend", 0)], removal
+
+wipe = stream(sys.argv[3])
+result = check_shape(wipe, "wipe")
+assert result["removed"] == 2, result
+assert result["tracks"] == 0, result
+# No plan and no items: a wipe is one bulk delete, and a bar with a
+# denominator nothing ever counts against would sit at nothing for all of it.
+assert not [event for event in wipe if event["event"] in ("plan", "file")], wipe
+assert [
+    (event["name"], event["state"]) for event in wipe if event["event"] == "stage"
+] == [
+    ("backup", "start"), ("backup", "done"),
+    ("clear", "start"), ("clear", "done"),
+    ("rebuild", "start"), ("rebuild", "done"),
+], wipe
+PY
+
+# A failure is reported on the stream too, with the code the caller is about to
+# be given: a run that ends without saying so is one a reader waits on.
+progress_failure_status=0
+"$ROOT/ipod-sync.sh" \
+    --ipod "$TEST_ROOT/no-ipod-is-here" --progress-json "$PROGRESS_SOURCE" \
+    3> "$EVIDENCE_DIR/progress-no-ipod.ndjson" \
+    > "$EVIDENCE_DIR/progress-no-ipod.txt" 2>&1 || progress_failure_status=$?
+test "$progress_failure_status" -eq 3
+diff -u <(printf '%s\n' \
+    '{"event": "start", "schema": 1, "script": "sync"}' \
+    '{"event": "result", "ok": false, "code": 3, "copied": 0, "duplicates": 0, "unsupported": 0, "broken": 0}') \
+    "$EVIDENCE_DIR/progress-no-ipod.ndjson"
+
+# And a failure the script never reached the device to have. Autodetection
+# runs in a command substitution, so a run with nothing plugged in dies in a
+# subshell holding its own copy of the descriptor: reporting from there would
+# write the result twice and wait for an encoder that is not its child, while
+# reporting from neither would leave the stream unfinished behind an exit
+# code. A stand-in findmnt says there is nothing mounted, rather than trusting
+# that the machine running this has no iPod on it.
+NO_MOUNTS_PATH="$TEST_ROOT/no-mounts-bin"
+mkdir -p "$NO_MOUNTS_PATH"
+printf '%s\n' '#!/bin/sh' 'exit 0' > "$NO_MOUNTS_PATH/findmnt"
+chmod +x "$NO_MOUNTS_PATH/findmnt"
+progress_autodetect_status=0
+env PATH="$NO_MOUNTS_PATH:$BASE_PATH" \
+    "$ROOT/ipod-sync.sh" --progress-json "$PROGRESS_SOURCE" \
+    3> "$EVIDENCE_DIR/progress-nothing-mounted.ndjson" \
+    > "$EVIDENCE_DIR/progress-nothing-mounted.txt" 2>&1 \
+    || progress_autodetect_status=$?
+test "$progress_autodetect_status" -eq 3
+diff -u <(printf '%s\n' \
+    '{"event": "start", "schema": 1, "script": "sync"}' \
+    '{"event": "result", "ok": false, "code": 3, "copied": 0, "duplicates": 0, "unsupported": 0, "broken": 0}') \
+    "$EVIDENCE_DIR/progress-nothing-mounted.ndjson"
+diff -u <(printf '%s\n' \
+    'error: No mounted iPod found. Plug it in, or pass the mount point explicitly.') \
+    <(sed 's/\x1b\[[0-9;]*m//g' "$EVIDENCE_DIR/progress-nothing-mounted.txt")
+
+# A caller that walks away mid-run must not take the run with it. Closing the
+# window during a copy is exactly this, and a shell writing to a pipe nobody
+# holds is killed outright rather than told about it, which would leave an iPod
+# half written because nobody was watching.
+CLOSED_IPOD="$TEST_ROOT/progress-ipod-closed"
+progress_ipod "$CLOSED_IPOD"
+closed_reader_status=0
+"$ROOT/ipod-sync.sh" \
+    --ipod "$CLOSED_IPOD" --progress-json "$PROGRESS_SOURCE" \
+    3>&1 1> "$EVIDENCE_DIR/progress-closed-reader.txt" 2>&1 \
+    | head -1 > "$EVIDENCE_DIR/progress-closed-reader.ndjson" \
+    || closed_reader_status=$?
+test "$closed_reader_status" -eq 0
+test "$(wc -l < "$EVIDENCE_DIR/progress-closed-reader.ndjson")" -eq 1
+# Which end noticed first is a matter of timing - the writer finding the pipe
+# gone, or the encoder failing to write to it - so what is pinned is that the
+# run said something about it rather than which of the two sentences it was.
+grep -Eq 'The progress stream (stopped|ended badly)' \
+    "$EVIDENCE_DIR/progress-closed-reader.txt"
+test -f "$CLOSED_IPOD/iPod_Control/Music/Odd Album/01 - Plain.mp3"
+
+# A descriptor nobody opened is a mistake in the command rather than a run
+# whose progress quietly goes nowhere.
+progress_bad_fd_status=0
+"$ROOT/ipod-sync.sh" --ipod "$PROGRESS_IPOD" --progress-json --rebuild-only \
+    > "$EVIDENCE_DIR/progress-descriptor-closed.txt" 2>&1 \
+    || progress_bad_fd_status=$?
+test "$progress_bad_fd_status" -eq 1
+grep -Fq 'needs descriptor 3 open for writing' \
+    "$EVIDENCE_DIR/progress-descriptor-closed.txt"
+
+progress_bad_number_status=0
+"$ROOT/ipod-sync.sh" --ipod "$PROGRESS_IPOD" --progress-json=stdout --rebuild-only \
+    > "$EVIDENCE_DIR/progress-descriptor-named.txt" 2>&1 \
+    || progress_bad_number_status=$?
+test "$progress_bad_number_status" -eq 1
+grep -Fq "takes a descriptor number, not 'stdout'" \
+    "$EVIDENCE_DIR/progress-descriptor-named.txt"
+
+# And the descriptor that is no descriptor at all. The flag was still typed, so
+# a run that took it as "no stream wanted" would be the one spelling that
+# reports nowhere without saying so. Asked of all three scripts, because the
+# flag is theirs jointly and a refusal in one of them is not the contract.
+for script in sync remove wipe; do
+    progress_empty_status=0
+    "$ROOT/ipod-$script.sh" --ipod "$PROGRESS_IPOD" --progress-json= --yes \
+        > "$EVIDENCE_DIR/progress-descriptor-empty-$script.txt" 2>&1 \
+        || progress_empty_status=$?
+    test "$progress_empty_status" -eq 1
+    grep -Fq "takes a descriptor number, not an empty one" \
+        "$EVIDENCE_DIR/progress-descriptor-empty-$script.txt"
+done
+
+# A run refused after the stream is open still ends with a result: a caller
+# reads until the stream ends and takes that event as what happened, so one
+# that stops after "start" leaves the bar waiting on a run that is already
+# over. Both are reachable from the window, which removes a playlist by the
+# name a stale row showed.
+REFUSAL_IPOD="$TEST_ROOT/progress-ipod-refusal"
+progress_ipod "$REFUSAL_IPOD"
+mkdir -p "$REFUSAL_IPOD/iPod_Control/Music/Odd Album"
+printf 'first\n' > "$REFUSAL_IPOD/iPod_Control/Music/Odd Album/01 - Plain.mp3"
+
+progress_no_playlist_status=0
+"$ROOT/ipod-remove.sh" --ipod "$REFUSAL_IPOD" --yes --progress-json --playlist \
+    -- 'Not On This iPod' \
+    3> "$EVIDENCE_DIR/progress-no-playlist.ndjson" \
+    > "$EVIDENCE_DIR/progress-no-playlist.txt" 2>&1 \
+    || progress_no_playlist_status=$?
+test "$progress_no_playlist_status" -eq 1
+grep -Fq "No playlist called 'Not On This iPod' on this iPod." \
+    "$EVIDENCE_DIR/progress-no-playlist.txt"
+diff -u <(printf '%s\n' \
+    '{"event": "start", "schema": 1, "script": "remove"}' \
+    "{\"event\": \"device\", \"ipod\": \"$REFUSAL_IPOD\"}" \
+    '{"event": "result", "ok": false, "code": 1, "removed": 0, "playlists": 0}') \
+    "$EVIDENCE_DIR/progress-no-playlist.ndjson"
+
+progress_no_target_status=0
+"$ROOT/ipod-remove.sh" --ipod "$REFUSAL_IPOD" --yes --progress-json \
+    3> "$EVIDENCE_DIR/progress-no-target.ndjson" \
+    > "$EVIDENCE_DIR/progress-no-target.txt" 2>&1 \
+    || progress_no_target_status=$?
+test "$progress_no_target_status" -eq 1
+diff -u <(printf '%s\n' \
+    '{"event": "start", "schema": 1, "script": "remove"}' \
+    "{\"event\": \"device\", \"ipod\": \"$REFUSAL_IPOD\"}" \
+    '{"event": "result", "ok": false, "code": 1, "removed": 0, "playlists": 0}') \
+    "$EVIDENCE_DIR/progress-no-target.ndjson"
+test -f "$REFUSAL_IPOD/iPod_Control/Music/Odd Album/01 - Plain.mp3"
+
+# The unit separator holds the fields of a record apart, and unlike NUL it is a
+# byte a Linux filename may legally hold: one arriving in a name split into a
+# field of its own, which the encoder refuses - taking it down and leaving the
+# rest of the run unreported behind a warning. It is replaced on the way out,
+# the way the device stems already replace the bytes FAT will not take.
+SEPARATOR_SOURCE="$TEST_ROOT/progress-separator-source/Odd Album"
+mkdir -p "$SEPARATOR_SOURCE"
+printf 'unit\n' > "$SEPARATOR_SOURCE/05 - Unit"$'\037'"separator.mp3"
+SEPARATOR_IPOD="$TEST_ROOT/progress-separator-ipod"
+progress_ipod "$SEPARATOR_IPOD"
+"$ROOT/ipod-sync.sh" --ipod "$SEPARATOR_IPOD" --progress-json "$SEPARATOR_SOURCE" \
+    3> "$EVIDENCE_DIR/progress-separator.ndjson" \
+    > "$EVIDENCE_DIR/progress-separator.txt" 2>&1
+/usr/bin/python3 - "$EVIDENCE_DIR/progress-separator.ndjson" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+events = [
+    json.loads(line)
+    for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+    if line
+]
+# The whole run is on the stream: the file, the rebuild after it, and the
+# result last. A record the encoder refused would have ended it at the copy.
+assert [event["event"] for event in events] == [
+    "start", "device", "plan", "stage", "file", "stage", "stage", "stage", "result"
+], events
+copied = [event for event in events if event["event"] == "file"]
+assert [(event["status"], event["name"]) for event in copied] == [
+    ("copied", "05 - Unit_separator.mp3")
+], copied
+assert events[-1]["ok"] is True, events[-1]
+assert events[-1]["copied"] == 1, events[-1]
+PY
+if grep -Fq 'The progress stream' "$EVIDENCE_DIR/progress-separator.txt"; then
+    echo "a unit separator in a track name stopped the progress stream" >&2
+    exit 1
+fi
+
 # ------------------------------------------------------- exit codes and --check
 #
 # The five states a caller has to branch on, each asserted as the number it is
@@ -2359,6 +2756,18 @@ printf '%s\n' \
     "PASS: a machine without python3 got the dependency code once, and still listed" \
     "PASS: --check reported what is installed without installing, and its code matched its document" \
     "PASS: an install that finished ended with the report --check prints, taken after it" \
+    "PASS: a sync reported every file, playlist and stage as JSON while it ran" \
+    "PASS: names holding a quote, a backslash and a newline survived the stream" \
+    "PASS: the same run without the stream printed exactly the same output" \
+    "PASS: removal and wipe reported themselves on the same protocol" \
+    "PASS: the count reached the total, and the total followed unplanned work" \
+    "PASS: a run with no iPod still said so on the stream, with the code it exited" \
+    "PASS: a run that found nothing mounted reported once, from the shell that owned the stream" \
+    "PASS: a caller that stopped reading mid-copy did not take the copy with it" \
+    "PASS: a descriptor nobody opened was refused instead of quietly reporting nowhere" \
+    "PASS: an empty descriptor was refused by every script that takes the flag" \
+    "PASS: a run refused after the stream opened still ended with a result" \
+    "PASS: a unit separator in a track name reached the stream without ending it" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
 cat "$EVIDENCE_DIR/product-e2e-summary.txt"

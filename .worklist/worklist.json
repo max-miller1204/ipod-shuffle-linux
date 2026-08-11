@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 158,
+  "revision": 161,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -217,14 +217,15 @@
     {
       "id": "structured-sync-progress-replacing-the",
       "title": "Structured sync progress, replacing the GUI's regex scrape",
-      "description": "text.py holds COPIED_LINE, a regex that parses '+ name -> dest' out of ipod-sync.sh's coloured human output, and that scrape is what drives the sync bar; strip_ansi sits beside it because the escape sequences otherwise arrived in the log view as literal noise. Rewording one line of the script silently breaks the progress bar, and nothing fails when it does. Emit one JSON object per line on a separate stream, either fd 3 or behind --progress-json, covering the planned total, each file copied, the database rebuild starting and finishing, playlist writes, and the terminal result. Then have commands.py consume that instead of the regex. The human output stays exactly as it is: this is an additional stream, not a replacement, because the scripts are the product and they have to keep reading well in a terminal. The same protocol should cover ipod-remove.sh and ipod-wipe.sh, since commands.py runs all three through one _run and shows them in the same bar.",
+      "description": "text.py holds COPIED_LINE, a regex that parses '+ name -> dest' out of ipod-sync.sh's coloured human output, and that scrape is what drives the sync bar; strip_ansi sits beside it because the escape sequences otherwise arrived in the log view as literal noise. Rewording one line of the script silently breaks the progress bar, and nothing fails when it does. Emit one JSON object per line on a separate stream, either fd 3 or behind --progress-json, covering the planned total, each file copied, the database rebuild starting and finishing, playlist writes, and the terminal result. Then have commands.py consume that instead of the regex. The human output stays exactly as it is: this is an additional stream, not a replacement, because the scripts are the product and they have to keep reading well in a terminal. The same protocol should cover ipod-remove.sh and ipod-wipe.sh, since commands.py runs all three through one _run and shows them in the same bar.\n\nDone 2026-08-11. The three scripts take --progress-json[=FD] and write one JSON object per line on a descriptor the caller opens, default 3. Seven events: start, device, plan, stage, file, playlist, result. commands.py opens a pipe, passes its number, and reads it on its own thread beside the log; text.py's COPIED_LINE and the counting the window did around it are gone, along with the sync_total the queue predicted, so the bar has one source of truth and the mixin contract has one less shared attribute.\n\nThe events are written by ipod-report.py, which already existed for the same reason and now takes a third action: one interpreter for a whole run, fed plain fields with the unit separator between them and NUL between records, since a sync copies thousands of files and a name from a tag or a YouTube title holds quotes, backslashes and newlines. It refuses an event, a field or a status outside its own table, and gui-actions-smoke.py pins the window's labels against that table so a status the scripts can send is one the bar has a word for.\n\nThe plan is a counting pass over the same sources with the same playable_name test the copy uses, so done reaches total exactly; total follows the count when a run turns up work it could not plan, which is what removing a track from the playlists naming it is. A wipe emits no plan at all - it is one bulk delete - and says which stage it is in instead.\n\nThree defects surfaced while building it. A write to a stream whose reader has gone kills bash outright, so closing the window mid-copy would have left an iPod half written: SIGPIPE is ignored around the write and the run carries on. leave() runs in a subshell when find_ipod dies there, which wrote the result twice and waited on an encoder that was not its child; the stream is now ended only by the shell that opened it, with the failure trap installed early enough that the main shell still reports. And find | wc -l counts a filename holding a newline twice, so 'iPod now holds 4 track(s)' for three tracks - count_files replaces every one of those counts.\n\ntests/gui-progress-stream.py is the seam the other checks miss: the window running the real script over a real descriptor. It caught the flag being appended after the -- that makes everything following it a path, which would have left the bar dead in the app while every hand-written-JSON check passed.",
       "group": "Agent interfaces",
       "dependsOn": [
         "json-output-and-stable-exit-codes-for"
       ],
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-07T21:37:54.443Z",
-      "updatedAt": "2026-08-07T21:37:54.443Z"
+      "updatedAt": "2026-08-11T19:50:39.989Z",
+      "completedAt": "2026-08-11T19:50:39.989Z"
     },
     {
       "id": "rails-for-destructive-operations-run",

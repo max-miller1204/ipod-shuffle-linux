@@ -13,7 +13,16 @@ IPOD=""
 EJECT=0
 CLEAR=0
 REBUILD_ONLY=0
+PROGRESS_TARGET=""
 declare -a DB_ARGS=()
+
+# Declared here rather than beside the copy that keeps them, because the
+# result event is written from wherever the run happens to end - including
+# from a failure long before the copying starts.
+copied=0
+skipped=0
+duplicates=0
+broken=0
 
 usage() {
     cat <<'EOF'
@@ -38,6 +47,10 @@ Options:
   -n, --forget-options   Ignore the saved playlist and voiceover options,
                          building a plain database with neither
   -y, --yes              Answer yes to every prompt
+      --progress-json[=FD]
+                         Report progress as one JSON object per line on
+                         descriptor FD (default 3), which the caller opens.
+                         The output below is unchanged.
   -h, --help             Show this message
 
 Voiceover (the shuffle has no screen, so this is how you hear what is playing):
@@ -59,6 +72,7 @@ Examples:
   ./ipod-sync.sh ~/Music/roadtrip/01-highway.mp3
   ./ipod-sync.sh --clear --eject ~/Music/albums/*/
   ./ipod-sync.sh --rebuild-only
+  ./ipod-sync.sh --progress-json ~/Music/roadtrip 3>progress.ndjson
   ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover ~/Music
   ./ipod-sync.sh --id3-playlists='{genre}' --playlist-voiceover ~/Music
   ./ipod-sync.sh --playlist-voiceover ~/Music/mixtape.m3u
@@ -79,6 +93,8 @@ while [[ $# -gt 0 ]]; do
         -r|--rebuild-only) REBUILD_ONLY=1; shift ;;
         -n|--forget-options) FORGET_OPTIONS=1; shift ;;
         -y|--yes)          ASSUME_YES=1; shift ;;
+        --progress-json|--progress-json=*)
+                           progress_flag "$1"; shift ;;
         -t|--voiceover)    DB_ARGS+=("--track-voiceover"); shift ;;
         -p|--playlist-voiceover)
                            DB_ARGS+=("--playlist-voiceover"); shift ;;
@@ -123,9 +139,30 @@ else
     [[ $# -gt 0 ]] || { usage; exit 1; }
 fi
 
+# What the run did, for the last event on the progress stream. The track total
+# is only known once the copy has finished, so it is reported when there is
+# one rather than as a zero that would read as an empty iPod.
+progress_result_fields() {
+    printf '%s\n' \
+        copied "$copied" \
+        duplicates "$duplicates" \
+        unsupported "$skipped" \
+        broken "$broken"
+    [[ -z "${total:-}" ]] || printf '%s\n' tracks "$total"
+}
+
+# Opened before the iPod is looked for, so that a run with no iPod to work on
+# still reports why on the stream the caller is reading.
+progress_open sync "$PROGRESS_TARGET"
+# From here on every failure leaves through leave(), which is what reports
+# the run's last event: the search below runs in a command substitution and
+# can fail before there is a device to watch.
+watch_failures
+
 IPOD="$(find_ipod "$IPOD")"
 assert_shuffle "$IPOD"
 watch_device "$IPOD"
+progress_event device ipod "$IPOD"
 info "iPod: $IPOD"
 
 MUSIC_DIR="$IPOD/iPod_Control/Music"
@@ -158,7 +195,8 @@ fi
 mkdir -p "$MUSIC_DIR"
 
 if (( CLEAR )); then
-    existing="$(find "$MUSIC_DIR" -type f | wc -l)"
+    progress_stage clear start
+    existing="$(count_files "$MUSIC_DIR")"
     mapfile -d '' -t stale_playlists < <(root_playlist_files "$IPOD")
     playlist_count=${#stale_playlists[@]}
     if (( existing > 0 || playlist_count > 0 )); then
@@ -181,12 +219,9 @@ if (( CLEAR )); then
         rm -f -- "${stale_playlists[@]}"
         info "Removed $playlist_count playlist(s)"
     fi
+    progress_stage clear 'done'
 fi
 
-copied=0
-skipped=0
-duplicates=0
-broken=0
 COPY_TARGET=""
 declare -A PLAYLIST_TARGET_SOURCES=()
 declare -A PLAYLIST_TARGET_NAMES=()
@@ -200,12 +235,17 @@ copy_track() {
 
     COPY_TARGET="$target"
 
-    if [[ ! "${source,,}" =~ \.(${SUPPORTED_EXT})$ ]]; then
+    # Reported on the progress stream by everything below this line and by
+    # nothing above it: a file the firmware cannot play was never counted into
+    # what the run said it would do, so saying it was skipped would be counting
+    # work nobody planned.
+    if ! playable_name "$source"; then
         skipped=$((skipped + 1))
         return 0
     fi
     if [[ -e "$COPY_TARGET" ]] && cmp -s -- "$source" "$COPY_TARGET"; then
         duplicates=$((duplicates + 1))
+        progress_file duplicate "$(basename -- "$source")"
         return 0
     fi
     if [[ -e "$COPY_TARGET" ]]; then
@@ -222,6 +262,7 @@ copy_track() {
         COPY_TARGET="$candidate"
         if [[ -e "$COPY_TARGET" ]]; then
             duplicates=$((duplicates + 1))
+            progress_file duplicate "$(basename -- "$source")"
             return 0
         fi
         warn "Destination already holds a different track; copying this one as ${COPY_TARGET#"$MUSIC_DIR"/}."
@@ -235,6 +276,7 @@ copy_track() {
     # anything to report until the whole thing had finished.
     printf '  + %s -> %s\n' \
         "$(basename -- "$source")" "${COPY_TARGET#"$MUSIC_DIR"/}"
+    progress_file copied "$(basename -- "$source")" "${COPY_TARGET#"$MUSIC_DIR"/}"
 }
 
 # The folder a lone file argument lands in: the one it came from. Syncing an
@@ -348,6 +390,7 @@ sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
         || die "Could not case-fold playlist name: $device_stem"
     if [[ -n "${PLAYLIST_TARGET_SOURCES[$reservation_key]+present}" ]]; then
         warn "Playlist files '${PLAYLIST_TARGET_SOURCES[$reservation_key]}' and '$list' both become '${PLAYLIST_TARGET_NAMES[$reservation_key]}' on the device; skipped '$list'."
+        progress_playlist skipped "$device_stem" 0
         return 0
     fi
 
@@ -366,9 +409,14 @@ sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
     for entry in "${entries[@]}"; do
         if [[ ! -f "$entry" ]]; then
             warn "Playlist '$stem': not found on this computer, skipped: $entry"
+            # Only for an entry the run counted, which is one the firmware
+            # could have played had it been there.
+            if playable_name "$entry"; then
+                progress_file missing "$(basename -- "$entry")"
+            fi
             continue
         fi
-        if [[ ! "${entry,,}" =~ \.(${SUPPORTED_EXT})$ ]]; then
+        if ! playable_name "$entry"; then
             unplayable=$((unplayable + 1))
             continue
         fi
@@ -392,8 +440,10 @@ sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
         done
         if (( removed )); then
             warn "Playlist '$device_stem' references no playable local files; removed from the device."
+            progress_playlist removed "$device_stem" 0
         else
             warn "Playlist '$stem' references no playable local files; not created."
+            progress_playlist skipped "$device_stem" 0
         fi
         return 0
     fi
@@ -402,6 +452,40 @@ sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
     PLAYLIST_TARGET_SOURCES["$reservation_key"]="$list"
     PLAYLIST_TARGET_NAMES["$reservation_key"]="$device_stem.m3u"
     info "Playlist '$device_stem': $added track(s)"
+    progress_playlist written "$device_stem" "$added"
+}
+
+# How many items the copy below will report on, counted before it starts.
+#
+# A bar with no denominator cannot say how far along it is, and the only
+# denominator that reaches its end is the one this walk produces: the same
+# sources, the same playlist parse and the same playable_name test the copy
+# itself uses. It says nothing while counting - every warning about what it
+# finds belongs to the pass that acts on it, and saying them twice would read
+# as the run having hit the same problem twice.
+plan_total() {
+    local source entry count=0
+    for source in "$@"; do
+        [[ -e "$source" ]] || continue
+        source="${source%/}"
+        if [[ -f "$source" && "${source,,}" =~ \.(m3u|pls)$ ]]; then
+            while IFS= read -r -d '' entry; do
+                if playable_name "$entry"; then count=$((count + 1)); fi
+            done < <(playlist_entries "$source" 2>/dev/null || true)
+            # And the playlist itself, which is written once its tracks are
+            # copied and is a piece of work with its own line in the log.
+            count=$((count + 1))
+            continue
+        fi
+        if [[ -f "$source" ]]; then
+            if playable_name "$source"; then count=$((count + 1)); fi
+            continue
+        fi
+        while IFS= read -r -d '' entry; do
+            if playable_name "$entry"; then count=$((count + 1)); fi
+        done < <(find -L "$source" \( -type f -o -type l \) -print0 2>/dev/null)
+    done
+    printf '%s' "$count"
 }
 
 # One listing buffer for the whole run, removed however the script leaves:
@@ -409,6 +493,13 @@ sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
 enum_errors="$(mktemp -t ipod-sync-sources.XXXXXX)" \
     || die "Could not create temporary storage for the source listing."
 trap 'rm -f -- "${enum_errors:-}"' EXIT
+
+# Only when somebody is listening: the count is a second walk of the sources,
+# and a run that will not report it should not pay for it.
+if progress_enabled; then
+    progress_plan "$(plan_total "$@")"
+fi
+progress_stage copy start
 
 for src in "$@"; do
     [[ -e "$src" ]] || { warn "No such path, skipping: $src"; continue; }
@@ -451,9 +542,10 @@ for src in "$@"; do
             # Only for a name the firmware could have played. A dangling link
             # to a cover image was never going to be copied, so reporting it
             # would be noise about something the user did not ask for.
-            if [[ "${f,,}" =~ \.(${SUPPORTED_EXT})$ ]]; then
+            if playable_name "$f"; then
                 broken=$((broken + 1))
                 warn "Broken symlink, skipped: ${f#"$src"/}"
+                progress_file broken "${f#"$src"/}"
             fi
             continue
         fi
@@ -475,6 +567,8 @@ done
 rm -f -- "$enum_errors"
 enum_errors=""
 trap - EXIT
+
+progress_stage copy 'done'
 
 if (( ! REBUILD_ONLY )); then
     info "Copied $copied file(s)"
@@ -516,7 +610,7 @@ else
         || die "Could not clear playlist and voiceover options from the iPod."
 fi
 
-total="$(find "$MUSIC_DIR" -type f | wc -l)"
+total="$(count_files "$MUSIC_DIR")"
 info "iPod now holds $total track(s)"
 
 if (( EJECT )); then
@@ -529,3 +623,7 @@ else
     warn "Unmount before unplugging, or the database may be corrupted:"
     warn "  ./ipod-sync.sh --rebuild-only --eject"
 fi
+
+# Out through the same door as every failure, so that the run reports how it
+# ended and the caller reading the stream has it before the script returns.
+leave 0

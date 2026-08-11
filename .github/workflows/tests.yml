@@ -68,6 +68,14 @@ jobs:
       - name: GUI refresh spinner
         run: python3 tests/gui-refresh-spinner.py
 
+      # The seam between the window and the scripts: a real sync, driven the
+      # way the app drives one, with its progress read back off the descriptor
+      # the window opened for it. Needs a main loop and no display. Every other
+      # progress check starts from JSON written by hand, so none of them would
+      # notice a flag the script never saw or a stream that never ends.
+      - name: GUI reads a real progress stream
+        run: python3 tests/gui-progress-stream.py
+
       # The only check that constructs the window. Every other GUI check runs
       # methods unbound against a stand-in, so none of them would notice a
       # builder that stopped being called or a widget that never reached the

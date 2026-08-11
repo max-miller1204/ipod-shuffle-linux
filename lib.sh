@@ -55,6 +55,29 @@ readonly VENV_YT_DLP="${IPOD_VENV_YT_DLP:-${TOOLS_DIR}/venv/bin/yt-dlp}"
 # shellcheck disable=SC2034
 readonly SUPPORTED_EXT="mp3|m4a|m4b|m4p|aa|wav"
 
+# How many files are under this path.
+#
+# Counted a character at a time rather than a line at a time, because find
+# prints one path per line and a track called "Line<newline>break.mp3" is then
+# two of them. Newlines in filenames are rare and perfectly legal, and every
+# count in these scripts is something a person is told or a caller acts on:
+# "iPod now holds 4 track(s)" for three tracks, a backup verified against a
+# figure that was never the number of files, a progress bar with a denominator
+# nothing can reach.
+count_files() {
+    find "$@" -type f -printf '.' | wc -c
+}
+
+# Whether the firmware could play a file with this name.
+#
+# The one place the question is asked, because the copy decides what to skip by
+# it and the count before the copy decides what it is about to report on by it:
+# two spellings of the same test would drift, and a progress bar that counted
+# what the copy would not report on could never reach its end.
+playable_name() {
+    [[ "${1,,}" =~ \.(${SUPPORTED_EXT})$ ]]
+}
+
 err()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; }
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
@@ -102,6 +125,217 @@ device_report() {
     (( status == 0 )) || leave "$status"
 }
 
+# ---------------------------------------------------------------- progress
+#
+# What a run is doing while it is still doing it, as one JSON object per line
+# on a descriptor of the caller's choosing.
+#
+# A second stream rather than a replacement: the human output is the product,
+# and it stays exactly as it reads in a terminal. Before this, the GUI drove
+# its sync bar by matching a regex against the copy lines below, so rewording
+# one of them broke the bar and nothing failed when it did.
+#
+# The JSON itself is written by ipod-report.py, one process for the whole run,
+# because a track name came from a tag or a YouTube title and a shell has no
+# way to say that a quote or a newline in one is part of the name. This end
+# writes the plain fields: the unit separator between them, NUL between
+# records, that being the one byte a filename cannot hold.
+PROGRESS_FD=""
+PROGRESS_ENCODER_PID=""
+PROGRESS_ENABLED=0
+
+# The shell that opened the stream, which is the only one that may end it.
+#
+# A command substitution is a subshell holding its own copy of the descriptor:
+# find_ipod dies inside one when there is no iPod to find, and left to report
+# for itself it would write a result event the main shell then wrote again,
+# and wait for an encoder that is not its child. The failure comes back to the
+# main shell as a status, and that is where the run ends.
+PROGRESS_OWNER=""
+
+# How far along the run is, in items it said it would report on.
+PROGRESS_DONE=0
+PROGRESS_TOTAL=0
+
+progress_enabled() { (( PROGRESS_ENABLED )); }
+
+# Read the descriptor a --progress-json[=FD] argument names into
+# PROGRESS_TARGET, defaulting to 3.
+#
+# Written once and shared, because an empty value is the one way past the
+# refusals below: --progress-json= asks for a stream as plainly as any other
+# spelling of the flag, and left as the empty string it would arrive at
+# progress_open as "no stream was asked for" and report nowhere in silence.
+# Not a command substitution, so that die() here ends the run rather than a
+# subshell holding an unopened stream.
+progress_flag() {
+    case "$1" in
+        *=*)
+            PROGRESS_TARGET="${1#*=}"
+            [[ -n "$PROGRESS_TARGET" ]] \
+                || die "--progress-json takes a descriptor number, not an empty one."
+            ;;
+        *) PROGRESS_TARGET=3 ;;
+    esac
+}
+
+# Open the stream on the descriptor the caller passed, or do nothing at all.
+#
+# The encoder is reached through a named pipe that is unlinked the moment both
+# ends are open, so there is nothing left to clean up however the script
+# leaves - and no exit trap here to be overwritten by the ones the scripts
+# already use for their own temporary files.
+progress_open() {
+    local script="$1" target="${2:-}" directory
+    [[ -n "$target" ]] || return 0
+    [[ "$target" =~ ^[0-9]+$ ]] \
+        || die "--progress-json takes a descriptor number, not '$target'."
+    # Named rather than opened here: the caller decides where its own machine
+    # stream goes, and a descriptor it never opened is a mistake worth saying
+    # out loud rather than a run whose progress goes nowhere.
+    # Spelt 1>&"$fd" rather than >&"$fd" throughout: with a variable after it,
+    # the short form is the one that redirects both streams at once, and this
+    # one is only ever about where a copy of stdout goes.
+    { : 1>&"$target"; } 2>/dev/null \
+        || die "--progress-json needs descriptor $target open for writing, e.g. ${target}>progress.ndjson."
+    command -v python3 >/dev/null \
+        || die_with "$EXIT_MISSING_DEPENDENCY" \
+            "python3 is required to report progress as JSON."
+
+    directory="$(mktemp -d -t ipod-progress.XXXXXX)" \
+        || die "Could not create the progress stream."
+    mkfifo "$directory/events" || die "Could not create the progress stream."
+    python3 "$REPORT_TOOL" progress < "$directory/events" 1>&"$target" &
+    PROGRESS_ENCODER_PID=$!
+    # Blocks until the encoder has the reading end, which is what makes the
+    # unlink below safe: the pipe outlives its name.
+    exec {PROGRESS_FD}> "$directory/events"
+    rm -rf -- "$directory"
+
+    PROGRESS_OWNER="$BASHPID"
+    PROGRESS_ENABLED=1
+    progress_event start script "$script"
+}
+
+# Write one event: its name, then alternating field names and values.
+#
+# A stream nobody is reading any more must not take the run down with it. The
+# copy onto the device is the thing being asked for, and a window closed half
+# way through it is not a reason to leave an iPod half written. That takes
+# ignoring SIGPIPE around the write and not merely discarding the error: a
+# write to a pipe whose reader has gone kills the shell outright, so the copy
+# would have ended as a signal rather than as a failure anything could catch.
+# Scoped to the write, because the human output going nowhere is a different
+# matter and still ends the run.
+#
+# NUL is the byte no filename can hold, so nothing in a name can end a record
+# early; the unit separator between the fields of one is not, and a name
+# carrying it would split into a field of its own that the encoder refuses -
+# taking the encoder down and the rest of the run's reporting with it. It is
+# replaced on the way out, in the one place every value passes through, the
+# way the device stems already replace the control bytes FAT will not take.
+progress_event() {
+    local written=0 value
+    local -a record=()
+    progress_enabled || return 0
+    for value in "$@"; do
+        record+=("${value//$'\037'/_}")
+    done
+    trap '' PIPE
+    if { printf '%s\037' "${record[@]}" && printf '\000'; } 1>&"$PROGRESS_FD" 2>/dev/null
+    then
+        written=1
+    fi
+    trap - PIPE
+    (( written == 0 )) || return 0
+    PROGRESS_ENABLED=0
+    warn "The progress stream stopped; the rest of this run is not reported on it."
+}
+
+# Say how many items this run will report on, before it starts on them.
+progress_plan() {
+    progress_enabled || return 0
+    PROGRESS_TOTAL="$1"
+    progress_event plan total "$1"
+}
+
+# Count one item of the plan, whatever kind it was.
+#
+# The total follows the count when a run turns out to have more to do than it
+# planned - a playlist rewritten because a track left it was never in the
+# plan - so that a bar reading done against total can never show more than
+# all of it.
+progress_item() {
+    PROGRESS_DONE=$((PROGRESS_DONE + 1))
+    (( PROGRESS_DONE <= PROGRESS_TOTAL )) || PROGRESS_TOTAL="$PROGRESS_DONE"
+}
+
+# One file the run has finished with: copied, already there, or not copied.
+progress_file() {
+    progress_enabled || return 0
+    progress_item
+    if [[ -n "${3:-}" ]]; then
+        progress_event file status "$1" name "$2" dest "$3" \
+            'done' "$PROGRESS_DONE" total "$PROGRESS_TOTAL"
+    else
+        progress_event file status "$1" name "$2" \
+            'done' "$PROGRESS_DONE" total "$PROGRESS_TOTAL"
+    fi
+}
+
+# One playlist the run has finished with, and how many tracks it now holds.
+progress_playlist() {
+    progress_enabled || return 0
+    progress_item
+    progress_event playlist status "$1" name "$2" tracks "$3" \
+        'done' "$PROGRESS_DONE" total "$PROGRESS_TOTAL"
+}
+
+# A phase of the run, for the stretches that are one long wait rather than a
+# file at a time: a backup, a bulk delete, the database rebuild.
+progress_stage() {
+    progress_event stage name "$1" state "$2"
+}
+
+# What a script adds to the result event: its own counters, one field name or
+# value per line. Overridden by the scripts that have counters to report, so
+# that one with none needs no boilerplate.
+progress_result_fields() { :; }
+
+# The last thing on the stream: how the run ended, and what it did.
+#
+# Read from the script at the moment it leaves rather than kept up to date as
+# it goes, so a run that fails half way through still reports the half it did.
+progress_finish() {
+    local code="$1"
+    local -a extra=()
+    [[ "$BASHPID" == "$PROGRESS_OWNER" ]] || return 0
+    if progress_enabled; then
+        mapfile -t extra < <(progress_result_fields)
+        progress_event result code "$code" ${extra[@]+"${extra[@]}"}
+    fi
+    progress_close
+}
+
+# Close the stream and wait for the encoder to finish writing it.
+#
+# Waited for rather than left to finish on its own: the caller reads the
+# stream to its end, and a script that returned first would have a result
+# event still in flight behind it.
+progress_close() {
+    local status=0 was_open="$PROGRESS_ENABLED"
+    [[ -n "$PROGRESS_FD" ]] || return 0
+    PROGRESS_ENABLED=0
+    exec {PROGRESS_FD}>&-
+    PROGRESS_FD=""
+    wait "$PROGRESS_ENCODER_PID" || status=$?
+    # Said only about a stream that was still working: one that stopped under
+    # a write has already reported itself, and the encoder's own exit is the
+    # same event seen from the other end rather than a second thing to fix.
+    (( status == 0 || was_open == 0 )) \
+        || warn "The progress stream ended badly (exit $status); the run itself is unaffected."
+}
+
 # Start treating a later failure as a device that went away.
 #
 # Unplugging an iPod mid-copy is the failure this project sees most, and it
@@ -118,8 +352,20 @@ device_report() {
 watch_device() {
     DEVICE_WATCH_MOUNT="$1"
     DEVICE_WATCH_IDENTITY="$(device_identity "$1")"
-    # -E so the trap is inherited by the functions and subshells the copy and
-    # the playlist rewrite run in, which is where these failures happen.
+    watch_failures
+}
+
+# Route every failure through leave(), so that a script has one way out.
+#
+# Installed before the device is known as well as with it, because leave() is
+# what ends the progress stream and the search for the iPod can fail before
+# there is one to watch. That search runs in a command substitution, and
+# without this the status it hands back would end the script where it stands,
+# with the stream unfinished behind it.
+#
+# -E so the trap is inherited by the functions and subshells the copy and the
+# playlist rewrite run in, which is where these failures happen.
+watch_failures() {
     set -E
     trap 'leave $?' ERR
 }
@@ -155,6 +401,11 @@ leave() {
         err "The iPod stopped answering; it was unplugged or replaced mid-operation."
         code="$EXIT_DEVICE_GONE"
     fi
+    # After the diagnosis above, so the stream reports the code the caller is
+    # about to be given rather than the one the failure arrived as. Every way
+    # out of a script comes through here, which is what makes the result event
+    # the last one on the stream whatever happened.
+    progress_finish "$code"
     exit "$code"
 }
 
@@ -541,5 +792,10 @@ rebuild_database() {
     shift
     require_db_tool
     info "Rebuilding iTunesSD database"
+    # Named on the stream from here rather than from each script: all three
+    # rebuild, and the rebuild is the part of a short run that takes the time,
+    # so a bar with nothing to say during it looks stalled.
+    progress_stage rebuild start
     "$(db_python)" "$DB_TOOL" "$@" "$ipod"
+    progress_stage rebuild 'done'
 }

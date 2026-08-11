@@ -59,7 +59,7 @@ Everything else is installed or reported for you:
 | [Supported JavaScript runtime](#downloading-from-youtube) | system | Solving YouTube's signature challenge |
 
 Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
-Run `./install.sh --check` to be told what this machine already has without installing anything at all; see [what is installed](#what-is-installed).
+Run `./install.sh --check` to be told what this machine already has without installing anything at all; see [what is installed](docs/machine-interface.md#what-is-installed).
 System packages are never installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
 
 ### Why not put everything in the virtualenv
@@ -126,6 +126,7 @@ Queueing an album or a track shows it as pending space in the storage meter, mar
 A staged track's own button becomes **Unqueue**, which takes back out whatever staged it: a track you queued on its own leaves on its own, and one that joined the queue as part of a playlist or a folder takes that whole list or folder with it.
 That is what the button is for - a playlist queued by mistake is otherwise a hundred tracks to take back one at a time - and the sync is a batch you are still assembling, so nothing has been copied either way.
 The copy reports each file as it lands, which a 2GB device over USB 2.0 badly needed: the progress bar, the file list and the raw script output all sit in a bar above the player.
+What the bar shows comes from the script itself, on [a stream of its own](docs/machine-interface.md#what-a-run-is-doing-while-it-is-doing-it), so each row says what became of that file - copied, already there, not found - and the bar names the database rebuild rather than sitting on the last track it copied through it.
 
 The grid groups by album or by artist, and swaps for a sortable table of every track: click a column to sort by title, album, state or length.
 Both choices are remembered, so the app reopens on the view you left it in rather than back on the album grid.
@@ -344,7 +345,7 @@ Pass `--ipod /path/to/mount` if autodetection picks the wrong volume, and note t
 
 Tracks are named by their path under `iPod_Control/Music`, which is what `--list` prints.
 Passing a folder removes everything in it, so `./ipod-remove.sh roadtrip` clears the album.
-`--list --json` reports the whole device instead, for another program to read; see [driving the scripts from another program](#driving-the-scripts-from-another-program).
+`--list --json` reports the whole device instead, for another program to read; see [what is on the device](docs/machine-interface.md#what-is-on-the-device).
 
 Deleting the file is only half the job.
 The firmware plays what `iTunesSD` lists, so a track deleted without a rebuild is still offered by the player, which then stops dead when it tries to play it.
@@ -617,79 +618,9 @@ When downloads start failing for no apparent reason, YouTube has changed somethi
 ## Driving the scripts from another program
 
 Everything above is written for a person reading a terminal.
-The scripts also answer in JSON, and they say what went wrong as a number rather than as English, so that another program can act on either without reading prose.
+The scripts also answer in JSON, they report what they are doing while they do it, and they say what went wrong as a number rather than as English, so that another program can act on any of it without reading prose.
 
-### What is on the device
-
-```bash
-./ipod-remove.sh --list --json
-```
-
-This is the same reading the window takes when you plug the iPod in, and it covers everything the window paints from:
-
-| Field | What it holds |
-| --- | --- |
-| `mount_point` | Where the volume is mounted |
-| `identity` | What the volume calls itself: its filesystem UUID, or a digest of the device's own `SysInfo` when it has no UUID, or `null` when it will say neither |
-| `storage` | `total_bytes`, `used_bytes` and `free_bytes`, or `null` when the volume will not report its size |
-| `track_count` | How many tracks are on the device |
-| `tracks` | Each track's path under `iPod_Control/Music`, which is exactly what `ipod-remove.sh` takes back as an argument |
-| `playlists` | Each playlist at the volume root: its `name`, its `entries`, and `spoken`, whether the device can say its name out loud |
-| `sync_options` | The playlist and voiceover flags the last sync saved on the device |
-| `schema` | `1`, and bumped only when a field changes meaning or leaves |
-
-Without `--json`, `--list` still prints nothing but the track paths, so the two forms of the same question give the same answer in different shapes.
-
-### What is installed
-
-```bash
-./install.sh --check
-./install.sh --check --json
-```
-
-`--check` installs nothing and writes nothing.
-It reports each capability the project needs, whether this machine has it, and the packages that would provide it, then exits `0` when they are all there and `6` when one is not.
-So a caller can find out whether a sync would work before deciding to run one.
-
-With `--json` the same reading arrives as a document instead of as lines of prose:
-
-| Field | What it holds |
-| --- | --- |
-| `satisfied` | Whether every capability is there, which is the same answer the exit code gives |
-| `capabilities` | One entry per capability: its `id`, whether it is `available`, the `label` the installer prints for it, the `detail` it prints beside it, and the `packages` that provide it |
-| `missing_packages` | The apt names for everything missing, as one list rather than one per capability, so a caller can install them in a single transaction |
-| `schema` | `1`, on the same rule as the device report above |
-
-The same report closes a real install, in the same words, because a caller that asked what this machine could do and a person watching an install finish have to be told the same thing.
-
-### What went wrong
-
-| Code | What it means | What a caller can do about it |
-| --- | --- | --- |
-| `0` | It worked | |
-| `1` | Something else failed | Read the message |
-| `3` | No iPod, either mounted or at the path given | Plug one in, or name a different path |
-| `4` | Several iPods are connected | Name which one with `--ipod` |
-| `5` | The iPod stopped answering part way through | Plug it back in and try again |
-| `6` | A dependency is missing | Run `./install.sh`, or `./install.sh --check` to find out which |
-| `7` | A prompt was declined | Ask again, or pass `--yes` |
-
-Code `5` is the one worth explaining.
-Unplugging an iPod mid-copy is the failure this project sees most, and it arrives as whichever command happened to touch the volume next: a copy that cannot write, a walk that cannot descend, a database builder that cannot open its file.
-Rather than name a code at each of those and still miss the next one, the scripts remember what the volume called itself when they latched onto it, and on the way out of any failure they look at whether that volume is still there.
-A volume that has gone, or that has been replaced by a different one at the same path, turns the failure into `5`.
-A builder that fails while the iPod is still sitting there stays `1`.
-Asking what the volume calls itself needs `python3`, and a machine without one is treated as a volume that will not say rather than as a failure of its own, since this question is asked on the way out of every other failure and has to come back with an answer.
-Such a machine still gets `6` from the work that genuinely needs the interpreter - the JSON report and the database builder - while a plain `--list`, which never needed it, still answers.
-
-`--json` follows one rule: a whole document or nothing at all.
-A report is assembled in full, checked against the device it started reading, and only then written, so a device unplugged half way through produces exit `5` and an empty stream rather than a confident-looking description of a device nobody can see.
-Anything it cannot read stops it the same way.
-An album whose folder cannot be entered is the case worth naming, because nothing fails on its own there: the directory walk the window uses simply yields nothing for that folder, and the report would have counted the tracks it could see and called that the device.
-A caller told a full iPod holds nothing is one about to sync an entire library onto it.
-
-This is the rule `ipod-fetch.sh --new-tracks FILE` already followed by deleting the file rather than leaving it stale when `yt-dlp` cannot say what it downloaded.
-A stale answer reads as a definite one to whoever picks it up next.
+[docs/machine-interface.md](docs/machine-interface.md) is the reference for all of it: what `--list --json` says is on the device, the progress protocol `--progress-json` writes, what `install.sh --check` says is on this machine, and what each exit code means.
 
 ## Renaming the device
 
@@ -786,6 +717,8 @@ The shell scripts are the product; each one does a job the command line can do o
 
 `ipod-report.py` is the one exception to that shape: it is the JSON the scripts report with, not a command of its own.
 It is Python because JSON is not something a shell can emit safely, and a track name holding a quote, a backslash or a newline is ordinary on a device whose names came from tags and YouTube titles.
+It writes the progress stream for the same reason, as one process for a whole run rather than one per event: a sync copies thousands of files, and starting an interpreter for each would cost more than the copying does.
+The scripts hand it plain fields over a pipe, separated by the unit separator and ended by NUL, that being the one byte a filename cannot hold.
 It repeats what `ipod_gui/device.py` reads rather than importing it, because the scripts have to run on a machine with no GTK bindings at all, exactly as `lib.sh`'s `list_vfat_mounts` repeats `find_ipods()`.
 What that costs is the chance of the two drifting apart, so `tests/device-report.py` takes both readings of one device and compares them field by field.
 
@@ -861,6 +794,7 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - The window advertising a minimum width narrower than a playlist page can be drawn in once its rows are on the iPod, because the check only ever measured that page showing a playlist that was not
 - Renaming a playlist the iPod was holding, on a machine with no speech engine, taking the old name off the device with nothing able to stage the new one, so the list left the iPod and the one control that would have put it back was refused for the same reason
 - A JSON report walking the music folder the way the window does, which yields nothing at all for a folder it cannot read, so a full iPod holding one unreadable album was reported as a device with no tracks on it
+- Counting files as `find | wc -l`, which counts a track whose name holds a newline twice, so the iPod was said to hold more tracks than it did and a backup was verified against a figure that was never the number of files
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 The check that an unreadable album stops the report is skipped for the same reason and in the same way.
@@ -878,8 +812,15 @@ A machine with no `python3` is covered against a PATH holding every other progra
 Preview playback is checked the same way, against a stand-in pipeline whose messages the test delivers by hand: GStreamer only reports a track ending, or failing to decode, on a running main loop, and it is optional besides, so a suite that needed it installed would be skipped exactly where the state machine is least exercised.
 The preview cache is the exception: promoting, pruning and clearing are checked against real files in a temporary directory, because a promotion that leaves the file where it was would look identical in memory and lose the track at the next prune.
 Thumbnail fetching is checked against a local HTTP server rather than YouTube, so the suite covers the answers that matter - a missing image, an empty one, one larger than the cap, and a URL scheme that is not HTTP - without depending on the network or on a particular video still existing.
-Symlinked sources are checked on both sides of the same folder, because the script and the GUI walk it separately and the count the GUI produces is what drives the sync progress bar: `tests/gui-scan-paths.py` prints what the scan finds, and the suite holds it against what the sync actually copied.
+The progress stream is checked as a protocol rather than as text: the suite runs a sync whose source holds a name with a quote and a backslash in it and another with a newline, and asserts that each came back exactly as it is on disk, that the count reached the total having gone up one at a time, and that a removal and a wipe report themselves the same way.
+The failures are covered beside them, because they are what the stream is for: a run with no iPod still ends with a result carrying the code it exits with, and a caller that stops reading half way through a copy leaves the copy finishing rather than killing the script with a broken pipe.
+The window's half is pinned against the same table `ipod-report.py` encodes from, so a status the scripts can send with no word for it in the bar fails there rather than reaching a user as a bare identifier.
+
+Symlinked sources are checked on both sides of the same folder, because the script and the GUI walk it separately and both have to survive what is in that tree: `tests/gui-scan-paths.py` prints what the scan finds, and the suite holds it against what the sync actually copied.
 That folder carries every case the walk has to survive - a linked track, a linked folder, a link out of the tree, a dangling link, and a folder that links back to its own parent - since `os.walk` has no loop detection of its own and would otherwise recurse through the last one forever.
+
+`tests/gui-progress-stream.py` is the seam between the window and the scripts, and it is the only check where the two halves actually meet: the window runs a real sync the way the app runs one, with a descriptor it opened for the progress and a thread reading it back.
+Every other check of the bar starts from JSON written by hand, so none of them would notice a flag the script never saw - which is exactly what it caught the first time it ran, the descriptor being announced after the `--` that makes everything following it a path.
 
 `tests/gui-repaint-coalescing.py` covers the repaint queue, which needs a main loop but no display: a library scan publishes a batch every 25 tracks, and each of those used to rebuild every card in the grid.
 That was not only wasted work: a batch arriving while the pointer rested on a card rebuilt that card underneath it, which is the flashing that was reported, and a rebuild under an open menu destroys the widget the focus is on, which GTK answers by moving the focus out of the popup.
@@ -887,7 +828,7 @@ The check holds a burst of batches to one repaint, holds those batch repaints ba
 The repaints that do not come through the queue at all are deliberately the exception and go in straight away: a library scan that finishes or fails, a device read that fails, and a mount that changes are each the last word even over an open menu, because a menu left standing over a grid that is no longer true is the worse thing of the two.
 A device read that completes is the one terminal repaint that is queued like the rest - never coalesced away, but still waiting out the interval and an open menu - while every batch behind all of them is skippable and waits.
 
-`tests/gui-refresh-spinner.py` is the other main-loop check that needs no display, and it holds the refresh button's animation on screen long enough to be seen: a scan over a small library finishes in well under a tenth of a second, and a spinner that appears and vanishes inside that reads as a button that did nothing - which is the complaint the animation exists to answer.
+`tests/gui-refresh-spinner.py` is another main-loop check that needs no display, and it holds the refresh button's animation on screen long enough to be seen: a scan over a small library finishes in well under a tenth of a second, and a spinner that appears and vanishes inside that reads as a button that did nothing - which is the complaint the animation exists to answer.
 The minimum runs from the most recent press rather than the first, because the press most likely to be a second try is the one landing while the last spin is still finishing, and measured from the first start that press would put the spinner out again a few milliseconds later.
 The two scans share the one spinner, so the check drives them together and apart: a device read outliving the library scan has to keep it going, and a scan superseded by a newer one returns without ever finishing and must not leave it turning forever - which is why what it shows is derived from the two scan flags rather than counted up and down around them.
 
@@ -902,7 +843,7 @@ Nothing in a screenshot says which page is one long album title away from that, 
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the Xephyr recipe that brings the window up at exactly 1180x760 on any machine.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, both main-loop checks, and both real-window checks under xvfb on every push and pull request.
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the three main-loop checks, and both real-window checks under xvfb on every push and pull request.
 
 ## Credits
 

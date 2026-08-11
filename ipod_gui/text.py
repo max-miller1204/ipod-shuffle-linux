@@ -1,5 +1,6 @@
 """Turning script output and raw numbers into what a label can show."""
 
+import json
 import re
 from pathlib import Path
 
@@ -9,10 +10,56 @@ from pathlib import Path
 # "[36m==>[0m Removed 1 track(s)".
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
-# ipod-sync.sh prints one of these per file as it copies. Parsed to drive the
-# sync bar, which would otherwise have nothing but an indeterminate pulse to
-# show for an operation that can run for minutes.
-COPIED_LINE = re.compile(r"^\s*\+ (?P<name>.+?) -> (?P<dest>.+?)\s*$")
+# What the sync bar says about each thing a script has finished with.
+#
+# The whole vocabulary each side of the stream can use is declared in
+# ipod-report.py, which refuses to encode a status that is not in it, so a word
+# missing from here is a status this window would show as a bare identifier
+# rather than one it could quietly drop.
+FILE_STATUS_LABELS = {
+    "copied": "Copied",
+    "duplicate": "Already there",
+    "missing": "Not found",
+    "broken": "Broken link",
+    "removed": "Removed",
+}
+
+PLAYLIST_STATUS_LABELS = {
+    "written": "Playlist written",
+    "removed": "Playlist removed",
+    "skipped": "Playlist skipped",
+}
+
+# The stretches of a run that are one long wait rather than a file at a time.
+# Shown in place of the file name, because a bar still showing the last track
+# it copied while the database is being rebuilt looks like a run that stalled.
+STAGE_LABELS = {
+    "backup": "Backing up",
+    "clear": "Clearing the iPod",
+    "copy": "Copying",
+    "rebuild": "Rebuilding the database",
+}
+
+
+def progress_event(line):
+    """One event of a script's progress stream, or None if it is not one.
+
+    The scripts report what they are doing as JSON on a stream of its own,
+    which is what drives the sync bar. This used to be a regex over the copy
+    lines in their human output, so rewording one of those broke the bar and
+    nothing failed when it did.
+
+    A line that will not parse is dropped rather than raised on: the stream is
+    how the window watches a copy that is already under way on the device, and
+    the copy is not made any less real by a line nobody can read.
+    """
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(event, dict) or not isinstance(event.get("event"), str):
+        return None
+    return event
 
 # Said by every confirmation whose answer rebuilds the database over names the
 # device goes on holding, and said once here so the same consequence does not

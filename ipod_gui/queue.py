@@ -563,8 +563,11 @@ class QueueMixin:
 
     def _launch_pending_sync(self):
         paths = sorted(self.pending_sources)
-        copy_tracks, changes, _queued_bytes = self._pending_accounting()
-        self.sync_total = len(copy_tracks)
+        # How many tracks this will copy is not predicted here any more: the
+        # sync counts what it is about to do and says so on its progress
+        # stream, and a second guess from the window's own index would be the
+        # figure that goes stale when the two disagree.
+        _copy_tracks, changes, _queued_bytes = self._pending_accounting()
         self._run(
             [
                 str(SYNC_SCRIPT),
