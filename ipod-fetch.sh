@@ -59,6 +59,9 @@ Already-downloaded videos are recorded in <output>/.fetched and skipped on
 later runs, so re-running a playlist URL collects only what is new.
 
 You are responsible for having the right to download what you point this at.
+
+Exit code 6 means a missing dependency. With --sync the codes of the sync it
+runs come through as they are, so 3, 4, 5 and 7 mean what they mean there.
 EOF
 }
 
@@ -82,7 +85,8 @@ done
 if (( UPDATE )); then
     (( $# == 0 )) || die "--update takes no URLs."
     [[ -x "$VENV_PYTHON" ]] \
-        || die "No virtualenv at $VENV_PYTHON - run ./install.sh first."
+        || die_with "$EXIT_MISSING_DEPENDENCY" \
+            "No virtualenv at $VENV_PYTHON - run ./install.sh first."
     info "Updating yt-dlp"
     "$VENV_PYTHON" -m pip install -q --disable-pip-version-check --upgrade yt-dlp \
         || die "Failed to update yt-dlp."
@@ -100,7 +104,8 @@ YT_DLP="$(yt_dlp_bin)"
 # The MP3 encoder and the tag writer are both ffmpeg, so without it yt-dlp
 # would hand back the Opus file it downloaded and the shuffle would ignore it.
 command -v ffmpeg >/dev/null \
-    || die "ffmpeg is required to produce MP3 - run ./install.sh."
+    || die_with "$EXIT_MISSING_DEPENDENCY" \
+        "ffmpeg is required to produce MP3 - run ./install.sh."
 
 mkdir -p "$OUTPUT"
 

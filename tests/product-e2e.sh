@@ -1056,6 +1056,81 @@ else
     echo "NOTICE: real-builder playlist check skipped; run ./install.sh to enable" >&2
 fi
 
+# ------------------------------------------- the machine-readable device report
+#
+# Everything above this line is read by a person. --json is the other half, and
+# the risk it carries is that ipod-report.py repeats what ipod_gui/device.py
+# does rather than importing it - a decision forced by the scripts having to
+# run where the GTK bindings are not installed, and one that lets the two
+# drift silently. So the report the script printed is compared against the
+# window's own reading of the same device, field by field.
+#
+# Run here because this device is the fullest one the suite builds: three
+# tracks, three playlists, and, where the real builder and a speech engine are
+# both present, the recordings that decide which of them can be announced.
+"$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" \
+    --list \
+    --json > "$EVIDENCE_DIR/device-report.json"
+/usr/bin/python3 "$ROOT/tests/device-report.py" \
+    "$PLAYLIST_IPOD" \
+    "$EVIDENCE_DIR/device-report.json" \
+    > "$EVIDENCE_DIR/device-report-agrees.json"
+
+# The same script's two ways of saying what is on the device have to say the
+# same thing, or the flag would be reporting a second opinion rather than the
+# same answer in another shape.
+"$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" --list \
+    > "$EVIDENCE_DIR/device-report-plain.txt"
+diff -u \
+    <(/usr/bin/python3 -c '
+import json
+import sys
+from pathlib import Path
+
+report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+for track in report["tracks"]:
+    print(track)
+' "$EVIDENCE_DIR/device-report.json") \
+    "$EVIDENCE_DIR/device-report-plain.txt"
+
+# A report is worth nothing if half of one can reach the caller looking whole.
+# An unreadable saved-options file is the case the scripts already refuse to
+# guess about, because reporting "no saved options" for it would say the next
+# rebuild is safe when it would drop every playlist.
+mv -- "$PLAYLIST_IPOD/iPod_Control/.sync-options" "$TEST_ROOT/report-options"
+mkdir "$PLAYLIST_IPOD/iPod_Control/.sync-options"
+report_options_status=0
+"$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" --list --json \
+    > "$EVIDENCE_DIR/device-report-unreadable-options.json" \
+    2> "$EVIDENCE_DIR/device-report-unreadable-options.txt" \
+    || report_options_status=$?
+test "$report_options_status" -eq 1
+test ! -s "$EVIDENCE_DIR/device-report-unreadable-options.json"
+rmdir -- "$PLAYLIST_IPOD/iPod_Control/.sync-options"
+mv -- "$TEST_ROOT/report-options" "$PLAYLIST_IPOD/iPod_Control/.sync-options"
+
+# An album the walk cannot enter is the same rule and the harder case, because
+# nothing fails: Path.rglob yields nothing for a folder it cannot read, so the
+# report would have counted the tracks it could see and called that the device.
+# A caller told a full iPod holds nothing is one about to sync a whole library
+# onto it. Skipped as root, who can read it anyway.
+if [[ "$(id -u)" != 0 ]]; then
+    chmod 000 "$PLAYLIST_IPOD/iPod_Control/Music/Neil Young"
+    report_walk_status=0
+    "$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" --list --json \
+        > "$EVIDENCE_DIR/device-report-unreadable-album.json" \
+        2> "$EVIDENCE_DIR/device-report-unreadable-album.txt" \
+        || report_walk_status=$?
+    chmod 755 "$PLAYLIST_IPOD/iPod_Control/Music/Neil Young"
+    test "$report_walk_status" -eq 1
+    test ! -s "$EVIDENCE_DIR/device-report-unreadable-album.json"
+else
+    printf 'skipped: running as root, which can read the folder\n' \
+        > "$EVIDENCE_DIR/device-report-unreadable-album.txt"
+    echo "NOTICE: unreadable-album report check skipped; run as a normal user" >&2
+fi
+
 control_playlist="$PLAYLIST_LIB/Control"$'\t'"Name"$'\177'".m3u"
 printf '%s\n' "$PLAYLIST_LIB/Neil Young/Heart of Gold.mp3" > "$control_playlist"
 "$ROOT/ipod-sync.sh" \
@@ -1813,6 +1888,397 @@ assert "--js-runtimes" not in args, args
 PY
 grep -Fq 'yt-dlp is too old' "$EVIDENCE_DIR/old-yt-dlp-fallback.txt"
 
+# ------------------------------------------------------- exit codes and --check
+#
+# The five states a caller has to branch on, each asserted as the number it is
+# rather than as the sentence beside it. Both streams go to the evidence file,
+# because a code is only useful while the sentence still says what happened,
+# and stdin comes from /dev/null so a prompt is declined rather than waited on.
+#
+# The status the run actually produced is left in LAST_EXIT_CODE, so a check
+# that two programs agree on a code can compare what they returned.
+LAST_EXIT_CODE=0
+exit_code_is() {
+    local expected="$1" evidence="$2" status=0
+    shift 2
+    "$@" > "$EVIDENCE_DIR/$evidence" 2>&1 < /dev/null || status=$?
+    LAST_EXIT_CODE="$status"
+    if (( status != expected )); then
+        echo "expected exit $expected, got $status: $*" >&2
+        exit 1
+    fi
+}
+
+# Nothing plugged in, and a path explicitly named with nothing at it. They are
+# one answer to a caller - point me at an iPod - so they are one code.
+# The positional parameters below belong to the bash -c program rather than to
+# this file, so they are quoted against expanding here.
+# shellcheck disable=SC2016
+exit_code_is 3 exit-code-no-ipod.txt \
+    bash -c 'source "$1"; list_vfat_mounts() { :; }; find_ipod ""' \
+    _ "$ROOT/lib.sh"
+exit_code_is 3 exit-code-no-ipod-at-path.txt \
+    "$ROOT/ipod-remove.sh" --ipod "$TEST_ROOT/nothing-is-mounted-here" --list
+
+mkdir -p "$TEST_ROOT/two-ipods/one/iPod_Control" "$TEST_ROOT/two-ipods/two/iPod_Control"
+# shellcheck disable=SC2016
+exit_code_is 4 exit-code-several-ipods.txt \
+    bash -c 'source "$1"
+        root="$2"
+        list_vfat_mounts() { printf "%s\n" "$root/one" "$root/two"; }
+        find_ipod ""' \
+    _ "$ROOT/lib.sh" "$TEST_ROOT/two-ipods"
+grep -Fq 'Multiple iPods found' "$EVIDENCE_DIR/exit-code-several-ipods.txt"
+
+# The device going away part way through is the failure this project sees
+# most, and it arrives as whichever command touched the volume next rather
+# than as a check anybody wrote. Here it is the database builder, which is the
+# last thing every device-changing script does.
+cat > "$TEST_ROOT/vanishing-db-builder.py" <<'PY'
+#!/usr/bin/env python3
+"""Stands in for an iPod unplugged while the database is being written."""
+
+import shutil
+import sys
+
+shutil.rmtree(sys.argv[-1])
+sys.exit(1)
+PY
+VANISH_IPOD="$TEST_ROOT/vanishing-ipod"
+VANISH_SOURCE="$TEST_ROOT/vanishing-source"
+mkdir -p "$VANISH_SOURCE"
+printf 'a song\n' > "$VANISH_SOURCE/01 - Song.mp3"
+mkdir -p "$VANISH_IPOD/iPod_Control/iTunes" \
+    "$VANISH_IPOD/iPod_Control/Music" \
+    "$VANISH_IPOD/iPod_Control/Speakable"
+IPOD_DB_TOOL="$TEST_ROOT/vanishing-db-builder.py" \
+    exit_code_is 5 exit-code-device-gone.txt \
+    "$ROOT/ipod-sync.sh" --ipod "$VANISH_IPOD" --yes "$VANISH_SOURCE"
+grep -Fq 'stopped answering' "$EVIDENCE_DIR/exit-code-device-gone.txt"
+# What a script leaves with when the volume goes away, kept for the writer to
+# be held against further down: it has to answer with this same number.
+lib_gone_code="$LAST_EXIT_CODE"
+
+# The other half of that guard, and the reason it looks at the device rather
+# than at the failure: a builder that fails while the iPod is still sitting
+# there must not be reported as one that was unplugged.
+cat > "$TEST_ROOT/failing-db-builder.py" <<'PY'
+#!/usr/bin/env python3
+"""A database builder that fails with the device still connected."""
+
+import sys
+
+sys.exit(1)
+PY
+mkdir -p "$VANISH_IPOD/iPod_Control/iTunes" \
+    "$VANISH_IPOD/iPod_Control/Music" \
+    "$VANISH_IPOD/iPod_Control/Speakable"
+IPOD_DB_TOOL="$TEST_ROOT/failing-db-builder.py" \
+    exit_code_is 1 exit-code-builder-failed.txt \
+    "$ROOT/ipod-sync.sh" --ipod "$VANISH_IPOD" --yes "$VANISH_SOURCE"
+if grep -Fq 'stopped answering' "$EVIDENCE_DIR/exit-code-builder-failed.txt"; then
+    echo "a failed builder was reported as an unplugged iPod" >&2
+    exit 1
+fi
+
+IPOD_DB_TOOL="$TEST_ROOT/no-such-db-builder.py" \
+    exit_code_is 6 exit-code-missing-dependency.txt \
+    "$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" --yes 'Beach Boys/Surfin.mp3'
+test -s "$PLAYLIST_IPOD/iPod_Control/Music/Beach Boys/Surfin.mp3"
+
+# Both prompts, because the one that stopped an unattended run was never the
+# caller's own: assert_shuffle asks its question from inside lib.sh.
+exit_code_is 7 exit-code-declined.txt \
+    "$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" 'Beach Boys/Surfin.mp3'
+test -s "$PLAYLIST_IPOD/iPod_Control/Music/Beach Boys/Surfin.mp3"
+NOT_A_SHUFFLE_DECLINED="$TEST_ROOT/not-a-shuffle-declined"
+mkdir -p "$NOT_A_SHUFFLE_DECLINED/iPod_Control/iTunes" \
+    "$NOT_A_SHUFFLE_DECLINED/iPod_Control/Music"
+exit_code_is 7 exit-code-declined-speakable.txt \
+    "$ROOT/ipod-wipe.sh" --ipod "$NOT_A_SHUFFLE_DECLINED"
+grep -Fq 'This may not be a shuffle' "$EVIDENCE_DIR/exit-code-declined-speakable.txt"
+# Bash prints a read prompt only to a terminal, so a run that declines by
+# reaching end of input has to say why in its own words.
+grep -Fq 'Aborted.' "$EVIDENCE_DIR/exit-code-declined-speakable.txt"
+
+# Everything a caller cannot do anything different about stays 1, or the table
+# would be a list of numbers rather than a list of decisions.
+exit_code_is 1 exit-code-unknown-option.txt "$ROOT/ipod-remove.sh" --no-such-flag
+exit_code_is 1 exit-code-not-on-the-ipod.txt \
+    "$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" --yes '../escape.mp3'
+
+# The one number ipod-report.py has to repeat, because a report run on its own
+# still has to be able to say the device went away. Taken from the writer by
+# running it rather than by reading it: once over a device it can describe, so
+# the answer below is a device that went rather than a report that never
+# works, and then over the same path with the volume gone, where it owes the
+# caller the number the scripts produced above and nothing on stdout to read
+# as a device.
+REPORT_GONE_IPOD="$TEST_ROOT/report-gone-ipod"
+mkdir -p "$REPORT_GONE_IPOD/iPod_Control/Music/Beach Boys" \
+    "$REPORT_GONE_IPOD/iPod_Control/iTunes"
+printf 'a song\n' > "$REPORT_GONE_IPOD/iPod_Control/Music/Beach Boys/Surfin.mp3"
+/usr/bin/python3 "$ROOT/ipod-report.py" device "$REPORT_GONE_IPOD" \
+    > "$EVIDENCE_DIR/report-device-present.json"
+grep -Fq '"Beach Boys/Surfin.mp3"' "$EVIDENCE_DIR/report-device-present.json"
+
+rm -rf -- "$REPORT_GONE_IPOD"
+report_gone_code=0
+/usr/bin/python3 "$ROOT/ipod-report.py" device "$REPORT_GONE_IPOD" \
+    > "$EVIDENCE_DIR/report-device-gone.json" \
+    2> "$EVIDENCE_DIR/report-device-gone.txt" || report_gone_code=$?
+test "$report_gone_code" -eq "$lib_gone_code"
+test ! -s "$EVIDENCE_DIR/report-device-gone.json"
+grep -Fq 'stopped answering' "$EVIDENCE_DIR/report-device-gone.txt"
+
+# A machine with no python3 on it, which is the one dependency every report
+# goes through. Run against a PATH holding everything but the interpreter, and
+# under a timeout, because the way out of a missing dependency asks the device
+# who it is - and asking through the interpreter that is missing is a question
+# that answers itself forever rather than a code the caller can read.
+#
+# The report needs the writer and says so, once, with the missing-dependency
+# code and nothing on stdout. The plain listing never needed it and still
+# answers, because a caller cannot install an interpreter to read a folder.
+NO_PYTHON_BIN="$TEST_ROOT/no-python-bin"
+mkdir -p "$NO_PYTHON_BIN"
+for tool in /usr/bin/* /bin/*; do
+    case "${tool##*/}" in python|python3*) continue ;; esac
+    ln -sf "$tool" "$NO_PYTHON_BIN/${tool##*/}" 2> /dev/null || true
+done
+test ! -e "$NO_PYTHON_BIN/python3"
+test -x "$NO_PYTHON_BIN/find"
+
+no_python_json_status=0
+timeout 60 env PATH="$NO_PYTHON_BIN" "$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" --list --json \
+    > "$EVIDENCE_DIR/no-python-list.json" \
+    2> "$EVIDENCE_DIR/no-python-list-json.txt" || no_python_json_status=$?
+test "$no_python_json_status" -eq 6
+test ! -s "$EVIDENCE_DIR/no-python-list.json"
+test "$(grep -c 'python3 is required' "$EVIDENCE_DIR/no-python-list-json.txt")" -eq 1
+
+"$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" --list \
+    > "$EVIDENCE_DIR/with-python-list.txt"
+no_python_list_status=0
+timeout 60 env PATH="$NO_PYTHON_BIN" "$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" --list \
+    > "$EVIDENCE_DIR/no-python-list.txt" \
+    2> "$EVIDENCE_DIR/no-python-list-stderr.txt" || no_python_list_status=$?
+test "$no_python_list_status" -eq 0
+test -s "$EVIDENCE_DIR/no-python-list.txt"
+diff -u "$EVIDENCE_DIR/with-python-list.txt" "$EVIDENCE_DIR/no-python-list.txt"
+
+# --check answers what this machine can do without installing anything, which
+# is the point of it: a caller has to be able to ask before deciding to.
+CHECK_TOOLS="$TEST_ROOT/check-tools-dir"
+CHECK_XDG="$TEST_ROOT/check-xdg-data"
+check_status=0
+IPOD_TOOLS_DIR="$CHECK_TOOLS" XDG_DATA_HOME="$CHECK_XDG" \
+    "$ROOT/install.sh" --check \
+    > "$EVIDENCE_DIR/install-check.txt" 2>&1 || check_status=$?
+test ! -e "$CHECK_TOOLS"
+test ! -e "$CHECK_XDG"
+
+check_json_status=0
+IPOD_TOOLS_DIR="$CHECK_TOOLS" XDG_DATA_HOME="$CHECK_XDG" \
+    "$ROOT/install.sh" --check --json \
+    > "$EVIDENCE_DIR/install-check.json" \
+    2> "$EVIDENCE_DIR/install-check-json-stderr.txt" || check_json_status=$?
+test ! -e "$CHECK_TOOLS"
+test ! -e "$CHECK_XDG"
+test "$check_json_status" -eq "$check_status"
+
+# The exit code is the answer and the document is the detail, so they have to
+# agree - on any machine, whatever happens to be installed on it. Nothing but
+# the document may reach stdout either, or a caller parsing it would trip over
+# the installer's own prose.
+/usr/bin/python3 - \
+    "$EVIDENCE_DIR/install-check.json" \
+    "$check_json_status" \
+    "$EVIDENCE_DIR/install-check.txt" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+report = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+status = int(sys.argv[2])
+prose = Path(sys.argv[3]).read_text(encoding="utf-8")
+
+assert report["schema"] == 1, report["schema"]
+assert report["capabilities"], "the check reported no capabilities at all"
+
+available = [entry["available"] for entry in report["capabilities"]]
+assert report["satisfied"] == all(available), report["satisfied"]
+# 0 when there is nothing to install and 6 when something is missing, which is
+# the whole contract: a caller branches on the number and reads the document
+# only when it wants to know which thing.
+assert status == (0 if report["satisfied"] else 6), status
+
+# What is missing, as one apt line rather than one per capability, and never
+# anything a capability that is present would have needed.
+expected = []
+for entry in report["capabilities"]:
+    if not entry["available"]:
+        expected += [name for name in entry["packages"] if name not in expected]
+assert report["missing_packages"] == expected, report["missing_packages"]
+
+# The JavaScript runtime is the one capability that names no package, because
+# a distribution nodejs can be older than yt-dlp accepts and installing it
+# would spend a privileged transaction on a runtime the probe then rejects.
+runtime = [e for e in report["capabilities"] if e["id"] == "javascript-runtime"]
+assert len(runtime) == 1, report["capabilities"]
+assert runtime[0]["packages"] == [], runtime[0]
+
+# The prose form is the same reading in another shape, so it has to describe
+# the same number of capabilities with the same verdicts.
+assert prose.count(" ok") + prose.count(" unavailable (") == len(available), prose
+assert prose.count(" unavailable (") == available.count(False), prose
+PY
+test ! -s "$EVIDENCE_DIR/install-check-json-stderr.txt"
+
+# The last thing an install does is print that same report, now that the
+# install has had its turn, so a person watching one finish and a caller that
+# asked --check are told the same thing. Every other installer run here stops
+# early on purpose and never reaches it, so this one has to finish: two
+# stand-ins take the place of the network, a local repository for the database
+# builder and a virtualenv whose pip has no index to reach, and the shipped
+# script does the rest.
+FULL_TOOLS="$TEST_ROOT/full-install-tools"
+FULL_XDG="$TEST_ROOT/full-install-xdg"
+UPSTREAM_STUB="$TEST_ROOT/upstream-db-tool"
+
+mkdir -p "$UPSTREAM_STUB"
+printf '%s\n' '"""Stand-in for the upstream database builder."""' \
+    > "$UPSTREAM_STUB/ipod-shuffle-4g.py"
+git -c init.defaultBranch=main -C "$UPSTREAM_STUB" init --quiet
+git -C "$UPSTREAM_STUB" add ipod-shuffle-4g.py
+git -C "$UPSTREAM_STUB" \
+    -c user.name=Tests -c user.email=tests@example.invalid \
+    commit --quiet -m 'Stand-in database builder'
+# Cloned here rather than by the installer, which would have to reach GitHub
+# for it; the update path it takes instead is the same git and the same
+# working tree afterwards.
+git clone --quiet "$UPSTREAM_STUB" "$FULL_TOOLS/IPod-Shuffle-4g"
+
+mkdir -p "$FULL_TOOLS/venv/bin" "$FULL_TOOLS/venv/site"
+cat > "$FULL_TOOLS/venv/bin/python" <<'STUB'
+#!/bin/sh
+# The virtualenv's interpreter: the system one, seeing only what pip has put
+# in the site directory beside it.
+PYTHONPATH="$(dirname "$0")/../site"
+export PYTHONPATH
+exec /usr/bin/python3 "$@"
+STUB
+cat > "$FULL_TOOLS/venv/bin/pip" <<'STUB'
+#!/bin/sh
+# No index to reach, but it does for mutagen what the real one does: puts it
+# where the interpreter beside it will find it, and not a moment before it is
+# asked to. That is what tells a report taken after the install from one
+# taken before it.
+here="$(dirname "$0")"
+printf '%s\n' "$*" > "$here/../pip-invocation.txt"
+printf '%s\n' 'version_string = "1.47.0-stand-in"' > "$here/../site/mutagen.py"
+STUB
+cat > "$FULL_TOOLS/venv/bin/yt-dlp" <<'STUB'
+#!/bin/sh
+case "$1" in
+    --version) printf '%s\n' '2025.11.12' ;;
+    --help)    printf '%s\n' '  --js-runtimes RUNTIMES  Runtimes to use' ;;
+esac
+STUB
+chmod +x "$FULL_TOOLS/venv/bin/python" "$FULL_TOOLS/venv/bin/pip" \
+    "$FULL_TOOLS/venv/bin/yt-dlp"
+
+# The suite's own builder and interpreter are dropped for these runs, so the
+# installer works on the tools directory it was pointed at, the way it does on
+# a real machine.
+full_install() {
+    env -u IPOD_DB_TOOL -u IPOD_VENV_PYTHON -u IPOD_VENV_YT_DLP \
+        IPOD_TOOLS_DIR="$FULL_TOOLS" XDG_DATA_HOME="$FULL_XDG" \
+        "$ROOT/install.sh" "$@"
+}
+
+full_before_status=0
+full_install --check \
+    > "$EVIDENCE_DIR/install-complete-before.txt" 2>&1 || full_before_status=$?
+test "$full_before_status" -eq 6
+test ! -e "$FULL_TOOLS/venv/site/mutagen.py"
+
+full_install --no-system > "$EVIDENCE_DIR/install-complete.txt" 2>&1
+grep -Fq -- "-r $ROOT_REAL/requirements.txt" "$FULL_TOOLS/venv/pip-invocation.txt"
+grep -Fq 'mutagen 1.47.0-stand-in' "$EVIDENCE_DIR/install-complete.txt"
+grep -Fq 'yt-dlp 2025.11.12' "$EVIDENCE_DIR/install-complete.txt"
+grep -Fq 'Done.' "$EVIDENCE_DIR/install-complete.txt"
+
+full_after_status=0
+full_install --check \
+    > "$EVIDENCE_DIR/install-complete-after.txt" 2>&1 || full_after_status=$?
+
+/usr/bin/python3 - \
+    "$EVIDENCE_DIR/install-complete-before.txt" \
+    "$EVIDENCE_DIR/install-complete.txt" \
+    "$EVIDENCE_DIR/install-complete-after.txt" \
+    "$full_after_status" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+CAPABILITY = re.compile(
+    r"^(?:==>|warning:)   (\S.*?)  +(ok|unavailable)(?: \((.*)\))?$"
+)
+
+
+def capabilities(path, heading):
+    """The capability lines a report printed, as (label, verdict, detail)."""
+    text = re.sub(r"\x1b\[[0-9;]*m", "", Path(path).read_text(encoding="utf-8"))
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.endswith(heading):
+            lines = lines[index + 1:]
+            break
+    else:
+        raise AssertionError(f"no {heading} section in {path}")
+    found = [match.groups() for match in map(CAPABILITY.match, lines) if match]
+    assert found, f"no capability lines under {heading} in {path}"
+    return found
+
+
+def verdict(entries, label):
+    matches = [entry[1] for entry in entries if entry[0] == label]
+    assert len(matches) == 1, (label, entries)
+    return matches[0]
+
+
+before = capabilities(sys.argv[1], "Dependencies")
+verifying = capabilities(sys.argv[2], "Verifying")
+after = capabilities(sys.argv[3], "Dependencies")
+status = int(sys.argv[4])
+
+# One probe pass over the nine capabilities, rendered where the install ends,
+# rather than a verification section written in its own words: the same
+# capabilities with the same verdicts and the same details --check reports of
+# the machine the install left behind.
+assert len(verifying) == 9, verifying
+assert verifying == after, (verifying, after)
+assert status == (0 if all(e[1] == "ok" for e in after) else 6), status
+
+# And taken after the install rather than before it. mutagen reaches the
+# virtualenv during the run, so a report assembled any earlier would still be
+# calling metadata support missing here - which is exactly what the same
+# command said before the run.
+assert verdict(before, "metadata support") == "unavailable", before
+assert verdict(verifying, "metadata support") == "ok", verifying
+for installed in ("python virtualenv", "database builder"):
+    assert verdict(verifying, installed) == "ok", verifying
+PY
+
+exit_code_is 1 install-json-without-check.txt "$ROOT/install.sh" --json
+grep -Fq -- '--json only reports' "$EVIDENCE_DIR/install-json-without-check.txt"
+exit_code_is 1 remove-json-without-list.txt \
+    "$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" --json 'Beach Boys/Surfin.mp3'
+grep -Fq -- '--json only reports' "$EVIDENCE_DIR/remove-json-without-list.txt"
+
 printf '%s\n' \
     "PASS: sync copied supported music while preserving source folders" \
     "PASS: playlist flags used explicit upstream values and persisted across rebuild" \
@@ -1884,6 +2350,15 @@ printf '%s\n' \
     "PASS: GStreamer probe answered per interpreter and its program still parses" \
     "PASS: GUI preview player tracked state, queue, seeking and decode failures" \
     "PASS: GUI preview downloaded into the cache, played it, and kept it out of the library" \
+    "PASS: the device report agreed with the window's own reading, field by field" \
+    "PASS: the report's tracks matched the plain listing of the same device" \
+    "PASS: an unreadable options file and an unreadable album produced no report at all" \
+    "PASS: no iPod, several iPods, a vanished one, a missing dependency and a refusal each got their own code" \
+    "PASS: a builder that failed with the iPod still connected stayed a plain failure" \
+    "PASS: the report writer answered a vanished device with the scripts' own code" \
+    "PASS: a machine without python3 got the dependency code once, and still listed" \
+    "PASS: --check reported what is installed without installing, and its code matched its document" \
+    "PASS: an install that finished ended with the report --check prints, taken after it" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
 cat "$EVIDENCE_DIR/product-e2e-summary.txt"

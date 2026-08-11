@@ -1,0 +1,181 @@
+
+======================================================================
+SETUP: stand-ins for the network, so a real install can finish here
+
+======================================================================
+database builder: cloned, not yet compiled by the installer
+virtualenv: present, and mutagen is not in it yet
+  (confirmed absent)
+
+======================================================================
+BEFORE: --check asks what this machine can do, and installs nothing
+
+======================================================================
+
+$ install_sh --check
+[36m==>[0m Dependencies
+[36m==>[0m   python virtualenv    ok (/tmp/tmp.EoYJQHRcNx/tools/venv/bin/python)
+[36m==>[0m   database builder     ok (/tmp/tmp.EoYJQHRcNx/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py)
+[33mwarning:[0m   metadata support     unavailable (mutagen is not in the virtualenv)
+[36m==>[0m   graphical interface  ok (/usr/bin/python3)
+[36m==>[0m   preview playback     ok
+[36m==>[0m   voiceover            ok
+[36m==>[0m   audio conversion     ok
+[36m==>[0m   javascript runtime   ok (bun)
+[36m==>[0m   youtube downloads    ok (/tmp/tmp.EoYJQHRcNx/tools/venv/bin/yt-dlp)
+[exit 6]
+
+======================================================================
+THE INSTALL: run to completion, ending in the same report
+
+======================================================================
+
+$ install_sh --no-system
+[36m==>[0m python3: Python 3.14.6
+[36m==>[0m GUI: GTK4 bindings present
+[36m==>[0m Preview playback: GStreamer present
+[36m==>[0m Voiceover: speech engine present
+[36m==>[0m Conversion: ffmpeg present
+[36m==>[0m YouTube downloads: bun present
+[36m==>[0m All system dependencies satisfied
+[36m==>[0m Desktop entry installed (look for iPod Shuffle in the app grid)
+[36m==>[0m Installing database builder into /tmp/tmp.EoYJQHRcNx/tools
+[36m==>[0m Database builder updated
+[36m==>[0m Installing Python dependencies
+[36m==>[0m   mutagen 1.47.0-stand-in
+[36m==>[0m   yt-dlp 2025.11.12
+
+[36m==>[0m Verifying
+[36m==>[0m   python virtualenv    ok (/tmp/tmp.EoYJQHRcNx/tools/venv/bin/python)
+[36m==>[0m   database builder     ok (/tmp/tmp.EoYJQHRcNx/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py)
+[36m==>[0m   metadata support     ok
+[36m==>[0m   graphical interface  ok (/usr/bin/python3)
+[36m==>[0m   preview playback     ok
+[36m==>[0m   voiceover            ok
+[36m==>[0m   audio conversion     ok
+[36m==>[0m   javascript runtime   ok (bun)
+[36m==>[0m   youtube downloads    ok (/tmp/tmp.EoYJQHRcNx/tools/venv/bin/yt-dlp)
+
+[36m==>[0m Done.
+[36m==>[0m   GUI:  ./ipod-gui.sh
+[36m==>[0m   CLI:  ./ipod-sync.sh ~/Music/somefolder
+[exit 0]
+
+======================================================================
+AFTER: --check again, on the machine the install left behind
+
+======================================================================
+
+$ install_sh --check
+[36m==>[0m Dependencies
+[36m==>[0m   python virtualenv    ok (/tmp/tmp.EoYJQHRcNx/tools/venv/bin/python)
+[36m==>[0m   database builder     ok (/tmp/tmp.EoYJQHRcNx/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py)
+[36m==>[0m   metadata support     ok
+[36m==>[0m   graphical interface  ok (/usr/bin/python3)
+[36m==>[0m   preview playback     ok
+[36m==>[0m   voiceover            ok
+[36m==>[0m   audio conversion     ok
+[36m==>[0m   javascript runtime   ok (bun)
+[36m==>[0m   youtube downloads    ok (/tmp/tmp.EoYJQHRcNx/tools/venv/bin/yt-dlp)
+[exit 0]
+
+======================================================================
+AFTER: and the same answer as a document, for a caller
+
+======================================================================
+
+$ install_sh --check --json
+{
+  "schema": 1,
+  "satisfied": true,
+  "capabilities": [
+    {
+      "id": "python-virtualenv",
+      "available": true,
+      "label": "python virtualenv",
+      "detail": "/tmp/tmp.EoYJQHRcNx/tools/venv/bin/python",
+      "packages": []
+    },
+    {
+      "id": "database-builder",
+      "available": true,
+      "label": "database builder",
+      "detail": "/tmp/tmp.EoYJQHRcNx/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py",
+      "packages": []
+    },
+    {
+      "id": "metadata",
+      "available": true,
+      "label": "metadata support",
+      "detail": "",
+      "packages": []
+    },
+    {
+      "id": "graphical-interface",
+      "available": true,
+      "label": "graphical interface",
+      "detail": "/usr/bin/python3",
+      "packages": [
+        "python3-gi",
+        "gir1.2-gtk-4.0",
+        "gir1.2-adw-1"
+      ]
+    },
+    {
+      "id": "preview-playback",
+      "available": true,
+      "label": "preview playback",
+      "detail": "",
+      "packages": [
+        "gir1.2-gstreamer-1.0",
+        "gstreamer1.0-plugins-base",
+        "gstreamer1.0-plugins-good",
+        "gstreamer1.0-plugins-bad"
+      ]
+    },
+    {
+      "id": "voiceover",
+      "available": true,
+      "label": "voiceover",
+      "detail": "",
+      "packages": [
+        "libttspico-utils"
+      ]
+    },
+    {
+      "id": "audio-conversion",
+      "available": true,
+      "label": "audio conversion",
+      "detail": "",
+      "packages": [
+        "ffmpeg"
+      ]
+    },
+    {
+      "id": "javascript-runtime",
+      "available": true,
+      "label": "javascript runtime",
+      "detail": "bun",
+      "packages": []
+    },
+    {
+      "id": "youtube-downloads",
+      "available": true,
+      "label": "youtube downloads",
+      "detail": "/tmp/tmp.EoYJQHRcNx/tools/venv/bin/yt-dlp",
+      "packages": []
+    }
+  ],
+  "missing_packages": []
+}
+[exit 0]
+
+======================================================================
+The Verifying section above is not a summary written in its own
+words: it is the nine capabilities --check reports, probed once
+after the install had its turn. Metadata support is the one that
+moves - unavailable before, ok in Verifying and ok after - which
+is what tells a report taken after an install from one taken
+before it.
+
+======================================================================

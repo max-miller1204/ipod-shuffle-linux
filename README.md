@@ -59,6 +59,7 @@ Everything else is installed or reported for you:
 | [Supported JavaScript runtime](#downloading-from-youtube) | system | Solving YouTube's signature challenge |
 
 Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
+Run `./install.sh --check` to be told what this machine already has without installing anything at all; see [what is installed](#what-is-installed).
 System packages are never installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
 
 ### Why not put everything in the virtualenv
@@ -343,6 +344,7 @@ Pass `--ipod /path/to/mount` if autodetection picks the wrong volume, and note t
 
 Tracks are named by their path under `iPod_Control/Music`, which is what `--list` prints.
 Passing a folder removes everything in it, so `./ipod-remove.sh roadtrip` clears the album.
+`--list --json` reports the whole device instead, for another program to read; see [driving the scripts from another program](#driving-the-scripts-from-another-program).
 
 Deleting the file is only half the job.
 The firmware plays what `iTunesSD` lists, so a track deleted without a rebuild is still offered by the player, which then stops dead when it tries to play it.
@@ -612,6 +614,83 @@ When downloads start failing for no apparent reason, YouTube has changed somethi
 ./ipod-fetch.sh --update
 ```
 
+## Driving the scripts from another program
+
+Everything above is written for a person reading a terminal.
+The scripts also answer in JSON, and they say what went wrong as a number rather than as English, so that another program can act on either without reading prose.
+
+### What is on the device
+
+```bash
+./ipod-remove.sh --list --json
+```
+
+This is the same reading the window takes when you plug the iPod in, and it covers everything the window paints from:
+
+| Field | What it holds |
+| --- | --- |
+| `mount_point` | Where the volume is mounted |
+| `identity` | What the volume calls itself: its filesystem UUID, or a digest of the device's own `SysInfo` when it has no UUID, or `null` when it will say neither |
+| `storage` | `total_bytes`, `used_bytes` and `free_bytes`, or `null` when the volume will not report its size |
+| `track_count` | How many tracks are on the device |
+| `tracks` | Each track's path under `iPod_Control/Music`, which is exactly what `ipod-remove.sh` takes back as an argument |
+| `playlists` | Each playlist at the volume root: its `name`, its `entries`, and `spoken`, whether the device can say its name out loud |
+| `sync_options` | The playlist and voiceover flags the last sync saved on the device |
+| `schema` | `1`, and bumped only when a field changes meaning or leaves |
+
+Without `--json`, `--list` still prints nothing but the track paths, so the two forms of the same question give the same answer in different shapes.
+
+### What is installed
+
+```bash
+./install.sh --check
+./install.sh --check --json
+```
+
+`--check` installs nothing and writes nothing.
+It reports each capability the project needs, whether this machine has it, and the packages that would provide it, then exits `0` when they are all there and `6` when one is not.
+So a caller can find out whether a sync would work before deciding to run one.
+
+With `--json` the same reading arrives as a document instead of as lines of prose:
+
+| Field | What it holds |
+| --- | --- |
+| `satisfied` | Whether every capability is there, which is the same answer the exit code gives |
+| `capabilities` | One entry per capability: its `id`, whether it is `available`, the `label` the installer prints for it, the `detail` it prints beside it, and the `packages` that provide it |
+| `missing_packages` | The apt names for everything missing, as one list rather than one per capability, so a caller can install them in a single transaction |
+| `schema` | `1`, on the same rule as the device report above |
+
+The same report closes a real install, in the same words, because a caller that asked what this machine could do and a person watching an install finish have to be told the same thing.
+
+### What went wrong
+
+| Code | What it means | What a caller can do about it |
+| --- | --- | --- |
+| `0` | It worked | |
+| `1` | Something else failed | Read the message |
+| `3` | No iPod, either mounted or at the path given | Plug one in, or name a different path |
+| `4` | Several iPods are connected | Name which one with `--ipod` |
+| `5` | The iPod stopped answering part way through | Plug it back in and try again |
+| `6` | A dependency is missing | Run `./install.sh`, or `./install.sh --check` to find out which |
+| `7` | A prompt was declined | Ask again, or pass `--yes` |
+
+Code `5` is the one worth explaining.
+Unplugging an iPod mid-copy is the failure this project sees most, and it arrives as whichever command happened to touch the volume next: a copy that cannot write, a walk that cannot descend, a database builder that cannot open its file.
+Rather than name a code at each of those and still miss the next one, the scripts remember what the volume called itself when they latched onto it, and on the way out of any failure they look at whether that volume is still there.
+A volume that has gone, or that has been replaced by a different one at the same path, turns the failure into `5`.
+A builder that fails while the iPod is still sitting there stays `1`.
+Asking what the volume calls itself needs `python3`, and a machine without one is treated as a volume that will not say rather than as a failure of its own, since this question is asked on the way out of every other failure and has to come back with an answer.
+Such a machine still gets `6` from the work that genuinely needs the interpreter - the JSON report and the database builder - while a plain `--list`, which never needed it, still answers.
+
+`--json` follows one rule: a whole document or nothing at all.
+A report is assembled in full, checked against the device it started reading, and only then written, so a device unplugged half way through produces exit `5` and an empty stream rather than a confident-looking description of a device nobody can see.
+Anything it cannot read stops it the same way.
+An album whose folder cannot be entered is the case worth naming, because nothing fails on its own there: the directory walk the window uses simply yields nothing for that folder, and the report would have counted the tracks it could see and called that the device.
+A caller told a full iPod holds nothing is one about to sync an entire library onto it.
+
+This is the rule `ipod-fetch.sh --new-tracks FILE` already followed by deleting the file rather than leaving it stale when `yt-dlp` cannot say what it downloaded.
+A stale answer reads as a definite one to whoever picks it up next.
+
 ## Renaming the device
 
 The shuffle's name is not stored in any of its databases.
@@ -705,6 +784,11 @@ That erases the device, including `Speakable/`, which is restored from the firmw
 The shell scripts are the product; each one does a job the command line can do on its own, and `lib.sh` holds what they share.
 `install.sh` sets up the virtualenv and the desktop entry, and nothing else depends on it.
 
+`ipod-report.py` is the one exception to that shape: it is the JSON the scripts report with, not a command of its own.
+It is Python because JSON is not something a shell can emit safely, and a track name holding a quote, a backslash or a newline is ordinary on a device whose names came from tags and YouTube titles.
+It repeats what `ipod_gui/device.py` reads rather than importing it, because the scripts have to run on a machine with no GTK bindings at all, exactly as `lib.sh`'s `list_vfat_mounts` repeats `find_ipods()`.
+What that costs is the chance of the two drifting apart, so `tests/device-report.py` takes both readings of one device and compares them field by field.
+
 The GUI is a package, `ipod_gui/`, launched by `ipod-gui.py` and split by what each module talks to rather than by what it happens to be called:
 
 | Module | What it owns |
@@ -776,8 +860,10 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - A staged change that copies nothing - a playlist rewritten out of songs the device already holds - reported in the sidebar as `+0 B queued to sync`, and as `0 B queued` once the iPod was unplugged, both of which read as a size that failed to be worked out
 - The window advertising a minimum width narrower than a playlist page can be drawn in once its rows are on the iPod, because the check only ever measured that page showing a playlist that was not
 - Renaming a playlist the iPod was holding, on a machine with no speech engine, taking the old name off the device with nothing able to stage the new one, so the list left the iPod and the one control that would have put it back was refused for the same reason
+- A JSON report walking the music folder the way the window does, which yields nothing at all for a folder it cannot read, so a full iPod holding one unreadable album was reported as a device with no tracks on it
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
+The check that an unreadable album stops the report is skipped for the same reason and in the same way.
 
 Most GUI checks call its methods unbound against a stand-in, so they exercise the real logic without needing a display.
 PyGObject still has to be importable, because the package imports it at load time.
@@ -785,6 +871,10 @@ They reach the code through `tests/harness.py` rather than importing `ipod_gui` 
 The harness writes a replacement to every module holding that name, and refuses to write one no module holds, so a helper that moves or is renamed breaks the check that depended on it instead.
 Reading the device is checked from both ends: that one probe off the main loop returns exactly what the separate calls it replaced did, against the synthetic volume the suite builds, and that `refresh` hands that work to a thread and returns rather than waiting for it.
 The answers it can bring back are checked too - two iPods, none, and one that stopped responding half way through being read - because each is a different thing to tell the user, and the last one must never arrive as a connected iPod holding nothing.
+The JSON report is held against that same reading rather than checked on its own, because it is a second implementation of it: `tests/device-report.py` takes both readings of one device and compares them field by field, on the fullest device the suite builds, where the real builder has written the recordings that decide which playlists can be announced.
+The same section asserts each exit code as the number it is rather than as the sentence beside it, including the one that has to stay ordinary: a database builder that fails while the iPod is still connected must not be reported as an iPod that was unplugged.
+The one code `ipod-report.py` names a second time is checked by running the writer over a device it can describe and then over the same path with the volume deleted, and holding the number that came back against the one a real script produced when its device went away, since two constants that read alike prove nothing about what either program returns.
+A machine with no `python3` is covered against a PATH holding every other program and under a timeout, because the way out of a missing dependency is the one place a script asks the device who it is: the report has to answer `6` once and print nothing, and the plain listing has to print what it prints with the interpreter there.
 Preview playback is checked the same way, against a stand-in pipeline whose messages the test delivers by hand: GStreamer only reports a track ending, or failing to decode, on a running main loop, and it is optional besides, so a suite that needed it installed would be skipped exactly where the state machine is least exercised.
 The preview cache is the exception: promoting, pruning and clearing are checked against real files in a temporary directory, because a promotion that leaves the file where it was would look identical in memory and lose the track at the next prune.
 Thumbnail fetching is checked against a local HTTP server rather than YouTube, so the suite covers the answers that matter - a missing image, an empty one, one larger than the cap, and a URL scheme that is not HTTP - without depending on the network or on a particular video still existing.

@@ -62,6 +62,9 @@ Examples:
   ./ipod-sync.sh --dir-playlists=1 --playlist-voiceover ~/Music
   ./ipod-sync.sh --id3-playlists='{genre}' --playlist-voiceover ~/Music
   ./ipod-sync.sh --playlist-voiceover ~/Music/mixtape.m3u
+
+Exit codes: 3 no iPod, 4 several iPods, 5 the iPod stopped answering, 6 a
+missing dependency, 7 a declined prompt. Anything else that failed is 1.
 EOF
 }
 
@@ -122,6 +125,7 @@ fi
 
 IPOD="$(find_ipod "$IPOD")"
 assert_shuffle "$IPOD"
+watch_device "$IPOD"
 info "iPod: $IPOD"
 
 MUSIC_DIR="$IPOD/iPod_Control/Music"
@@ -165,7 +169,7 @@ if (( CLEAR )); then
         else
             clear_prompt="Delete $playlist_count playlist(s) from the iPod?"
         fi
-        confirm "$clear_prompt" || die "Aborted."
+        confirm "$clear_prompt" || die_with "$EXIT_DECLINED" "Aborted."
     fi
     if (( existing > 0 )); then
         rm -rf "${MUSIC_DIR:?}"/*

@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "satisfied": false,
+  "capabilities": [
+    {
+      "id": "python-virtualenv",
+      "available": false,
+      "label": "python virtualenv",
+      "detail": "not created yet at /tmp/tmp.oak1W99ioN/tools/venv/bin/python",
+      "packages": []
+    },
+    {
+      "id": "database-builder",
+      "available": false,
+      "label": "database builder",
+      "detail": "not installed at /tmp/tmp.oak1W99ioN/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py",
+      "packages": []
+    },
+    {
+      "id": "metadata",
+      "available": false,
+      "label": "metadata support",
+      "detail": "mutagen is not in the virtualenv",
+      "packages": []
+    },
+    {
+      "id": "graphical-interface",
+      "available": true,
+      "label": "graphical interface",
+      "detail": "/usr/bin/python3",
+      "packages": [
+        "python3-gi",
+        "gir1.2-gtk-4.0",
+        "gir1.2-adw-1"
+      ]
+    },
+    {
+      "id": "preview-playback",
+      "available": true,
+      "label": "preview playback",
+      "detail": "",
+      "packages": [
+        "gir1.2-gstreamer-1.0",
+        "gstreamer1.0-plugins-base",
+        "gstreamer1.0-plugins-good",
+        "gstreamer1.0-plugins-bad"
+      ]
+    },
+    {
+      "id": "voiceover",
+      "available": true,
+      "label": "voiceover",
+      "detail": "",
+      "packages": [
+        "libttspico-utils"
+      ]
+    },
+    {
+      "id": "audio-conversion",
+      "available": true,
+      "label": "audio conversion",
+      "detail": "",
+      "packages": [
+        "ffmpeg"
+      ]
+    },
+    {
+      "id": "javascript-runtime",
+      "available": true,
+      "label": "javascript runtime",
+      "detail": "bun",
+      "packages": []
+    },
+    {
+      "id": "youtube-downloads",
+      "available": false,
+      "label": "youtube downloads",
+      "detail": "no yt-dlp",
+      "packages": []
+    }
+  ],
+  "missing_packages": []
+}
