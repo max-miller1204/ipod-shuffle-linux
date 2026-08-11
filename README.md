@@ -157,7 +157,7 @@ Because the device stores playlist names only as spoken audio, every sync asks f
 The dot beside a playlist means what it means beside a track: on the iPod, or here and waiting to be.
 A playlist wears the first cover the songs in it carry, so a list made out of records you have artwork for looks like those records rather than like a coloured tile.
 
-**Rename…**, under the same `⋯`, is one change here and two on a device already holding the playlist, since the name is what the iPod says out loud: the old name comes off the device as you accept it, and the new one goes on at the next sync, which the confirmation says before it happens.
+**Rename…**, under the `⋯` on a playlist's own page beside **Delete…**, is one change here and two on a device already holding the playlist, since the name is what the iPod says out loud: the old name comes off the device as you accept it, and the new one goes on at the next sync, which the confirmation says before it happens.
 That second half needs a speech engine like any other playlist reaching the device, so without one a rename that has a new name to stage is refused rather than confirmed - it would take the playlist off the iPod with nothing able to put it back, **Send to iPod** included.
 Install an engine and the rename is available again, and it was never refused for a playlist the iPod is not holding, nor for one listing no tracks, which has no second half to it.
 
@@ -171,7 +171,7 @@ Copying stages nothing: the iPod is already holding this playlist, so the copy a
 A song this computer cannot account for - one that reached the iPod from a machine you no longer have, or that has since been deleted here - is counted in the line above the buttons and spelled out in a confirmation before anything is written, because the copy is what a later sync writes back and the tracks it leaves out would leave the playlist on the device.
 The songs themselves stay on the iPod either way.
 While your music folders or the iPod are still being read, that count is not stated and the copy is not offered: both readings arrive a batch at a time, and a figure taken from half of one would offer a copy shorter than the playlist actually is.
-Taking such a playlist off the device is under the `⋯` beside the copy, which is where a playlist made here keeps its own **Delete**.
+Taking such a playlist off the device is under the same `⋯` on its own page, here beside the copy, which offers that in place of the **Rename…** and **Delete…** a playlist made here keeps there.
 
 Neither kind of playlist is sortable by column: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
 
