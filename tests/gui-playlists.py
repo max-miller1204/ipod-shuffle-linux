@@ -1431,9 +1431,9 @@ gui.delete_local_playlist(PLAYLISTS / "Renamed.m3u")
 # off the device now and the new one goes on at the next sync, and here the
 # new one cannot be staged - Send to iPod wants the same engine, so the
 # playlist would leave the iPod with nothing left able to put it back. What is
-# said names the reason and the way out, because the refusal is only about
-# this playlist being on the device: taking it off is what makes the rename
-# available again.
+# said names the reason and what the press would cost, and no way out: the
+# only control that takes a playlist off the device without deleting the file
+# here is one this row does not have.
 mute_renamer = FakeWindow(speech=False)
 mute_renamer.library_tracks([first])
 new_playlist(mute_renamer, "Mute")
@@ -1450,9 +1450,10 @@ assert mute_renamer.commands == [], mute_renamer.commands
 assert "No speech engine installed" in mute_renamer.toasts[-1], (
     mute_renamer.toasts
 )
-assert "remove Mute from the iPod first" in mute_renamer.toasts[-1], (
-    mute_renamer.toasts
-)
+assert (
+    "renaming Mute would take it off the iPod with nothing able to put the "
+    "new name there"
+) in mute_renamer.toasts[-1], mute_renamer.toasts
 
 # The same machine renaming the same playlist once it is not on the device: the
 # refusal is about what the iPod would be left holding, so with nothing over

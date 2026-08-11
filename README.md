@@ -159,7 +159,7 @@ A playlist wears the first cover the songs in it carry, so a list made out of re
 
 **Rename…**, under the same `⋯`, is one change here and two on a device already holding the playlist, since the name is what the iPod says out loud: the old name comes off the device as you accept it, and the new one goes on at the next sync, which the confirmation says before it happens.
 That second half needs a speech engine like any other playlist reaching the device, so without one the rename is refused rather than confirmed - it would take the playlist off the iPod with nothing able to put it back, **Send to iPod** included.
-Take it off the device yourself first and the rename is available again, as it is for any playlist the iPod is not holding.
+Install an engine and the rename is available again, and it was never refused for a playlist the iPod is not holding.
 
 The **Playlists** view also lists the playlists that exist only on the device - a folder or tag grouping a sync generated, a list made on another computer, or one a sync run from the terminal put there.
 Those are shown, reordered and removed but not edited, because their entries name copies on the iPod rather than files in your music folders, and for the same reason they are not among the playlists a track's `⋯` offers to add a song to.

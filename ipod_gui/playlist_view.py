@@ -1196,6 +1196,15 @@ class PlaylistViewMixin:
         file has not taken yet. A rename passes False and means it: the dialog
         refuses every name the page already shows, the device's own playlists
         are among them, so no name a rename can end at is one over there.
+
+        The exception is a rename that only changes case. The names a rename
+        is refused drop the old one case-sensitively while the device is
+        asked case-folded, so "Gym" -> "GYM" is allowed through and lands on
+        the same folded name the iPod is already holding. What that costs is
+        bounded to a sentence: an empty playlist renamed that way is told
+        nothing is staged to replace it while the queue does take it, and the
+        device copy comes off under either answer, so what the iPod ends up
+        holding is the same.
         """
         if on_device is None:
             on_device = self._playlist_on_device(playlist.name)
@@ -1425,9 +1434,16 @@ class PlaylistViewMixin:
         the old empty list off the iPod.
 
         Returns the sentence to say rather than a flag, because what is
-        refused and what to do about it are one decision. Asked before the
-        dialog opens and again before the file moves: a probe can put the
-        playlist on the device while the dialog is standing open.
+        refused and how the refusal reads are one decision and both call
+        sites say the same thing. Asked before the dialog opens and again
+        before the file moves: a probe can put the playlist on the device
+        while the dialog is standing open.
+
+        The sentence names the reason and the consequence and no way out.
+        The reason string already says what is missing, and every instruction
+        this app could give here would be wrong or destructive: Delete on a
+        playlist that is both here and on the device deletes the file here
+        too, and a row the two share has no "Remove from iPod" of its own.
         """
         if not self._playlist_on_device(playlist.name):
             return None
@@ -1438,8 +1454,8 @@ class PlaylistViewMixin:
         if not self.playlist_unavailable:
             return None
         return (
-            f"{self.playlist_unavailable}, so the new name cannot go on the "
-            f"iPod · remove {playlist.name} from the iPod first, then rename it"
+            f"{self.playlist_unavailable}, so renaming {playlist.name} would "
+            "take it off the iPod with nothing able to put the new name there"
         )
 
     def on_rename_playlist(self, name):
