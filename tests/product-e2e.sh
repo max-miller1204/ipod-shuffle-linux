@@ -2193,6 +2193,98 @@ test "$progress_bad_number_status" -eq 1
 grep -Fq "takes a descriptor number, not 'stdout'" \
     "$EVIDENCE_DIR/progress-descriptor-named.txt"
 
+# And the descriptor that is no descriptor at all. The flag was still typed, so
+# a run that took it as "no stream wanted" would be the one spelling that
+# reports nowhere without saying so. Asked of all three scripts, because the
+# flag is theirs jointly and a refusal in one of them is not the contract.
+for script in sync remove wipe; do
+    progress_empty_status=0
+    "$ROOT/ipod-$script.sh" --ipod "$PROGRESS_IPOD" --progress-json= --yes \
+        > "$EVIDENCE_DIR/progress-descriptor-empty-$script.txt" 2>&1 \
+        || progress_empty_status=$?
+    test "$progress_empty_status" -eq 1
+    grep -Fq "takes a descriptor number, not an empty one" \
+        "$EVIDENCE_DIR/progress-descriptor-empty-$script.txt"
+done
+
+# A run refused after the stream is open still ends with a result: a caller
+# reads until the stream ends and takes that event as what happened, so one
+# that stops after "start" leaves the bar waiting on a run that is already
+# over. Both are reachable from the window, which removes a playlist by the
+# name a stale row showed.
+REFUSAL_IPOD="$TEST_ROOT/progress-ipod-refusal"
+progress_ipod "$REFUSAL_IPOD"
+mkdir -p "$REFUSAL_IPOD/iPod_Control/Music/Odd Album"
+printf 'first\n' > "$REFUSAL_IPOD/iPod_Control/Music/Odd Album/01 - Plain.mp3"
+
+progress_no_playlist_status=0
+"$ROOT/ipod-remove.sh" --ipod "$REFUSAL_IPOD" --yes --progress-json --playlist \
+    -- 'Not On This iPod' \
+    3> "$EVIDENCE_DIR/progress-no-playlist.ndjson" \
+    > "$EVIDENCE_DIR/progress-no-playlist.txt" 2>&1 \
+    || progress_no_playlist_status=$?
+test "$progress_no_playlist_status" -eq 1
+grep -Fq "No playlist called 'Not On This iPod' on this iPod." \
+    "$EVIDENCE_DIR/progress-no-playlist.txt"
+diff -u <(printf '%s\n' \
+    '{"event": "start", "schema": 1, "script": "remove"}' \
+    "{\"event\": \"device\", \"ipod\": \"$REFUSAL_IPOD\"}" \
+    '{"event": "result", "ok": false, "code": 1, "removed": 0, "playlists": 0}') \
+    "$EVIDENCE_DIR/progress-no-playlist.ndjson"
+
+progress_no_target_status=0
+"$ROOT/ipod-remove.sh" --ipod "$REFUSAL_IPOD" --yes --progress-json \
+    3> "$EVIDENCE_DIR/progress-no-target.ndjson" \
+    > "$EVIDENCE_DIR/progress-no-target.txt" 2>&1 \
+    || progress_no_target_status=$?
+test "$progress_no_target_status" -eq 1
+diff -u <(printf '%s\n' \
+    '{"event": "start", "schema": 1, "script": "remove"}' \
+    "{\"event\": \"device\", \"ipod\": \"$REFUSAL_IPOD\"}" \
+    '{"event": "result", "ok": false, "code": 1, "removed": 0, "playlists": 0}') \
+    "$EVIDENCE_DIR/progress-no-target.ndjson"
+test -f "$REFUSAL_IPOD/iPod_Control/Music/Odd Album/01 - Plain.mp3"
+
+# The unit separator holds the fields of a record apart, and unlike NUL it is a
+# byte a Linux filename may legally hold: one arriving in a name split into a
+# field of its own, which the encoder refuses - taking it down and leaving the
+# rest of the run unreported behind a warning. It is replaced on the way out,
+# the way the device stems already replace the bytes FAT will not take.
+SEPARATOR_SOURCE="$TEST_ROOT/progress-separator-source/Odd Album"
+mkdir -p "$SEPARATOR_SOURCE"
+printf 'unit\n' > "$SEPARATOR_SOURCE/05 - Unit"$'\037'"separator.mp3"
+SEPARATOR_IPOD="$TEST_ROOT/progress-separator-ipod"
+progress_ipod "$SEPARATOR_IPOD"
+"$ROOT/ipod-sync.sh" --ipod "$SEPARATOR_IPOD" --progress-json "$SEPARATOR_SOURCE" \
+    3> "$EVIDENCE_DIR/progress-separator.ndjson" \
+    > "$EVIDENCE_DIR/progress-separator.txt" 2>&1
+/usr/bin/python3 - "$EVIDENCE_DIR/progress-separator.ndjson" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+events = [
+    json.loads(line)
+    for line in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines()
+    if line
+]
+# The whole run is on the stream: the file, the rebuild after it, and the
+# result last. A record the encoder refused would have ended it at the copy.
+assert [event["event"] for event in events] == [
+    "start", "device", "plan", "stage", "file", "stage", "stage", "stage", "result"
+], events
+copied = [event for event in events if event["event"] == "file"]
+assert [(event["status"], event["name"]) for event in copied] == [
+    ("copied", "05 - Unit_separator.mp3")
+], copied
+assert events[-1]["ok"] is True, events[-1]
+assert events[-1]["copied"] == 1, events[-1]
+PY
+if grep -Fq 'The progress stream' "$EVIDENCE_DIR/progress-separator.txt"; then
+    echo "a unit separator in a track name stopped the progress stream" >&2
+    exit 1
+fi
+
 # ------------------------------------------------------- exit codes and --check
 #
 # The five states a caller has to branch on, each asserted as the number it is
@@ -2673,6 +2765,9 @@ printf '%s\n' \
     "PASS: a run that found nothing mounted reported once, from the shell that owned the stream" \
     "PASS: a caller that stopped reading mid-copy did not take the copy with it" \
     "PASS: a descriptor nobody opened was refused instead of quietly reporting nowhere" \
+    "PASS: an empty descriptor was refused by every script that takes the flag" \
+    "PASS: a run refused after the stream opened still ended with a result" \
+    "PASS: a unit separator in a track name reached the stream without ending it" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
 cat "$EVIDENCE_DIR/product-e2e-summary.txt"

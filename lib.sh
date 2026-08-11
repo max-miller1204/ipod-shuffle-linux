@@ -159,6 +159,26 @@ PROGRESS_TOTAL=0
 
 progress_enabled() { (( PROGRESS_ENABLED )); }
 
+# Read the descriptor a --progress-json[=FD] argument names into
+# PROGRESS_TARGET, defaulting to 3.
+#
+# Written once and shared, because an empty value is the one way past the
+# refusals below: --progress-json= asks for a stream as plainly as any other
+# spelling of the flag, and left as the empty string it would arrive at
+# progress_open as "no stream was asked for" and report nowhere in silence.
+# Not a command substitution, so that die() here ends the run rather than a
+# subshell holding an unopened stream.
+progress_flag() {
+    case "$1" in
+        *=*)
+            PROGRESS_TARGET="${1#*=}"
+            [[ -n "$PROGRESS_TARGET" ]] \
+                || die "--progress-json takes a descriptor number, not an empty one."
+            ;;
+        *) PROGRESS_TARGET=3 ;;
+    esac
+}
+
 # Open the stream on the descriptor the caller passed, or do nothing at all.
 #
 # The encoder is reached through a named pipe that is unlinked the moment both
@@ -207,11 +227,22 @@ progress_open() {
 # would have ended as a signal rather than as a failure anything could catch.
 # Scoped to the write, because the human output going nowhere is a different
 # matter and still ends the run.
+#
+# NUL is the byte no filename can hold, so nothing in a name can end a record
+# early; the unit separator between the fields of one is not, and a name
+# carrying it would split into a field of its own that the encoder refuses -
+# taking the encoder down and the rest of the run's reporting with it. It is
+# replaced on the way out, in the one place every value passes through, the
+# way the device stems already replace the control bytes FAT will not take.
 progress_event() {
-    local written=0
+    local written=0 value
+    local -a record=()
     progress_enabled || return 0
+    for value in "$@"; do
+        record+=("${value//$'\037'/_}")
+    done
     trap '' PIPE
-    if { printf '%s\037' "$@" && printf '\000'; } 1>&"$PROGRESS_FD" 2>/dev/null
+    if { printf '%s\037' "${record[@]}" && printf '\000'; } 1>&"$PROGRESS_FD" 2>/dev/null
     then
         written=1
     fi

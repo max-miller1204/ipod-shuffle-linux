@@ -13,6 +13,7 @@ which is the approach the other GUI checks use.
 
 import functools
 import http.server
+import importlib.util
 import json
 import os
 import re
@@ -2788,26 +2789,56 @@ assert sync_bar.rows[-1] == ("Odd.mp3", "invented"), sync_bar.rows
 gui.IpodWindow._note_progress(sync_bar, {"event": "something-new"})
 
 # The vocabulary is declared once, in the program that encodes the stream and
-# refuses to write anything outside it, so every status the scripts can send
-# is one this window is holding a word for.
-report_source = (REPO / "ipod-report.py").read_text(encoding="utf-8")
-progress_words = re.search(
-    r"PROGRESS_VOCABULARY = \{(.*?)\n\}", report_source, re.S
+# refuses to write anything outside it, so every status the scripts can send is
+# one this window is holding a word for. The encoder is loaded and run rather
+# than read as text: what has to agree with these labels is the set of values
+# it will actually encode, and a copy of that set here would agree with itself
+# while the encoder did something else.
+_report_spec = importlib.util.spec_from_file_location(
+    "ipod_report", REPO / "ipod-report.py"
 )
-assert progress_words, "ipod-report.py no longer declares the progress vocabulary"
+report = importlib.util.module_from_spec(_report_spec)
+_report_spec.loader.exec_module(report)
+
+
+def encoded(event, **fields):
+    """One event as the encoder makes it, or None where it refuses the record.
+
+    Fed the same way a script feeds it: the event name, then alternating field
+    names and values, with the unit separator after every one of them.
+    """
+    written = [event]
+    for field, value in fields.items():
+        written += [field, str(value)]
+    record = "".join(part + report.RECORD_SEPARATOR for part in written)
+    try:
+        return report.progress_document(record)
+    except ValueError:
+        return None
 
 
 def encodable(event, field):
-    """The values ipod-report.py will encode for one field of one event."""
-    match = re.search(
-        rf'\("{event}", "{field}"\): \((.*?)\),$',
-        progress_words.group(1),
-        re.M,
-    )
-    assert match, (event, field)
-    return set(re.findall(r'"([^"]+)"', match.group(1)))
+    """The values the encoder is declared to accept for one field."""
+    return set(report.PROGRESS_VOCABULARY[(event, field)])
 
 
+# Every word the window shows is one the encoder really takes, checked by
+# encoding an event that carries it...
+for status in gui.FILE_STATUS_LABELS:
+    assert encoded("file", status=status, name="A Track.mp3", done=1, total=4), status
+for status in gui.PLAYLIST_STATUS_LABELS:
+    assert encoded(
+        "playlist", status=status, name="Road Trip", tracks=2, done=1, total=4
+    ), status
+for stage in gui.STAGE_LABELS:
+    assert encoded("stage", name=stage, state="start"), stage
+# ...and nothing outside that vocabulary reaches a reader as a valid event, so
+# a status this window has no word for cannot arrive in the first place.
+assert encoded("file", status="invented", name="Odd.mp3", done=1, total=4) is None
+assert encoded("playlist", status="invented", name="Odd", done=1, total=4) is None
+assert encoded("stage", name="invented", state="start") is None
+# The other way round: no value the encoder accepts is one the window would
+# have to show raw.
 assert encodable("file", "status") == set(gui.FILE_STATUS_LABELS), (
     gui.FILE_STATUS_LABELS
 )

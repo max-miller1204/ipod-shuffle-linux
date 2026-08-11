@@ -61,8 +61,7 @@ while [[ $# -gt 0 ]]; do
         -i|--ipod)   IPOD="$2"; shift 2 ;;
         -b|--backup) BACKUP_DIR="$2"; shift 2 ;;
         -y|--yes)    ASSUME_YES=1; shift ;;
-        --progress-json)   PROGRESS_TARGET=3; shift ;;
-        --progress-json=*) PROGRESS_TARGET="${1#*=}"; shift ;;
+        --progress-json|--progress-json=*) progress_flag "$1"; shift ;;
         -h|--help)   usage; exit 0 ;;
         *)           die "Unknown option: $1 (try --help)" ;;
     esac

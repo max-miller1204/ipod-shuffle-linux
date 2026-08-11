@@ -93,8 +93,8 @@ while [[ $# -gt 0 ]]; do
         -r|--rebuild-only) REBUILD_ONLY=1; shift ;;
         -n|--forget-options) FORGET_OPTIONS=1; shift ;;
         -y|--yes)          ASSUME_YES=1; shift ;;
-        --progress-json)   PROGRESS_TARGET=3; shift ;;
-        --progress-json=*) PROGRESS_TARGET="${1#*=}"; shift ;;
+        --progress-json|--progress-json=*)
+                           progress_flag "$1"; shift ;;
         -t|--voiceover)    DB_ARGS+=("--track-voiceover"); shift ;;
         -p|--playlist-voiceover)
                            DB_ARGS+=("--playlist-voiceover"); shift ;;

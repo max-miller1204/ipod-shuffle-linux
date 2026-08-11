@@ -86,8 +86,7 @@ while [[ $# -gt 0 ]]; do
         -P|--playlist) PLAYLIST_MODE=1; shift ;;
         -y|--yes)  ASSUME_YES=1; shift ;;
         -e|--eject) EJECT=1; shift ;;
-        --progress-json)   PROGRESS_TARGET=3; shift ;;
-        --progress-json=*) PROGRESS_TARGET="${1#*=}"; shift ;;
+        --progress-json|--progress-json=*) progress_flag "$1"; shift ;;
         -h|--help) usage; exit 0 ;;
         # Everything after this is a track path, however much it looks like an
         # option, because track names are whatever the tags happened to say.
@@ -167,7 +166,7 @@ if (( LIST )); then
     leave 0
 fi
 
-[[ $# -gt 0 ]] || { usage; exit 1; }
+[[ $# -gt 0 ]] || { usage; leave 1; }
 
 info "iPod: $IPOD"
 
@@ -212,7 +211,7 @@ if (( PLAYLIST_MODE )); then
             else
                 err "It has no playlists."
             fi
-            exit 1
+            leave 1
         fi
         TARGETS+=("$target")
     done
