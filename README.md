@@ -940,7 +940,7 @@ The check holds a burst of batches to one repaint, holds those batch repaints ba
 The repaints that do not come through the queue at all are deliberately the exception and go in straight away: a library scan that finishes or fails, a device read that fails, and a mount that changes are each the last word even over an open menu, because a menu left standing over a grid that is no longer true is the worse thing of the two.
 A device read that completes is the one terminal repaint that is queued like the rest - never coalesced away, but still waiting out the interval and an open menu - while every batch behind all of them is skippable and waits.
 
-`tests/gui-refresh-spinner.py` is the other main-loop check that needs no display, and it holds the refresh button's animation on screen long enough to be seen: a scan over a small library finishes in well under a tenth of a second, and a spinner that appears and vanishes inside that reads as a button that did nothing - which is the complaint the animation exists to answer.
+`tests/gui-refresh-spinner.py` is another main-loop check that needs no display, and it holds the refresh button's animation on screen long enough to be seen: a scan over a small library finishes in well under a tenth of a second, and a spinner that appears and vanishes inside that reads as a button that did nothing - which is the complaint the animation exists to answer.
 The minimum runs from the most recent press rather than the first, because the press most likely to be a second try is the one landing while the last spin is still finishing, and measured from the first start that press would put the spinner out again a few milliseconds later.
 The two scans share the one spinner, so the check drives them together and apart: a device read outliving the library scan has to keep it going, and a scan superseded by a newer one returns without ever finishing and must not leave it turning forever - which is why what it shows is derived from the two scan flags rather than counted up and down around them.
 
@@ -955,7 +955,7 @@ Nothing in a screenshot says which page is one long album title away from that, 
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the Xephyr recipe that brings the window up at exactly 1180x760 on any machine.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, both main-loop checks, and both real-window checks under xvfb on every push and pull request.
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the three main-loop checks, and both real-window checks under xvfb on every push and pull request.
 
 ## Credits
 

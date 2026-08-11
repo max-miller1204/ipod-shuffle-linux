@@ -319,16 +319,16 @@ class CommandsMixin:
                 # no safe moment to do that in a threaded process.
                 progress_read = progress_write = -1
                 command = list(argv)
-                if argv[0] in PROGRESS_SCRIPTS:
-                    progress_read, progress_write = os.pipe()
-                    # Straight after the script, because every command that
-                    # names paths ends with `--` and everything after that is
-                    # a path however much it looks like a flag - which is how
-                    # a track called "-1" reaches the copy, and how this
-                    # arrived as a folder nobody could find.
-                    command.insert(1, f"--progress-json={progress_write}")
                 reader = None
                 try:
+                    if argv[0] in PROGRESS_SCRIPTS:
+                        progress_read, progress_write = os.pipe()
+                        # Straight after the script, because every command that
+                        # names paths ends with `--` and everything after that
+                        # is a path however much it looks like a flag - which
+                        # is how a track called "-1" reaches the copy, and how
+                        # this arrived as a folder nobody could find.
+                        command.insert(1, f"--progress-json={progress_write}")
                     proc = subprocess.Popen(
                         command,
                         stdout=subprocess.PIPE,

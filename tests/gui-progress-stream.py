@@ -169,6 +169,49 @@ if any("cover.flac" in name for name, _status in window.rows):
 if not any("Skipped 1 unsupported file(s)" in line for line in window.log):
     failures.append("the script's own output never reached the log view")
 
+
+# A run that cannot even open its stream still has to report an outcome. The
+# window has no way back from a worker that dies before its last callback: the
+# bar keeps turning and every control it made insensitive stays that way until
+# the app is restarted, with nothing said about why.
+class NoDescriptors:
+    """The os module on a process with no descriptors left to give."""
+
+    def __getattr__(self, name):
+        return getattr(os, name)
+
+    def pipe(self):
+        raise OSError(24, "Too many open files")
+
+
+exhausted = StreamWindow(str(ipod))
+gui.os = NoDescriptors()
+try:
+    if not exhausted._run(
+        [str(gui.SYNC_SCRIPT), "--ipod", str(ipod), "--yes", "--", str(source)],
+        "Copying to iPod",
+        "Sync complete",
+    ):
+        failures.append("the window refused to run the script at all")
+    loop = GLib.MainLoop()
+    GLib.timeout_add(50, lambda: loop.quit() if exhausted.finished.is_set() else True)
+    GLib.timeout_add_seconds(
+        20,
+        lambda: failures.append("a run that could not open its stream never finished")
+        or loop.quit(),
+    )
+    loop.run()
+finally:
+    gui.os = os
+
+if exhausted.finished.is_set():
+    if exhausted.code == 0:
+        failures.append("a run that never started was reported as a success")
+    # Said rather than swallowed: the log view is the only place the window
+    # has to tell anyone why the sync it was asked for did not happen.
+    if not any("failed to run" in line for line in exhausted.log):
+        failures.append(f"nothing said why the run failed: {exhausted.log}")
+
 descriptors_after = len(os.listdir("/proc/self/fd"))
 if descriptors_after > descriptors_before:
     failures.append(
