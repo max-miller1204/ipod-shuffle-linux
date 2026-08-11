@@ -1,0 +1,197 @@
+The scripts, driven from a shell, reporting themselves twice: once to the
+terminal for a person and once as JSON on a descriptor for the GUI's sync
+bar. Everything below ran in one temporary directory holding a synthetic
+iPod and a source album whose names are the awkward ones.
+
+$ ls -1 "Odd Album"
+01 - Plain.mp3
+02 - Say "hi", it's \ fine.mp3
+03 - Line
+break.mp3
+04 - Dangling.mp3
+cover.flac
+[exit 0]
+
+(the third name holds a real newline, which is why it reads as two lines)
+
+=== 1. A sync reporting itself on descriptor 3 ==========================
+
+$ ipod-sync.sh --ipod ./iPod --playlist-voiceover --progress-json \
+      "Odd Album" Weekend.m3u  3> sync.ndjson
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: ./iPod
+  + 03 - Line
+break.mp3 -> Odd Album/03 - Line
+break.mp3
+  + 02 - Say "hi", it's \ fine.mp3 -> Odd Album/02 - Say "hi", it's \ fine.mp3
+  + 01 - Plain.mp3 -> Odd Album/01 - Plain.mp3
+[33mwarning:[0m Broken symlink, skipped: 04 - Dangling.mp3
+[33mwarning:[0m Playlist 'Weekend': not found on this computer, skipped: /nowhere/not-on-this-computer.mp3
+[36m==>[0m Playlist 'Weekend': 1 track(s)
+[36m==>[0m Copied 3 file(s)
+[36m==>[0m Skipped 1 file(s) already on the iPod
+[33mwarning:[0m Skipped 1 unsupported file(s). Convert them first, for example:
+[33mwarning:[0m   ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3
+[33mwarning:[0m Skipped 1 symlink(s) pointing at a file that is not there.
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 3 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+$ cat sync.ndjson          # 02-sync-progress.ndjson
+    {"event": "start", "schema": 1, "script": "sync"}
+    {"event": "device", "ipod": "./iPod"}
+    {"event": "plan", "total": 7}
+    {"event": "stage", "name": "copy", "state": "start"}
+    {"event": "file", "status": "copied", "name": "03 - Line\nbreak.mp3", "dest": "Odd Album/03 - Line\nbreak.mp3", "done": 1, "total": 7}
+    {"event": "file", "status": "copied", "name": "02 - Say \"hi\", it's \\ fine.mp3", "dest": "Odd Album/02 - Say \"hi\", it's \\ fine.mp3", "done": 2, "total": 7}
+    {"event": "file", "status": "copied", "name": "01 - Plain.mp3", "dest": "Odd Album/01 - Plain.mp3", "done": 3, "total": 7}
+    {"event": "file", "status": "broken", "name": "04 - Dangling.mp3", "done": 4, "total": 7}
+    {"event": "file", "status": "duplicate", "name": "01 - Plain.mp3", "done": 5, "total": 7}
+    {"event": "file", "status": "missing", "name": "not-on-this-computer.mp3", "done": 6, "total": 7}
+    {"event": "playlist", "status": "written", "name": "Weekend", "tracks": 1, "done": 7, "total": 7}
+    {"event": "stage", "name": "copy", "state": "done"}
+    {"event": "stage", "name": "rebuild", "state": "start"}
+    {"event": "stage", "name": "rebuild", "state": "done"}
+    {"event": "result", "ok": true, "code": 0, "copied": 3, "duplicates": 1, "unsupported": 1, "broken": 1, "tracks": 3}
+
+=== 2. The stream is additional: the terminal output is untouched =======
+The same sync onto an identical device with no --progress-json, diffed
+against the run above with the two mount points spelt the same.
+
+$ diff -u <(sed s/iPod-no-stream/IPOD/ no-stream.txt) \
+      <(sed s/iPod/IPOD/ with-stream.txt) && echo "byte for byte identical"
+byte for byte identical
+[exit 0]
+
+=== 3. Removal, on whichever descriptor the caller opened ==============
+
+$ ipod-remove.sh --ipod ./iPod --yes --progress-json=7 \
+      -- "Odd Album/01 - Plain.mp3"  7> remove.ndjson
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: ./iPod
+[36m==>[0m Reusing saved options: --playlist-voiceover
+[36m==>[0m Removed 1 track(s)
+[36m==>[0m Removed playlist 'Weekend': every track it listed is gone
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 2 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+$ cat remove.ndjson        # 03-remove-progress.ndjson
+    {"event": "start", "schema": 1, "script": "remove"}
+    {"event": "device", "ipod": "./iPod"}
+    {"event": "plan", "total": 1}
+    {"event": "file", "status": "removed", "name": "Odd Album/01 - Plain.mp3", "done": 1, "total": 1}
+    {"event": "playlist", "status": "removed", "name": "Weekend", "tracks": 0, "done": 2, "total": 2}
+    {"event": "stage", "name": "rebuild", "state": "start"}
+    {"event": "stage", "name": "rebuild", "state": "done"}
+    {"event": "result", "ok": true, "code": 0, "removed": 1, "playlists": 0, "tracks": 2}
+
+(the playlist naming that track was rewritten too - work the run could
+ not have planned, so the total followed the count rather than the count
+ passing a total that was already announced)
+
+=== 4. A wipe, which is one bulk delete rather than a file at a time ====
+
+$ ipod-wipe.sh --ipod ./iPod --yes --backup ./backup --progress-json \
+      3> wipe.ndjson
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: ./iPod
+[36m==>[0m Tracks currently on device: 2
+[36m==>[0m Backing up to ./backup
+[36m==>[0m Backup verified: 2 track(s) plus databases
+[36m==>[0m Removed 2 track(s)
+[36m==>[0m Cleared stale iTunes state and previous-owner library binding
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m Preserved: 0 Speakable prompt file(s)
+[36m==>[0m Wipe complete. The iPod is empty and ready for ./ipod-sync.sh
+[33mwarning:[0m Unmount before unplugging:  ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+$ cat wipe.ndjson          # 04-wipe-progress.ndjson
+    {"event": "start", "schema": 1, "script": "wipe"}
+    {"event": "device", "ipod": "./iPod"}
+    {"event": "stage", "name": "backup", "state": "start"}
+    {"event": "stage", "name": "backup", "state": "done"}
+    {"event": "stage", "name": "clear", "state": "start"}
+    {"event": "stage", "name": "clear", "state": "done"}
+    {"event": "stage", "name": "rebuild", "state": "start"}
+    {"event": "stage", "name": "rebuild", "state": "done"}
+    {"event": "result", "ok": true, "code": 0, "removed": 2, "playlists": 0, "tracks": 0}
+
+(no plan and no per-file events: the stages are what a bar can show for a
+ bulk delete, and a denominator nothing counts against would sit at zero)
+
+=== 5. A run that never reaches an iPod still ends with a result ========
+
+$ ipod-sync.sh --ipod ./nothing-here --progress-json "Odd Album" \
+      3> failed.ndjson
+[31merror:[0m Not a directory: ./nothing-here
+[exit 3]
+$ cat failed.ndjson
+    {"event": "start", "schema": 1, "script": "sync"}
+    {"event": "result", "ok": false, "code": 3, "copied": 0, "duplicates": 0, "unsupported": 0, "broken": 0}
+
+=== 6. A reader that walks away mid-copy ================================
+Closing the window during a sync is this: the reader takes one line and
+goes. A shell writing to a pipe nobody holds is killed outright, which
+would have left the iPod half written.
+
+$ ipod-sync.sh --ipod ./iPod-spare --progress-json "Odd Album" \
+      3>&1 1> copy.txt | head -1
+{"event": "start", "schema": 1, "script": "sync"}
+[exit 0]
+
+$ cat copy.txt             # what the run said, having lost its reader
+    [33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+    [36m==>[0m iPod: ./iPod-spare
+    error: could not write the progress: [Errno 32] Broken pipe
+    [33mwarning:[0m The progress stream stopped; the rest of this run is not reported on it.
+      + 03 - Line
+    break.mp3 -> Odd Album/03 - Line
+    break.mp3
+      + 02 - Say "hi", it's \ fine.mp3 -> Odd Album/02 - Say "hi", it's \ fine.mp3
+      + 01 - Plain.mp3 -> Odd Album/01 - Plain.mp3
+    [33mwarning:[0m Broken symlink, skipped: 04 - Dangling.mp3
+    [36m==>[0m Copied 3 file(s)
+    [33mwarning:[0m Skipped 1 unsupported file(s). Convert them first, for example:
+    [33mwarning:[0m   ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3
+    [33mwarning:[0m Skipped 1 symlink(s) pointing at a file that is not there.
+    [36m==>[0m Rebuilding iTunesSD database
+    [36m==>[0m iPod now holds 3 track(s)
+    [33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+    [33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject
+
+$ find ./iPod-spare/iPod_Control/Music -type f   # copied anyway
+break.mp3
+    Odd Album/01 - Plain.mp3
+    Odd Album/02 - Say "hi", it's \ fine.mp3
+    Odd Album/03 - Line
+
+=== 7. A descriptor nobody opened is refused rather than reported into =
+nowhere. Asked of all three scripts, because the flag is theirs jointly.
+
+$ ipod-sync.sh --ipod ./iPod --progress-json --rebuild-only
+[31merror:[0m --progress-json needs descriptor 3 open for writing, e.g. 3>progress.ndjson.
+[exit 1]
+
+$ ipod-sync.sh --ipod ./iPod --progress-json=stdout --rebuild-only
+[31merror:[0m --progress-json takes a descriptor number, not 'stdout'.
+[exit 1]
+
+$ ipod-sync.sh --ipod ./iPod --progress-json= --rebuild-only
+[31merror:[0m --progress-json takes a descriptor number, not an empty one.
+[exit 1]
+
+$ ipod-remove.sh --ipod ./iPod --progress-json= --yes --list
+[31merror:[0m --progress-json takes a descriptor number, not an empty one.
+[exit 1]
+
+$ ipod-wipe.sh --ipod ./iPod --progress-json= --yes
+[31merror:[0m --progress-json takes a descriptor number, not an empty one.
+[exit 1]
+
+=== end of session =====================================================

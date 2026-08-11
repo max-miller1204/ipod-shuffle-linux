@@ -724,7 +724,7 @@ Rather than name a code at each of those and still miss the next one, the script
 A volume that has gone, or that has been replaced by a different one at the same path, turns the failure into `5`.
 A builder that fails while the iPod is still sitting there stays `1`.
 Asking what the volume calls itself needs `python3`, and a machine without one is treated as a volume that will not say rather than as a failure of its own, since this question is asked on the way out of every other failure and has to come back with an answer.
-Such a machine still gets `6` from the work that genuinely needs the interpreter - the JSON report and the database builder - while a plain `--list`, which never needed it, still answers.
+Such a machine still gets `6` from the work that genuinely needs the interpreter - the JSON report, the progress stream and the database builder - while a plain `--list`, which never needed it, still answers.
 
 `--json` follows one rule: a whole document or nothing at all.
 A report is assembled in full, checked against the device it started reading, and only then written, so a device unplugged half way through produces exit `5` and an empty stream rather than a confident-looking description of a device nobody can see.
@@ -907,6 +907,7 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - The window advertising a minimum width narrower than a playlist page can be drawn in once its rows are on the iPod, because the check only ever measured that page showing a playlist that was not
 - Renaming a playlist the iPod was holding, on a machine with no speech engine, taking the old name off the device with nothing able to stage the new one, so the list left the iPod and the one control that would have put it back was refused for the same reason
 - A JSON report walking the music folder the way the window does, which yields nothing at all for a folder it cannot read, so a full iPod holding one unreadable album was reported as a device with no tracks on it
+- Counting files as `find | wc -l`, which counts a track whose name holds a newline twice, so the iPod was said to hold more tracks than it did and a backup was verified against a figure that was never the number of files
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 The check that an unreadable album stops the report is skipped for the same reason and in the same way.

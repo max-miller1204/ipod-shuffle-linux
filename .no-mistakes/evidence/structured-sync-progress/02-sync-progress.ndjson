@@ -1,0 +1,15 @@
+{"event": "start", "schema": 1, "script": "sync"}
+{"event": "device", "ipod": "./iPod"}
+{"event": "plan", "total": 7}
+{"event": "stage", "name": "copy", "state": "start"}
+{"event": "file", "status": "copied", "name": "03 - Line\nbreak.mp3", "dest": "Odd Album/03 - Line\nbreak.mp3", "done": 1, "total": 7}
+{"event": "file", "status": "copied", "name": "02 - Say \"hi\", it's \\ fine.mp3", "dest": "Odd Album/02 - Say \"hi\", it's \\ fine.mp3", "done": 2, "total": 7}
+{"event": "file", "status": "copied", "name": "01 - Plain.mp3", "dest": "Odd Album/01 - Plain.mp3", "done": 3, "total": 7}
+{"event": "file", "status": "broken", "name": "04 - Dangling.mp3", "done": 4, "total": 7}
+{"event": "file", "status": "duplicate", "name": "01 - Plain.mp3", "done": 5, "total": 7}
+{"event": "file", "status": "missing", "name": "not-on-this-computer.mp3", "done": 6, "total": 7}
+{"event": "playlist", "status": "written", "name": "Weekend", "tracks": 1, "done": 7, "total": 7}
+{"event": "stage", "name": "copy", "state": "done"}
+{"event": "stage", "name": "rebuild", "state": "start"}
+{"event": "stage", "name": "rebuild", "state": "done"}
+{"event": "result", "ok": true, "code": 0, "copied": 3, "duplicates": 1, "unsupported": 1, "broken": 1, "tracks": 3}

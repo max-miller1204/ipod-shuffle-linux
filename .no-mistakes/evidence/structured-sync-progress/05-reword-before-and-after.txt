@@ -1,0 +1,75 @@
+The sync bar, before and after, when one line of ipod-sync.sh is
+reworded:
+
+    -    printf '  + %s -> %s\n' \
+    +    printf '  copied %s to %s\n' \
+
+Both trees are the project as it was committed, with that one edit.
+The album being copied is three tracks, one of them holding a real
+newline in its name.
+
+=== before the change, ipod-sync.sh shipped =======================
+
+$ ipod-sync.sh --ipod ./iPod --yes -- './Odd Album'   # before, shipped
+    warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+    ==> iPod: /tmp/regression-o1wiiex6/iPod
+      + 03 - Line
+    break.mp3 -> Odd Album/03 - Line
+    break.mp3
+      + 01 - Plain.mp3 -> Odd Album/01 - Plain.mp3
+      + 02 - Say "hi".mp3 -> Odd Album/02 - Say "hi".mp3
+    ==> Copied 3 file(s)
+    ==> Rebuilding iTunesSD database
+    ==> iPod now holds 4 track(s)
+    warning: Unmount before unplugging, or the database may be corrupted:
+    warning:   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+the sync bar showed:
+    count:   '2 of 3'
+    current: '02 - Say "hi".mp3'
+    rows:    2 appended
+
+=== before the change, ipod-sync.sh reworded ======================
+
+$ ipod-sync.sh --ipod ./iPod --yes -- './Odd Album'   # before, reworded
+    warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+    ==> iPod: /tmp/regression-ibo8au0x/iPod
+      copied 03 - Line
+    break.mp3 to Odd Album/03 - Line
+    break.mp3
+      copied 01 - Plain.mp3 to Odd Album/01 - Plain.mp3
+      copied 02 - Say "hi".mp3 to Odd Album/02 - Say "hi".mp3
+    ==> Copied 3 file(s)
+    ==> Rebuilding iTunesSD database
+    ==> iPod now holds 4 track(s)
+    warning: Unmount before unplugging, or the database may be corrupted:
+    warning:   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+the sync bar showed:
+    count:   ''
+    current: ''
+    rows:    0 appended
+
+=== after the change, ipod-sync.sh reworded =======================
+
+$ ipod-sync.sh --ipod ./iPod --yes -- './Odd Album'   # after, reworded
+    warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+    ==> iPod: /tmp/regression-va88bv44/iPod
+      copied 03 - Line
+    break.mp3 to Odd Album/03 - Line
+    break.mp3
+      copied 01 - Plain.mp3 to Odd Album/01 - Plain.mp3
+      copied 02 - Say "hi".mp3 to Odd Album/02 - Say "hi".mp3
+    ==> Copied 3 file(s)
+    ==> Rebuilding iTunesSD database
+    ==> iPod now holds 3 track(s)
+    warning: Unmount before unplugging, or the database may be corrupted:
+    warning:   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+the sync bar showed:
+    count:   '3 of 3'
+    current: 'Rebuilding the database'
+    rows:    [('03 - Line\nbreak.mp3', 'Copied'), ('01 - Plain.mp3', 'Copied'), ('02 - Say "hi".mp3', 'Copied')]
