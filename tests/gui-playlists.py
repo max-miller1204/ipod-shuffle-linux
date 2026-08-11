@@ -90,7 +90,20 @@ assert gui.create_local_playlist(PLAYLISTS, "Stocked", [first]) is None, (
     "a playlist that was already there was overwritten"
 )
 assert gui.read_playlist_entries(stocked) == [str(first), str(second)]
+custom_image = MUSIC / "stocked-cover.png"
+custom_image.write_bytes(b"local playlist artwork")
+saved_cover = gui.set_playlist_cover(stocked, custom_image)
+assert saved_cover == PLAYLISTS / ".covers" / "Stocked.m3u.png", saved_cover
+assert saved_cover.read_bytes() == custom_image.read_bytes()
+assert gui.playlist_custom_cover(stocked) == saved_cover
+renamed_stocked = gui.rename_local_playlist(stocked, "Renamed Stocked")
+assert renamed_stocked == PLAYLISTS / "Renamed Stocked.m3u", renamed_stocked
+renamed_cover = gui.playlist_custom_cover(renamed_stocked)
+assert renamed_cover == PLAYLISTS / ".covers" / "Renamed Stocked.m3u.png"
+assert renamed_cover.read_bytes() == custom_image.read_bytes()
+stocked = renamed_stocked
 assert gui.delete_local_playlist(stocked)
+assert not renamed_cover.exists(), "deleting a playlist left its custom cover"
 
 assert gui.add_entries(created, [first, second]) == 2
 assert gui.read_playlist_entries(created) == [str(first), str(second)]
@@ -557,6 +570,8 @@ class FakeWindow:
     _playlist_tracks = gui.IpodWindow._playlist_tracks
     _playlist_art = gui.IpodWindow._playlist_art
     _playlist_covers = gui.IpodWindow._playlist_covers
+    _set_playlist_cover = gui.IpodWindow._set_playlist_cover
+    on_remove_playlist_cover = gui.IpodWindow.on_remove_playlist_cover
     _device_only_track = gui.IpodWindow._device_only_track
     _add_tracks_to_playlist = gui.IpodWindow._add_tracks_to_playlist
     _remove_track_from_playlist = gui.IpodWindow._remove_track_from_playlist
@@ -1214,10 +1229,9 @@ assert named(
     [gui.Playlist(n, None, []) for n in ("A", "B", "C", "D", "E")]
 ) == "A, B, C and 2 more"
 
-# A playlist is a list of paths and has no artwork of its own, so a tile or a
-# rail row shows the first cover the songs in it carry. Resolved through the
-# same lookup a row is, because the artwork has to be the artwork of the track
-# the list actually names.
+# Without a custom cover, a playlist tile or rail row shows the first artwork
+# its songs carry. It uses the same lookup as a row, so the image belongs to
+# the track the list actually names.
 covers = FakeWindow()
 plain = gui.Track(first, {"title": "Lithium"}, gui.STATE_LIBRARY)
 illustrated = gui.Track(
@@ -1238,6 +1252,27 @@ assert covers._playlist_art(covers._local_playlist("Illustrated")) == (
 # draws from the name; answering with some other list's artwork would be worse
 # than answering with none.
 assert covers._playlist_art(covers._local_playlist("Plain")) is None
+custom = MUSIC / "custom-playlist.jpg"
+custom.write_bytes(b"custom artwork")
+staged_before_cover = {
+    source: set(paths) for source, paths in covers.pending_sources.items()
+}
+commands_before_cover = list(covers.commands)
+assert covers._set_playlist_cover("Illustrated", custom)
+stored_custom = gui.playlist_custom_cover(PLAYLISTS / "Illustrated.m3u")
+assert stored_custom.read_bytes() == custom.read_bytes()
+assert covers._playlist_art(covers._local_playlist("Illustrated")) == str(
+    stored_custom
+)
+# A playlist cover is UI-only. Choosing one repaints the playlist but stages
+# no source and runs no device command.
+assert covers.pending_sources == staged_before_cover, covers.pending_sources
+assert covers.commands == commands_before_cover, covers.commands
+assert covers.on_remove_playlist_cover("Illustrated")
+assert gui.playlist_custom_cover(PLAYLISTS / "Illustrated.m3u") is None
+assert covers._playlist_art(covers._local_playlist("Illustrated")) == (
+    "/art/doolittle.png"
+)
 # A device playlist names files on the iPod, so its cover comes out of what
 # the device walk read rather than out of the library.
 on_device_art = gui.Track(

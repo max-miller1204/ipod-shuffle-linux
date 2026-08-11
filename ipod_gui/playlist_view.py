@@ -19,9 +19,9 @@ Owns the sidebar rail, the Playlists view's rail and detail, the shelf of tiles
 at the top of the library page, the ⋯ menu every track row carries, and the
 drag reordering that rewrites the list rather than only this window.
 
-A playlist's cover is the first one its own tracks carry, since a list of
-paths has no artwork of its own; only a list holding nothing with a cover
-falls back to the placeholder its name generates.
+A playlist can have a custom cover kept only in the local playlist library.
+Without one, it uses the first cover its tracks carry; only a list holding
+nothing with artwork falls back to the placeholder its name generates.
 
 Borrows from the window: `playlists` and `spoken` as the probe left them,
 `device_tracks` and `library` to resolve an entry into a track, `mount_point`,
@@ -36,7 +36,7 @@ whether those two readings can be quoted yet, and `show_view`, `_run`,
 
 from pathlib import Path
 
-from gi.repository import Adw, Gtk
+from gi.repository import Adw, GLib, Gtk
 
 from .config import (
     AUDIO_EXTENSIONS,
@@ -57,6 +57,8 @@ from .playlists import (
     create_local_playlist,
     default_name,
     delete_local_playlist,
+    playlist_custom_cover,
+    remove_playlist_cover,
     import_playlist_file,
     local_playlists,
     merge_with_device,
@@ -66,6 +68,7 @@ from .playlists import (
     PLAYLIST_GONE,
     remove_entry,
     rename_local_playlist,
+    set_playlist_cover,
     TARGET_GONE,
 )
 from .widgets import (
@@ -298,14 +301,11 @@ class PlaylistViewMixin:
         ]
 
     def _playlist_art(self, playlist, index=None):
-        """The first cover any of its tracks carries, or None.
-
-        A playlist has no artwork of its own - it is a list of paths - so it
-        borrows the first one it lists, the way an album card takes the art off
-        the first of its tracks to have any. Nothing in it with a cover leaves
-        the generated placeholder, which is keyed on the name and so keeps
-        drawing the same list the same way.
-        """
+        """A computer-only custom cover, then the first cover in its tracks."""
+        if playlist.editable:
+            custom = playlist_custom_cover(playlist.path)
+            if custom is not None:
+                return str(custom)
         for track in self._playlist_tracks(playlist, index):
             if track.art:
                 return track.art
@@ -724,13 +724,72 @@ class PlaylistViewMixin:
         else:
             rows = [
                 self._menu_row(
-                    popover, "Rename…", lambda: self.on_rename_playlist(name)
-                ),
-                self._menu_row(
-                    popover, "Delete…", lambda: self.on_remove_playlist(name)
-                ),
+                    popover,
+                    "Choose custom cover…",
+                    lambda: self.on_choose_playlist_cover(name),
+                )
             ]
+            playlist = self._local_playlist(name)
+            if (
+                playlist is not None
+                and playlist_custom_cover(playlist.path) is not None
+            ):
+                rows.append(
+                    self._menu_row(
+                        popover,
+                        "Use song artwork",
+                        lambda: self.on_remove_playlist_cover(name),
+                    )
+                )
+            rows.extend(
+                [
+                    self._menu_row(
+                        popover, "Rename…", lambda: self.on_rename_playlist(name)
+                    ),
+                    self._menu_row(
+                        popover, "Delete…", lambda: self.on_remove_playlist(name)
+                    ),
+                ]
+            )
         return self._menu_popover(name, rows, popover)
+
+    def on_choose_playlist_cover(self, name):
+        """Choose an image to copy into the computer's playlist library."""
+        dialog = Gtk.FileDialog(title=f"Choose a cover for {name}")
+
+        def chosen(file_dialog, result):
+            try:
+                image = file_dialog.open_finish(result)
+            except GLib.Error:
+                return
+            path = image.get_path()
+            if path is not None:
+                self._set_playlist_cover(name, path)
+
+        dialog.open(self, None, chosen)
+        return dialog
+
+    def _set_playlist_cover(self, name, image):
+        """Store a chosen image without adding it to the iPod sync queue."""
+        playlist = self._local_playlist(name)
+        if playlist is None or set_playlist_cover(playlist.path, image) is None:
+            self._toast("Choose a JPEG, PNG or WebP image")
+            return False
+        self._populate_playlist_rail()
+        self._select_playlist(name)
+        self._toast("Playlist cover saved on this computer")
+        return True
+
+    def on_remove_playlist_cover(self, name):
+        """Return a local playlist to its first song's artwork."""
+        playlist = self._local_playlist(name)
+        if playlist is None or not remove_playlist_cover(playlist.path):
+            self._toast(f"Could not remove the custom cover for {name}")
+            return False
+        self._populate_playlist_rail()
+        self._select_playlist(name)
+        self._toast("Using artwork from the songs in this playlist")
+        return True
 
     def _can_send_playlist(self, playlist):
         return bool(

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 161,
+  "revision": 162,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -317,9 +317,10 @@
       "id": "images-in-songs-playlists",
       "title": "Images in songs + playlists",
       "description": "Are the images in the playlists and songs getting added to the shuffle? Shouldn't all the covers be local to the computer? Also can we add an option to add custom playlist covers.",
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-09T18:21:18.319Z",
-      "updatedAt": "2026-08-09T19:48:01.649Z"
+      "updatedAt": "2026-08-11T23:23:50.870Z",
+      "completedAt": "2026-08-11T23:23:50.870Z"
     },
     {
       "id": "only-new-inspo-playlist-shows-up-in-add",

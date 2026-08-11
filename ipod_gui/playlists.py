@@ -17,6 +17,8 @@ later by the sync and read out as something else.
 """
 
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 from .model import read_local_playlist_tracks
@@ -335,37 +337,119 @@ def create_local_playlist(root, name, entries=()):
     return path if write_playlist_entries(path, entries) else None
 
 
-def delete_local_playlist(path):
-    """Delete a playlist's file. True when it is gone afterwards.
+PLAYLIST_COVER_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".webp"})
+PLAYLIST_COVERS_FOLDER = ".covers"
 
-    Given the file rather than the name it is listed under, because a name does
-    not name a file: a Gym.M3U dropped into the folder by another program is
-    read as "Gym", and rebuilding "Gym.m3u" from that would report deleting a
-    playlist that is still sitting there.
+
+def playlist_custom_cover(path):
+    """The image chosen for this local playlist, or None.
+
+    Covers live beside the playlist library, not in the M3U and not among the
+    tracks handed to the sync script. Naming them after the complete playlist
+    filename keeps a cover for ``Mix.m3u`` apart from an unrelated ``Mix.jpg``.
     """
+    playlist = Path(path)
+    folder = playlist.parent / PLAYLIST_COVERS_FOLDER
+    prefix = f"{playlist.name}."
     try:
-        Path(path).unlink()
-    except FileNotFoundError:
+        matches = sorted(
+            entry
+            for entry in folder.iterdir()
+            if entry.is_file()
+            and entry.name.startswith(prefix)
+            and entry.suffix.lower() in PLAYLIST_COVER_SUFFIXES
+        )
+    except OSError:
+        return None
+    return matches[0] if matches else None
+
+
+def remove_playlist_cover(path):
+    """Remove a playlist's custom image, leaving song artwork as the fallback."""
+    cover = playlist_custom_cover(path)
+    if cover is None:
         return True
+    try:
+        cover.unlink()
+        try:
+            cover.parent.rmdir()
+        except OSError:
+            pass
     except OSError:
         return False
     return True
 
 
-def rename_local_playlist(path, new_name):
-    """Move a playlist to a new name, returning its file or None.
+def set_playlist_cover(path, image):
+    """Copy an image into the local cover store and return its new path."""
+    playlist = Path(path)
+    source = Path(image)
+    suffix = source.suffix.lower()
+    if not playlist.is_file() or not source.is_file():
+        return None
+    if suffix not in PLAYLIST_COVER_SUFFIXES:
+        return None
+    previous = playlist_custom_cover(playlist)
 
-    Refuses to land on an existing playlist, so a rename can never silently
-    swallow the list that was already called that. The new file is written with
-    the suffix this app owns, whatever the old one happened to be spelled.
-    """
+    folder = playlist.parent / PLAYLIST_COVERS_FOLDER
+    destination = folder / f"{playlist.name}{suffix}"
+    if source == destination:
+        return destination
+    staging = None
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        descriptor, staging = tempfile.mkstemp(dir=folder, suffix=".part")
+        os.close(descriptor)
+        shutil.copyfile(source, staging)
+        os.replace(staging, destination)
+    except OSError:
+        if staging is not None:
+            try:
+                Path(staging).unlink()
+            except OSError:
+                pass
+        return None
+
+    if previous is not None and previous != destination:
+        try:
+            previous.unlink()
+        except OSError:
+            pass
+    return destination
+
+
+def delete_local_playlist(path):
+    """Delete a playlist and its computer-only custom cover."""
+    playlist = Path(path)
+    try:
+        playlist.unlink()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    remove_playlist_cover(playlist)
+    return True
+
+
+def rename_local_playlist(path, new_name):
+    """Move a playlist and its computer-only custom cover to a new name."""
     source = Path(path)
     destination = local_playlist_file(source.parent, new_name)
     if destination.exists() and destination != source:
         return None
+    cover = playlist_custom_cover(source)
+    renamed_cover = None
     try:
+        if cover is not None:
+            renamed_cover = cover.with_name(f"{destination.name}{cover.suffix.lower()}")
+            os.replace(cover, renamed_cover)
         os.replace(source, destination)
     except OSError:
+        if renamed_cover is not None and cover is not None:
+            try:
+                os.replace(renamed_cover, cover)
+            except OSError:
+                pass
         return None
     return destination
 
