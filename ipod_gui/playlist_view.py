@@ -57,6 +57,8 @@ from .playlists import (
     create_local_playlist,
     default_name,
     delete_local_playlist,
+    IMAGE_GONE,
+    IMAGE_UNSUPPORTED,
     playlist_custom_cover,
     remove_playlist_cover,
     import_playlist_file,
@@ -65,6 +67,7 @@ from .playlists import (
     move_entry,
     name_problem,
     playlist_contents,
+    PLAYLIST_COVER_SUFFIXES,
     PLAYLIST_GONE,
     remove_entry,
     rename_local_playlist,
@@ -713,7 +716,8 @@ class PlaylistViewMixin:
         taking it off the iPod, which is exactly what this menu is for.
         """
         popover = Gtk.Popover()
-        if self._local_playlist(name) is None:
+        playlist = self._local_playlist(name)
+        if playlist is None:
             rows = [
                 self._menu_row(
                     popover,
@@ -729,11 +733,7 @@ class PlaylistViewMixin:
                     lambda: self.on_choose_playlist_cover(name),
                 )
             ]
-            playlist = self._local_playlist(name)
-            if (
-                playlist is not None
-                and playlist_custom_cover(playlist.path) is not None
-            ):
+            if playlist_custom_cover(playlist.path) is not None:
                 rows.append(
                     self._menu_row(
                         popover,
@@ -754,26 +754,67 @@ class PlaylistViewMixin:
         return self._menu_popover(name, rows, popover)
 
     def on_choose_playlist_cover(self, name):
-        """Choose an image to copy into the computer's playlist library."""
+        """Choose an image to copy into the computer's playlist library.
+
+        Filtered to the formats the store can hold, so the folder offers the
+        files that can actually be used rather than every file in it and a
+        refusal afterwards.
+        """
         dialog = Gtk.FileDialog(title=f"Choose a cover for {name}")
+        images = Gtk.FileFilter()
+        images.set_name("Images")
+        for suffix in PLAYLIST_COVER_SUFFIXES:
+            images.add_suffix(suffix.lstrip("."))
+        dialog.set_default_filter(images)
 
         def chosen(file_dialog, result):
             try:
                 image = file_dialog.open_finish(result)
             except GLib.Error:
                 return
-            path = image.get_path()
-            if path is not None:
-                self._set_playlist_cover(name, path)
+            self._playlist_cover_chosen(name, image)
 
         dialog.open(self, None, chosen)
         return dialog
 
+    def _playlist_cover_chosen(self, name, image):
+        """What the file dialog's answer means, once it has one.
+
+        A file on a share the desktop has mounted over the network has no path
+        on this computer, and the copy is a copy of a local file. Said rather
+        than passed over, or the press does nothing and explains nothing.
+        """
+        path = image.get_path()
+        if not path:
+            self._toast("That location is not a local file")
+            return False
+        return self._set_playlist_cover(name, path)
+
     def _set_playlist_cover(self, name, image):
-        """Store a chosen image without adding it to the iPod sync queue."""
+        """Store a chosen image without adding it to the iPod sync queue.
+
+        Each way of failing is its own sentence: the store tells a format it
+        cannot hold from a folder it could not write, and only the first of
+        those is answered by choosing a different image.
+        """
         playlist = self._local_playlist(name)
-        if playlist is None or set_playlist_cover(playlist.path, image) is None:
+        if playlist is None:
+            self._playlist_gone(name)
+            return False
+        saved = set_playlist_cover(playlist.path, image)
+        if saved is PLAYLIST_GONE:
+            self._playlist_gone(name)
+            return False
+        if saved is IMAGE_UNSUPPORTED:
             self._toast("Choose a JPEG, PNG or WebP image")
+            return False
+        if saved is IMAGE_GONE:
+            self._toast("That image is no longer there")
+            return False
+        if saved is None:
+            self._toast(
+                f"Could not save the cover into {home_relative(PLAYLIST_LIBRARY)}"
+            )
             return False
         self._populate_playlist_rail()
         self._select_playlist(name)
@@ -783,7 +824,10 @@ class PlaylistViewMixin:
     def on_remove_playlist_cover(self, name):
         """Return a local playlist to its first song's artwork."""
         playlist = self._local_playlist(name)
-        if playlist is None or not remove_playlist_cover(playlist.path):
+        if playlist is None:
+            self._playlist_gone(name)
+            return False
+        if not remove_playlist_cover(playlist.path):
             self._toast(f"Could not remove the custom cover for {name}")
             return False
         self._populate_playlist_rail()

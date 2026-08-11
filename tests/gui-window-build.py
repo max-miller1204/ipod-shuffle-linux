@@ -18,6 +18,7 @@ so the scan started during construction reads an empty folder rather than the
 real music library and the caches point somewhere disposable.
 """
 
+import base64
 import os
 import sys
 import tempfile
@@ -60,6 +61,14 @@ if Gdk.Display.get_default() is None:
 gui.find_ipods = lambda: []
 
 failures = []
+
+# One pixel, as a file Gdk.Texture really can decode. A cover the window is
+# handed is loaded into a texture as the rail paints it, so bytes merely named
+# .png would be a check of the placeholder rather than of the cover.
+TINY_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8"
+    "z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
 
 # What each mixin is responsible for putting on the window. Named per module so
 # a failure says which half of the split stopped building its own widgets.
@@ -177,6 +186,18 @@ def tooltip_shown(widget):
     answered False for where the pointer is, and nothing else records that.
     """
     return widget.emit("query-tooltip", 0, 0, False, Gtk.Tooltip())
+
+
+def rail_images(window):
+    """The artwork the playlist rail has actually loaded, as widgets.
+
+    make_cover paints a Gtk.Image only for a file it could decode; anything
+    else leaves the placeholder the playlist's name generates, which is a
+    style class and no widget of its own.
+    """
+    return [
+        found for found in walk(window.playlist_rail) if isinstance(found, Gtk.Image)
+    ]
 
 
 def album_cards(window):
@@ -964,6 +985,73 @@ def check_copying_a_device_playlist(window):
     window._populate_device_summary()
 
 
+def check_a_playlists_custom_cover(window):
+    """The row that takes a custom cover off again, which only shows with one.
+
+    A playlist's ⋯ is built as it opens, and this is the only affordance that
+    removes a cover: a row that stopped appearing, or one offered for a
+    playlist that has no cover to remove, would show up nowhere else. Driven
+    through the real menu for that reason - the stand-in checks call the
+    handlers directly and never build one.
+    """
+    chosen = Path(_SANDBOX) / "chosen-cover.png"
+    chosen.write_bytes(TINY_PNG)
+    playlist = gui.local_playlist_file(gui.PLAYLIST_LIBRARY, "Built")
+    unillustrated = rail_images(window)
+
+    before = window._playlist_actions_menu("Built")
+    if find_button(before.get_child(), "Choose custom cover…") is None:
+        failures.append(
+            "a playlist made here offers no way to choose a cover: "
+            f"{menu_text(before.get_child())}"
+        )
+    if find_button(before.get_child(), "Use song artwork") is not None:
+        failures.append(
+            "a playlist with no custom cover was offered a way to stop using "
+            "one, which would remove nothing"
+        )
+
+    if not window._set_playlist_cover("Built", chosen):
+        failures.append("a PNG chosen as a cover was refused")
+        return
+    stored = gui.playlist_custom_cover(playlist)
+    if stored is None:
+        failures.append("choosing a cover stored no image beside the playlist")
+        return
+    if window._playlist_art(window._local_playlist("Built")) != str(stored):
+        failures.append(
+            "the playlist is not painted with the cover that was chosen: "
+            f"{window._playlist_art(window._local_playlist('Built'))!r}"
+        )
+    # The rail holds an image only for artwork that loaded: a file GTK cannot
+    # decode leaves the generated placeholder, and the toast would have said
+    # the cover was saved over a tile that never changed.
+    if len(rail_images(window)) <= len(unillustrated):
+        failures.append(
+            "the rail drew no image for a playlist wearing a custom cover, so "
+            "the file that was copied was never loaded"
+        )
+
+    after = window._playlist_actions_menu("Built")
+    removal = find_button(after.get_child(), "Use song artwork")
+    if removal is None:
+        failures.append(
+            "a playlist wearing a custom cover offers no way back to its "
+            f"songs' artwork: {menu_text(after.get_child())}"
+        )
+        return
+    removal.emit("clicked")
+    if gui.playlist_custom_cover(playlist) is not None:
+        failures.append("pressing Use song artwork left the custom cover in place")
+    if find_button(
+        window._playlist_actions_menu("Built").get_child(), "Use song artwork"
+    ) is not None:
+        failures.append(
+            "the row that removes a cover stayed in the menu with no cover "
+            "left to remove"
+        )
+
+
 def check_progress_bar_follows_the_stream(window):
     """The sync bar, moved by the events a script writes while it runs.
 
@@ -1422,6 +1510,7 @@ def inspect(window):
     check_album_bulk_queue_leaves_previews(window)
     check_delete_from_library(window)
     check_copying_a_device_playlist(window)
+    check_a_playlists_custom_cover(window)
     check_removals_say_what_the_rebuild_costs(window)
     check_progress_bar_follows_the_stream(window)
 

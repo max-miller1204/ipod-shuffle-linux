@@ -159,6 +159,7 @@ Because the device stores playlist names only as spoken audio, every sync asks f
 The dot beside a playlist means what it means beside a track: on the iPod, or here and waiting to be.
 A playlist wears the first cover the songs in it carry, so a list made out of records you have artwork for looks like those records rather than like a coloured tile.
 Its `⋯` menu can instead copy a custom JPEG, PNG or WebP cover into `~/Music/Playlists/.covers`; **Use song artwork** removes that copy and restores the automatic choice.
+The copy follows the playlist when you rename it and goes when you delete it, and a later playlist that reuses the name starts from its own songs' artwork rather than inheriting the old image.
 
 **Rename…**, under the `⋯` on a playlist's own page beside **Delete…**, is one change here and two on a device already holding the playlist, since the name is what the iPod says out loud: the old name comes off the device as you accept it, and the new one goes on at the next sync, which the confirmation says before it happens.
 That second half needs a speech engine like any other playlist reaching the device, so without one a rename that has a new name to stage is refused rather than confirmed - it would take the playlist off the iPod with nothing able to put it back, **Send to iPod** included.
