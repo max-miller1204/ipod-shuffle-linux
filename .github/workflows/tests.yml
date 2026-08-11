@@ -50,7 +50,8 @@ jobs:
       # to another module and left an import behind pointing at nothing.
       - name: Python syntax
         run: |
-          python3 -m py_compile ipod-gui.py ipod_gui/*.py tests/*.py tools/*.py
+          python3 -m py_compile \
+            ipod-gui.py ipod-report.py ipod_gui/*.py tests/*.py tools/*.py
           python3 -c 'import ipod_gui'
 
       # Needs a main loop but no display. A scan used to rebuild the whole

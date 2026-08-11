@@ -36,6 +36,9 @@ Options:
 
 Example:
   ./ipod-wipe.sh --backup ~/ipod-backup
+
+Exit codes: 3 no iPod, 4 several iPods, 5 the iPod stopped answering, 6 a
+missing dependency, 7 a declined prompt. Anything else that failed is 1.
 EOF
 }
 
@@ -51,6 +54,7 @@ done
 
 IPOD="$(find_ipod "$IPOD")"
 assert_shuffle "$IPOD"
+watch_device "$IPOD"
 
 MUSIC_DIR="$IPOD/iPod_Control/Music"
 ITUNES_DIR="$IPOD/iPod_Control/iTunes"
@@ -87,7 +91,7 @@ if (( ! ASSUME_YES )); then
     if (( track_count > 0 )) && [[ -z "$BACKUP_DIR" ]]; then
         warn "No backup requested. $track_count track(s) will be lost permanently."
     fi
-    confirm "Wipe this iPod?" || die "Aborted."
+    confirm "Wipe this iPod?" || die_with "$EXIT_DECLINED" "Aborted."
 fi
 
 if [[ -d "$MUSIC_DIR" ]]; then

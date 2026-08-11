@@ -7,6 +7,25 @@ set -euo pipefail
 # USB product ID for the iPod shuffle 4th generation.
 readonly SHUFFLE_USB_ID="05ac:1303"
 
+# The states a caller has to tell apart, as numbers rather than as English.
+#
+# Everything else - a bad flag, a path that is not on the device, a builder
+# that failed - stays 1, because a caller cannot do anything different about
+# those beyond reporting them. These five it can: plug the iPod in, name which
+# one, wait for the volume to come back, run ./install.sh, or ask again.
+#
+# ipod-report.py repeats EXIT_DEVICE_GONE, since a report run on its own still
+# has to be able to say it; tests/product-e2e.sh fails if the two disagree.
+readonly EXIT_NO_IPOD=3
+readonly EXIT_SEVERAL_IPODS=4
+readonly EXIT_DEVICE_GONE=5
+readonly EXIT_MISSING_DEPENDENCY=6
+readonly EXIT_DECLINED=7
+
+# The JSON writer the scripts report through, beside this file.
+REPORT_TOOL="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ipod-report.py"
+readonly REPORT_TOOL
+
 # Upstream database builder, installed by install.sh.
 #
 # All three paths are overridable so the test suite can substitute its own
@@ -40,7 +59,88 @@ err()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; }
 info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
 
-die() { err "$*"; exit 1; }
+die() { die_with 1 "$@"; }
+
+# Die with one of the codes above. The message is still printed, because the
+# number is for the caller and the sentence is for the person reading it.
+die_with() {
+    local code="$1"
+    shift
+    err "$*"
+    leave "$code"
+}
+
+# The mount point a script latched onto, and what the volume there called
+# itself at the time.
+DEVICE_WATCH_MOUNT=""
+DEVICE_WATCH_IDENTITY=""
+
+# Ask the volume who it is, or print nothing when it will not say.
+device_identity() {
+    command -v python3 >/dev/null \
+        || die_with "$EXIT_MISSING_DEPENDENCY" "python3 is required but not installed."
+    python3 "$REPORT_TOOL" identity "$1" 2>/dev/null || true
+}
+
+# Print the JSON report for a mounted device, or print nothing at all.
+#
+# The writer decides between "the volume stopped answering" and "something
+# else could not be read", because it is the one that walked the device and
+# re-read its identity afterwards; this passes that answer straight out rather
+# than forming a second opinion about a device it did not read.
+device_report() {
+    local status=0
+    command -v python3 >/dev/null \
+        || die_with "$EXIT_MISSING_DEPENDENCY" "python3 is required but not installed."
+    python3 "$REPORT_TOOL" device "$1" || status=$?
+    (( status == 0 )) || leave "$status"
+}
+
+# Start treating a later failure as a device that went away.
+#
+# Unplugging an iPod mid-copy is the failure this project sees most, and it
+# arrives as whichever command happened to touch the volume next: a cp that
+# cannot write, a find that cannot descend, a builder that cannot open its
+# database. Naming a code at each of those would be naming the same state in
+# a dozen places and still missing the next one, so the diagnosis is made
+# where the script leaves instead - by looking at whether the device is still
+# there, which is the only thing that actually decides it.
+#
+# ERR rather than EXIT because the scripts already use EXIT to clean up their
+# temporary files, and because a failure is exactly what this is about: an
+# ordinary "exit 1" from die_with comes through leave() directly.
+watch_device() {
+    DEVICE_WATCH_MOUNT="$1"
+    DEVICE_WATCH_IDENTITY="$(device_identity "$1")"
+    # -E so the trap is inherited by the functions and subshells the copy and
+    # the playlist rewrite run in, which is where these failures happen.
+    set -E
+    trap 'leave $?' ERR
+}
+
+# Whether the device this script latched onto stopped answering.
+#
+# Both halves matter: the volume can be unplugged, and it can be unmounted and
+# replaced by a different one at the same path while a sync is running.
+device_vanished() {
+    [[ -n "$DEVICE_WATCH_MOUNT" ]] || return 1
+    [[ -d "$DEVICE_WATCH_MOUNT/iPod_Control" ]] || return 0
+    [[ "$(device_identity "$DEVICE_WATCH_MOUNT")" == "$DEVICE_WATCH_IDENTITY" ]] \
+        || return 0
+    return 1
+}
+
+# Leave with a status, re-read as a vanished device when that is what happened.
+leave() {
+    local code="$1"
+    # First, so that the checks below cannot re-enter this through the trap.
+    trap - ERR
+    if [[ "$code" != 0 && "$code" != "$EXIT_DEVICE_GONE" ]] && device_vanished; then
+        err "The iPod stopped answering; it was unplugged or replaced mid-operation."
+        code="$EXIT_DEVICE_GONE"
+    fi
+    exit "$code"
+}
 
 root_playlist_files() {
     find "$1" -maxdepth 1 -type f \
@@ -76,7 +176,8 @@ atomic_replace_lines() {
 # one, so this parses the JSON output instead. Column mode is not an option
 # either, since it can truncate long paths to the terminal width.
 list_vfat_mounts() {
-    command -v python3 >/dev/null || die "python3 is required but not installed."
+    command -v python3 >/dev/null \
+        || die_with "$EXIT_MISSING_DEPENDENCY" "python3 is required but not installed."
     findmnt -no TARGET -t vfat --json 2>/dev/null | python3 -c '
 import json, sys
 try:
@@ -108,11 +209,12 @@ find_ipod() {
     done < <(list_vfat_mounts)
 
     case "${#candidates[@]}" in
-        0) die "No mounted iPod found. Plug it in, or pass the mount point explicitly." ;;
+        0) die_with "$EXIT_NO_IPOD" \
+               "No mounted iPod found. Plug it in, or pass the mount point explicitly." ;;
         1) printf '%s' "${candidates[0]}" ;;
         *) err "Multiple iPods found; pass one explicitly:"
            printf '  %s\n' "${candidates[@]}" >&2
-           exit 1 ;;
+           leave "$EXIT_SEVERAL_IPODS" ;;
     esac
 }
 
@@ -123,8 +225,13 @@ find_ipod() {
 assert_shuffle() {
     local ipod="$1"
 
-    [[ -d "$ipod" ]]                      || die "Not a directory: $ipod"
-    [[ -d "$ipod/iPod_Control" ]]         || die "No iPod_Control in $ipod - that is not an iPod."
+    # An explicitly named path with no iPod at it is the same answer as
+    # autodetection finding none, and a caller reacts to it the same way, so
+    # it gets the same code. A volume that is an iPod but laid out wrongly is
+    # not: nothing about plugging a different one in would help.
+    [[ -d "$ipod" ]] || die_with "$EXIT_NO_IPOD" "Not a directory: $ipod"
+    [[ -d "$ipod/iPod_Control" ]] \
+        || die_with "$EXIT_NO_IPOD" "No iPod_Control in $ipod - that is not an iPod."
     [[ -d "$ipod/iPod_Control/iTunes" ]]  || die "No iPod_Control/iTunes in $ipod - unexpected layout."
 
     # A shuffle has no display, so it ships the Speakable prompts that the
@@ -133,7 +240,11 @@ assert_shuffle() {
     if [[ ! -d "$ipod/iPod_Control/Speakable" ]]; then
         warn "No iPod_Control/Speakable directory found."
         warn "This may not be a shuffle. These scripts only support the shuffle 3G/4G."
-        confirm "Continue anyway?" || exit 1
+        # Said out loud rather than left as a bare exit: bash prints a read
+        # prompt only to a terminal, so an unattended run that declines here
+        # by reaching end of input would otherwise stop with nothing but the
+        # warnings above to say why.
+        confirm "Continue anyway?" || die_with "$EXIT_DECLINED" "Aborted."
     fi
 
     if ! lsusb 2>/dev/null | grep -q "$SHUFFLE_USB_ID"; then
@@ -171,7 +282,8 @@ ipod_unmount() {
     elif command -v gdbus >/dev/null 2>&1; then
         udisks_method "$dev" Unmount >/dev/null && echo "Unmounted $dev."
     else
-        die "Neither udisksctl nor gdbus found; cannot unmount."
+        die_with "$EXIT_MISSING_DEPENDENCY" \
+            "Neither udisksctl nor gdbus found; cannot unmount."
     fi
 }
 
@@ -182,7 +294,8 @@ ipod_mount() {
     elif command -v gdbus >/dev/null 2>&1; then
         udisks_method "$dev" Mount
     else
-        die "Neither udisksctl nor gdbus found; cannot mount."
+        die_with "$EXIT_MISSING_DEPENDENCY" \
+            "Neither udisksctl nor gdbus found; cannot mount."
     fi
 }
 
@@ -214,13 +327,15 @@ db_python() {
     if [[ -x "$VENV_PYTHON" ]]; then
         printf '%s' "$VENV_PYTHON"
     else
-        command -v python3 >/dev/null || die "python3 not found."
+        command -v python3 >/dev/null \
+            || die_with "$EXIT_MISSING_DEPENDENCY" "python3 not found."
         printf 'python3'
     fi
 }
 
 require_db_tool() {
-    [[ -f "$DB_TOOL" ]] || die "Database tool missing at $DB_TOOL - run ./install.sh first."
+    [[ -f "$DB_TOOL" ]] || die_with "$EXIT_MISSING_DEPENDENCY" \
+        "Database tool missing at $DB_TOOL - run ./install.sh first."
 }
 
 # Locate yt-dlp, preferring install.sh's virtualenv over PATH.
@@ -234,7 +349,8 @@ yt_dlp_bin() {
     elif command -v yt-dlp >/dev/null 2>&1; then
         command -v yt-dlp
     else
-        die "yt-dlp not found - run ./install.sh, or install it with 'pipx install yt-dlp'."
+        die_with "$EXIT_MISSING_DEPENDENCY" \
+            "yt-dlp not found - run ./install.sh, or install it with 'pipx install yt-dlp'."
     fi
 }
 

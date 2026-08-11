@@ -13,6 +13,7 @@ source "$(dirname "$(readlink -f "$0")")/lib.sh"
 IPOD=""
 EJECT=0
 LIST=0
+JSON=0
 
 usage() {
     cat <<'EOF'
@@ -32,6 +33,10 @@ songs they listed stay on the device.
 Options:
   -i, --ipod PATH   iPod mount point (default: autodetect)
   -l, --list        Print what is on the iPod and exit
+  -j, --json        With --list, report the whole device as JSON instead of
+                    track paths: where it is mounted, what it calls itself,
+                    its storage, its tracks, its playlists and which of them
+                    it can say out loud, and the options the last sync saved
   -P, --playlist    Treat the arguments as playlist names, not tracks
   -y, --yes         Answer yes to every prompt
   -e, --eject       Unmount the iPod when finished
@@ -39,6 +44,7 @@ Options:
 
 Examples:
   ./ipod-remove.sh --list
+  ./ipod-remove.sh --list --json
   ./ipod-remove.sh 'Road Trip/Disc 1/01 - Highway.mp3'
   ./ipod-remove.sh --eject 'Road Trip'
   ./ipod-remove.sh --playlist twizzy
@@ -50,6 +56,9 @@ loses every track is removed with them.
 
 To empty the iPod completely, use ./ipod-wipe.sh instead: it clears the stale
 iTunes state as well, and can back the music up first.
+
+Exit codes: 3 no iPod, 4 several iPods, 5 the iPod stopped answering, 6 a
+missing dependency, 7 a declined prompt. Anything else that failed is 1.
 EOF
 }
 
@@ -59,6 +68,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -i|--ipod) IPOD="$2"; shift 2 ;;
         -l|--list) LIST=1; shift ;;
+        -j|--json) JSON=1; shift ;;
         -P|--playlist) PLAYLIST_MODE=1; shift ;;
         -y|--yes)  ASSUME_YES=1; shift ;;
         -e|--eject) EJECT=1; shift ;;
@@ -71,8 +81,11 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+(( JSON == 0 || LIST )) || die "--json only reports; add --list."
+
 IPOD="$(find_ipod "$IPOD")"
 assert_shuffle "$IPOD"
+watch_device "$IPOD"
 
 MUSIC_DIR="$IPOD/iPod_Control/Music"
 [[ -d "$MUSIC_DIR" ]] || die "No iPod_Control/Music in $IPOD - nothing to remove."
@@ -107,11 +120,17 @@ resolve_root_playlist() {
 }
 
 # Nothing but the track paths on stdout, so the output can be fed straight
-# back in as arguments.
+# back in as arguments. --json widens that to everything the device says about
+# itself, and keeps the same promise: one document or none, never a partial
+# one that reads as a definite answer.
 if (( LIST )); then
     (( PLAYLIST_MODE == 0 )) || die "--list and --playlist cannot be combined."
     (( $# == 0 )) || die "--list takes no track paths."
-    find "$MUSIC_REAL" -type f -printf '%P\n' | sort
+    if (( JSON )); then
+        device_report "$IPOD"
+    else
+        find "$MUSIC_REAL" -type f -printf '%P\n' | sort
+    fi
     exit 0
 fi
 
@@ -218,7 +237,7 @@ if (( ! ASSUME_YES )); then
         printf '  %s\n' "${TARGETS[@]#"$MUSIC_REAL"/}"
         warn "The iPod holds the only copy unless you have these elsewhere."
     fi
-    confirm "Remove them?" || die "Aborted."
+    confirm "Remove them?" || die_with "$EXIT_DECLINED" "Aborted."
 fi
 
 # Delete the folders a removal leaves empty, up to but not including the music
