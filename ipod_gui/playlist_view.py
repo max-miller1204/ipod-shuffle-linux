@@ -47,7 +47,7 @@ from .config import (
     SYNC_SCRIPT,
     YOUTUBE_LIBRARY,
 )
-from .text import home_relative, plural
+from .text import SPOKEN_NAMES_LOST, home_relative, plural
 from .device import playlist_file, write_playlist
 from .youtube import downloaded_file
 from .model import Track
@@ -1397,13 +1397,19 @@ class PlaylistViewMixin:
         taken = [
             other.name for other in self._shown_playlists() if other.name != name
         ]
+        if self._playlist_on_device(name):
+            asked = (
+                "The name is what the iPod says out loud, so renaming a "
+                "playlist that is already on the device removes the old one "
+                "and syncs the new name."
+            )
+            if not self.speech_engine_available:
+                asked += f" {SPOKEN_NAMES_LOST}"
+        else:
+            asked = "The name is what the iPod will say out loud."
         return self._name_dialog(
             "Rename playlist",
-            "The name is what the iPod says out loud, so renaming a "
-            "playlist that is already on the device removes the old one "
-            "and syncs the new name."
-            if self._playlist_on_device(name)
-            else "The name is what the iPod will say out loud.",
+            asked,
             "rename",
             "Rename",
             name,
@@ -1584,10 +1590,7 @@ class PlaylistViewMixin:
             self._toast("Connect an iPod before removing its playlists")
             return
         spoken_cost = (
-            ""
-            if self.speech_engine_available or not on_device
-            else "With no speech engine installed, the rebuild that removal "
-            "runs leaves the iPod's spoken names gone. "
+            "" if self.speech_engine_available else f"{SPOKEN_NAMES_LOST} "
         )
         if playlist is not None and on_device:
             body = (

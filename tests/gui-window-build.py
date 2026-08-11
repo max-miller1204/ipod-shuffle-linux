@@ -965,18 +965,24 @@ def check_copying_a_device_playlist(window):
 
 
 def check_removals_say_what_the_rebuild_costs(window):
-    """What a Remove warns about on a machine that cannot record names.
+    """What a press that rebuilds the device warns about, with nothing to speak.
 
-    Neither of these presses is on Device & Settings, so the warning card
-    there is never on screen at the moment either is answered: the dialog is
-    the only place the loss can still be read before it happens. Driven
-    through the dialogs themselves rather than through the response handlers
-    the other playlist checks call, because the sentence being read is the one
-    the user answers, and only presenting it produces that.
+    None of these presses is on Device & Settings, so the warning card there
+    is never on screen at the moment one is answered: the dialog is the only
+    place the loss can still be read before it happens. Driven through the
+    dialogs themselves rather than through the response handlers the other
+    playlist checks call, because the sentence being read is the one the user
+    answers, and only presenting it produces that.
 
-    Both states are asked for, since the clause is gated on the flag and a
-    dialog that carried it always would be telling a machine that can speak
-    its names are about to go.
+    Every dialog whose answer runs a rebuild is here - the two Deletes that
+    reach the iPod, the track Remove, and the Rename, which reaches the same
+    removal by taking the old name off the device. Both states are asked for,
+    since the clause is gated on the flag and a dialog that carried it always
+    would be telling a machine that can speak its names are about to go.
+
+    Matched against the sentence the package itself holds, so a dialog that
+    describes the same loss in wording of its own fails here rather than
+    quietly becoming a third account of one consequence.
     """
     was = (
         window.mount_point,
@@ -1016,6 +1022,14 @@ def check_removals_say_what_the_rebuild_costs(window):
             lambda: window.on_remove_playlist("Built"),
             "stay in your library and on the iPod",
         ),
+        # The rename ends by taking the old name off the device, which is the
+        # same removal and the same rebuild. It says what it will do and then
+        # stops, so there is nothing after the clause to sit in front of.
+        (
+            "the Rename of a playlist on the iPod",
+            lambda: window.on_rename_playlist("Built"),
+            None,
+        ),
     )
     for available in (True, False):
         window.speech_engine_available = available
@@ -1027,13 +1041,13 @@ def check_removals_say_what_the_rebuild_costs(window):
                 failures.append(f"{named} opened {dialog!r} rather than a dialog")
                 continue
             body = dialog.get_body()
-            warned = "spoken names gone" in body
+            warned = gui.SPOKEN_NAMES_LOST in body
             if warned != (not available):
                 failures.append(
                     f"{named} with a speech engine "
                     f"{'present' if available else 'absent'} said {body!r}"
                 )
-            elif warned:
+            elif warned and reassurance is not None:
                 # After what the removal does and before what survives it: the
                 # reassurance is what the clause exists to correct, so a
                 # sentence trailing behind it reads as an afterthought to a
@@ -1042,7 +1056,7 @@ def check_removals_say_what_the_rebuild_costs(window):
                     failures.append(
                         f"{named} stopped saying what survives it: {body!r}"
                     )
-                elif body.index("spoken names gone") > body.index(reassurance):
+                elif body.index(gui.SPOKEN_NAMES_LOST) > body.index(reassurance):
                     failures.append(
                         f"{named} puts the spoken-name loss after the "
                         f"reassurance it corrects: {body!r}"

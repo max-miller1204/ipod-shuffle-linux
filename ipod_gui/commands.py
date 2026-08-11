@@ -22,7 +22,7 @@ from pathlib import Path
 from gi.repository import Adw, Gdk, GLib, GObject, Gtk
 
 from .config import REMOVE_SCRIPT, SYNC_SCRIPT, WIPE_SCRIPT
-from .text import COPIED_LINE, strip_ansi
+from .text import COPIED_LINE, SPOKEN_NAMES_LOST, strip_ansi
 from .device import (
     DEVICE_IO_LOCK,
     resolve_device,
@@ -360,10 +360,7 @@ class CommandsMixin:
         name = self.track_names.get(relpath, Path(relpath).name)
         rebuilt = "It is deleted from the iPod and the database is rebuilt."
         if not self.speech_engine_available:
-            rebuilt += (
-                " With no speech engine installed, that rebuild leaves the "
-                "iPod's spoken names gone."
-            )
+            rebuilt += f" {SPOKEN_NAMES_LOST}"
         dialog = Adw.AlertDialog(
             heading="Remove this track?",
             body=(

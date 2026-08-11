@@ -14,6 +14,16 @@ ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 # show for an operation that can run for minutes.
 COPIED_LINE = re.compile(r"^\s*\+ (?P<name>.+?) -> (?P<dest>.+?)\s*$")
 
+# Said by every confirmation whose answer rebuilds the iPod's database, and
+# said once here so the same consequence does not reach the user in three
+# wordings. The builder empties iPod_Control/Speakable at the start of every
+# run and refills only what it can speak, so a machine with no engine takes
+# the names down with it - see _sync_options for the whole of it.
+SPOKEN_NAMES_LOST = (
+    "With no speech engine installed, the rebuild that removal runs leaves "
+    "the iPod's spoken names gone."
+)
+
 
 def strip_ansi(text):
     """Text as a terminal would show it, without the colour escapes."""
