@@ -549,8 +549,9 @@ class LibraryViewMixin:
 
         And a staged track that no music folder holds is built here as well,
         because this is the only place that would: the scan reads the roots,
-        and a folder chosen with "Add music folder…" is queued without becoming
-        one. The grid gets it from the queue or not at all.
+        and a download is queued the moment it arrives rather than when a
+        rescan next finds it - if a root covers where it landed at all. The
+        grid gets it from the queue or not at all.
         """
         on_device = {}
         for track in self.device_tracks:

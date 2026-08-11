@@ -121,6 +121,22 @@ grep -Fq 'Playlists without --playlist-voiceover will be unnamed on the device.'
 grep -Fq 'Playlists without --playlist-voiceover will be unnamed on the device.' \
     "$EVIDENCE_DIR/saved-id3-playlists-warning.txt"
 
+# The GUI no longer offers a grouping, and passes only the two voiceover flags,
+# on every machine. That is what has to retire a grouping saved by a version
+# that did: the device above is still carrying --auto-id3-playlists, and a run
+# given flags of its own overwrites the file rather than replaying it. Without
+# this a user who had once chosen "By genre" would keep getting generated
+# playlists with nothing left in the window to turn them off with.
+"$ROOT/ipod-sync.sh" \
+    --ipod "$EFFECTIVE_OPTIONS_IPOD" \
+    --voiceover \
+    --playlist-voiceover \
+    --rebuild-only > "$EVIDENCE_DIR/gui-flags-clear-grouping.txt" 2>&1
+diff -u <(printf '%s\n' \
+    --track-voiceover \
+    --playlist-voiceover) \
+    "$EFFECTIVE_OPTIONS_IPOD/iPod_Control/.sync-options"
+
 # --clear is the one destructive thing sync does, so it asks first, and with no
 # terminal attached that question answers itself as no. Without --yes the only
 # way to drive it from a script was to pipe a "y" into stdin.

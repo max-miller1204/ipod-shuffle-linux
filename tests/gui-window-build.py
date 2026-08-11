@@ -99,9 +99,8 @@ EXPECTED = {
         "device_card", "device_dot", "device_name", "sidebar_meter",
         "device_free", "device_count", "queued_row", "queued_label",
         "settings_meter", "settings_name", "settings_path", "settings_dot",
-        "settings_figures", "device_banner", "playlist_mode", "track_voiceover",
-        "playlist_voiceover", "folder_list", "sync_button", "add_button",
-        "playlist_button", "youtube_button", "wipe_button", "wipe_note",
+        "settings_figures", "device_banner", "folder_list", "sync_button",
+        "wipe_button", "wipe_note",
     ],
     "commands": [
         "sync_revealer", "sync_spinner", "sync_title", "sync_count",
@@ -310,10 +309,11 @@ def check_queued_state(window):
 def check_queued_outside_the_library(window):
     """A folder staged for sync that no music folder holds.
 
-    The header's "Add music folder…" queues a folder without making it a music
-    root - that is Device & Settings' own button, and a different one - so
-    nothing scans those files and the queue is the only part of the window that
-    knows they exist. Left out of the library the grid is drawn from, they were
+    Staging never makes a folder a music root - a download is queued the moment
+    it finishes, before any scan of the roots has seen it, and stays outside
+    them for good when the roots do not cover where it landed - so nothing
+    scans those files and the queue is the only part of the window that knows
+    they exist. Left out of the library the grid is drawn from, they were
     counted in the sidebar and named on the Sync button while every pill above
     the grid read zero of them and no view in the app would show one.
 
@@ -964,6 +964,214 @@ def check_copying_a_device_playlist(window):
     window._populate_device_summary()
 
 
+def check_removals_say_what_the_rebuild_costs(window):
+    """What a press that rebuilds the device warns about, with nothing to speak.
+
+    None of these presses is on Device & Settings, so the warning card there
+    is never on screen at the moment one is answered: the dialog is the only
+    place the loss can still be read before it happens. Driven through the
+    dialogs themselves rather than through the response handlers the other
+    playlist checks call, because the sentence being read is the one the user
+    answers, and only presenting it produces that.
+
+    Every dialog whose answer runs a rebuild is here - the two Deletes that
+    reach the iPod, the track Remove, and the Rename, which reaches the same
+    removal by taking the old name off the device. Both states are asked for,
+    since the clause is gated on the flag and a dialog that carried it always
+    would be telling a machine that can speak its names are about to go.
+
+    Matched against the sentence the package itself holds, so a dialog that
+    describes the same loss in wording of its own fails here rather than
+    quietly becoming a third account of one consequence.
+    """
+    was = (
+        window.mount_point,
+        window.device_identity,
+        window.playlists,
+        window.track_names,
+        window.speech_engine_available,
+    )
+    relpath = "iPod_Control/Music/F00/ABCD.mp3"
+    window.mount_point = "/media/alex/iPod"
+    window.device_identity = "fixture-ipod"
+    window.track_names = {relpath: "Highway"}
+    # "Road Songs" is a name no file in the sandbox library backs, so it is a
+    # playlist only the device holds; "Built" was made here and is put on the
+    # device as well. Both removals reach the iPod, so both run the rebuild -
+    # and the second says nothing about a rebuild on its own, which is the one
+    # a clause about "that rebuild" would have had nothing to attach to.
+    window.playlists = [("Road Songs", [relpath]), ("Built", [relpath])]
+    if window._local_playlist("Built") is None:
+        failures.append(
+            "this check needs a playlist that is both here and on the iPod, "
+            "and no file in the sandbox library backs 'Built'"
+        )
+    cases = (
+        (
+            "the track Remove",
+            lambda: window.on_remove_track(None, relpath),
+            "Any copy in your own music folder is left alone",
+        ),
+        (
+            "the device playlist Delete",
+            lambda: window.on_remove_playlist("Road Songs"),
+            "The songs it lists stay on the iPod",
+        ),
+        (
+            "the Delete of a playlist both here and on the iPod",
+            lambda: window.on_remove_playlist("Built"),
+            "stay in your library and on the iPod",
+        ),
+        # The rename ends by taking the old name off the device, which is the
+        # same removal and the same rebuild. It says what it will do and then
+        # stops, so there is nothing after the clause to sit in front of.
+        (
+            "the Rename of a playlist on the iPod",
+            lambda: window.on_rename_playlist("Built"),
+            None,
+        ),
+    )
+    for available in (True, False):
+        window.speech_engine_available = available
+        for named, press, reassurance in cases:
+            standing = window.get_visible_dialog()
+            press()
+            dialog = window.get_visible_dialog()
+            if dialog is standing or not isinstance(dialog, Adw.AlertDialog):
+                failures.append(f"{named} opened {dialog!r} rather than a dialog")
+                continue
+            body = dialog.get_body()
+            warned = gui.SPOKEN_NAMES_LOST in body
+            if warned != (not available):
+                failures.append(
+                    f"{named} with a speech engine "
+                    f"{'present' if available else 'absent'} said {body!r}"
+                )
+            elif warned and reassurance is not None:
+                # After what the removal does and before what survives it: the
+                # reassurance is what the clause exists to correct, so a
+                # sentence trailing behind it reads as an afterthought to a
+                # dialog that has already said the rebuild is bookkeeping.
+                if reassurance not in body:
+                    failures.append(
+                        f"{named} stopped saying what survives it: {body!r}"
+                    )
+                elif body.index(gui.SPOKEN_NAMES_LOST) > body.index(reassurance):
+                    failures.append(
+                        f"{named} puts the spoken-name loss after the "
+                        f"reassurance it corrects: {body!r}"
+                    )
+            dialog.emit("response", "cancel")
+            dialog.force_close()
+
+    # What the rename goes on to say it will do, which is the half of that
+    # dialog the shared clause does not cover. _on_rename_response stages the
+    # new name and removes the old one from the device either way, so with an
+    # engine the new name is queued for the next sync rather than synced by
+    # this press - and with none it cannot be queued at all, which is a
+    # playlist off the iPod with nothing able to put it back.
+    for available, promised in (
+        (True, "stages the new name for the next sync"),
+        (False, "cannot be staged"),
+    ):
+        window.speech_engine_available = available
+        dialog = window.on_rename_playlist("Built")
+        if not isinstance(dialog, Adw.AlertDialog):
+            failures.append(
+                "renaming a playlist on the iPod with a speech engine "
+                f"{'present' if available else 'absent'} opened {dialog!r}"
+            )
+            continue
+        body = dialog.get_body()
+        if promised not in body:
+            failures.append(f"the rename dialog never says {promised!r}: {body!r}")
+        if not available and "leaves the iPod" not in body:
+            failures.append(
+                "the rename dialog never says the playlist itself goes from "
+                f"the device, not only its recording: {body!r}"
+            )
+        dialog.emit("response", "cancel")
+        dialog.force_close()
+    (
+        window.mount_point,
+        window.device_identity,
+        window.playlists,
+        window.track_names,
+        window.speech_engine_available,
+    ) = was
+
+
+def speech_warnings(window):
+    """What the settings page says about a missing speech engine.
+
+    Read off the built page rather than by calling the builder, because the
+    branch being checked is the append in _build_settings_view: a card that is
+    built and never added would answer any question put to the builder alone
+    exactly as it does now. Matched on the warning styling rather than on
+    position, so moving the card within the page is a change to the layout
+    rather than a broken check.
+    """
+    said = []
+    for widget in walk(window.views.get_child_by_name("settings")):
+        if not isinstance(widget, Gtk.Label):
+            continue
+        card = widget.get_parent()
+        if card is None or not card.has_css_class("sf-warn-card"):
+            continue
+        if card.get_visible() and "speech engine" in widget.get_text().lower():
+            said.append(widget.get_text())
+    return said
+
+
+def check_speech_warning(app):
+    """The card that only a machine with no speech engine ever builds.
+
+    The window the rest of this file inspects is built against whatever the
+    machine actually has, and CI installs espeak, so that build always takes
+    the other branch and nothing here would notice the card had stopped being
+    appended - or had started appearing on a machine that can speak. Both
+    states are therefore asked for outright rather than inherited from the
+    runner. A window of its own each time, because the flag is read once
+    during construction and the page is built from it there and then.
+    """
+    engine = gui.has_speech_engine
+    try:
+        for available in (False, True):
+            gui.has_speech_engine = lambda ready=available: ready
+            try:
+                window = gui.IpodWindow(application=app)
+            except Exception:  # noqa: BLE001 - the construction is the subject
+                failures.append(
+                    "building the window with a speech engine "
+                    f"{'present' if available else 'absent'} raised:\n"
+                    f"{traceback.format_exc()}"
+                )
+                continue
+            said = speech_warnings(window)
+            if available and said:
+                failures.append(
+                    "the settings page warned about a missing speech engine on "
+                    f"a machine that has one: {said}"
+                )
+            elif not available:
+                if len(said) != 1:
+                    failures.append(
+                        "the settings page of a machine with no speech engine "
+                        f"carries {len(said)} warnings about it, not one: {said}"
+                    )
+                elif not any(
+                    engine_name in said[0]
+                    for engine_name in ("pico2wave", "espeak", "say")
+                ):
+                    failures.append(
+                        "the speech warning names nothing to install, so it "
+                        f"says only that something is wrong: {said[0]!r}"
+                    )
+            window._on_close_request(window)
+    finally:
+        gui.has_speech_engine = engine
+
+
 def inspect(window):
     # Where the window says it is the moment it opens, read before anything
     # below calls show_view and answers the question for it. The stack shows
@@ -1106,6 +1314,7 @@ def inspect(window):
     check_album_bulk_queue_leaves_previews(window)
     check_delete_from_library(window)
     check_copying_a_device_playlist(window)
+    check_removals_say_what_the_rebuild_costs(window)
 
     # Naming a playlist and renaming one are one dialog assembled in one place,
     # so a break in it is a break in both, and neither is built until the user
@@ -1400,6 +1609,7 @@ def on_activate(app):
         # showed up while this file was being written.
         try:
             inspect(window)
+            check_speech_warning(app)
         except Exception:  # noqa: BLE001
             failures.append(f"inspecting the window raised:\n{traceback.format_exc()}")
         app.quit()

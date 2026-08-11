@@ -105,9 +105,6 @@ class IpodWindow(
         # every command.
         self.probe_answered = False
         self.discovering_sources = False
-        self.loading_options = False
-        self.loaded_playlist_mode = 0
-        self.loaded_playlist_args = []
         self.speech_engine_available = has_speech_engine()
         self.playlist_unavailable = (
             None if self.speech_engine_available else "No speech engine installed"
@@ -200,9 +197,6 @@ class IpodWindow(
         self._busy_widgets = [
             self.refresh_button,
             self.sync_button,
-            self.add_button,
-            self.playlist_button,
-            self.youtube_button,
             self.rebuild_button,
             self.wipe_button,
             self.eject_button,

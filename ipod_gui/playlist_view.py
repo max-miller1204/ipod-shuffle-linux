@@ -35,7 +35,7 @@ whether those two readings can be quoted yet, and `show_view`, `_run`,
 
 from pathlib import Path
 
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, Gtk
 
 from .config import (
     AUDIO_EXTENSIONS,
@@ -47,7 +47,7 @@ from .config import (
     SYNC_SCRIPT,
     YOUTUBE_LIBRARY,
 )
-from .text import home_relative, plural
+from .text import SPOKEN_NAMES_LOST, home_relative, plural
 from .device import playlist_file, write_playlist
 from .youtube import downloaded_file
 from .model import Track
@@ -1220,11 +1220,9 @@ class PlaylistViewMixin:
             return ""
         if self.playlist_unavailable:
             return f" · not queued: {self.playlist_unavailable.lower()}"
-        # A named playlist implies wanting the name read aloud, which the sync
-        # decides from what is staged rather than from the switch. Setting the
-        # switch here as well would outlive the queue that justified it: the
-        # sync writes the options back onto the device, so a list edited once
-        # would turn spoken names on for every track-only sync after it.
+        # Nothing to ask for beyond the queue itself: every sync is run with
+        # spoken playlist names, so a list staged here already carries the one
+        # thing that makes it findable on a device with no screen.
         queued = self._queue_playlists(
             [playlist.path for playlist in wanted], show_toast=False
         )
@@ -1399,13 +1397,24 @@ class PlaylistViewMixin:
         taken = [
             other.name for other in self._shown_playlists() if other.name != name
         ]
+        if self._playlist_on_device(name):
+            asked = (
+                "The name is what the iPod says out loud, so renaming a "
+                "playlist that is already on the device removes the old one"
+            )
+            if self.speech_engine_available:
+                asked += " and stages the new name for the next sync."
+            else:
+                asked += (
+                    f". {SPOKEN_NAMES_LOST} The new name cannot be staged "
+                    "until one is installed, so the playlist leaves the iPod "
+                    "and does not come back."
+                )
+        else:
+            asked = "The name is what the iPod will say out loud."
         return self._name_dialog(
             "Rename playlist",
-            "The name is what the iPod says out loud, so renaming a "
-            "playlist that is already on the device removes the old one "
-            "and syncs the new name."
-            if self._playlist_on_device(name)
-            else "The name is what the iPod will say out loud.",
+            asked,
             "rename",
             "Rename",
             name,
@@ -1553,35 +1562,23 @@ class PlaylistViewMixin:
 
     # ------------------------------------------------ importing and removing
 
-    def on_import_playlist(self, _button):
+    def _import_playlist(self, source):
         """Take a playlist another program wrote, and adopt it as one of ours.
 
         The compatibility path: an M3U or PLS exported from Rhythmbox,
         Strawberry or anything else is copied into the playlist folder with its
         entries resolved, so from then on it is an ordinary playlist here
         rather than a file that has to be found again to change anything.
+
+        Nothing in the window reaches it: the file dialog that opened it went
+        with the Device & Settings card, so meanwhile a foreign list is adopted
+        by hand, by copying an .m3u into the playlist folder - which resolves
+        none of its entries and reads no .pls at all. Kept as the seam the
+        headless CLI and the Gio actions will hand a path to.
+
+        Takes the file rather than choosing one, so what adopts it can be
+        anything that has a path in hand.
         """
-        dialog = Gtk.FileDialog(title="Import a playlist file")
-        playlist_filter = Gtk.FileFilter()
-        playlist_filter.set_name("Playlists (M3U, PLS)")
-        playlist_filter.add_suffix("m3u")
-        playlist_filter.add_suffix("pls")
-        dialog.set_default_filter(playlist_filter)
-
-        def chosen(dlg, result):
-            try:
-                chosen_file = dlg.open_finish(result)
-            except GLib.Error:
-                return
-            path = chosen_file.get_path()
-            if not path:
-                self._toast("That location is not a local file")
-                return
-            self._import_playlist(path)
-
-        dialog.open(self, None, chosen)
-
-    def _import_playlist(self, source):
         taken = [playlist.name for playlist in self._shown_playlists()]
         path, tracks, problem = import_playlist_file(PLAYLIST_LIBRARY, source, taken)
         if path is None:
@@ -1603,11 +1600,15 @@ class PlaylistViewMixin:
         ):
             self._toast("Connect an iPod before removing its playlists")
             return
+        spoken_cost = (
+            "" if self.speech_engine_available else f"{SPOKEN_NAMES_LOST} "
+        )
         if playlist is not None and on_device:
             body = (
                 f"{name}\n\n"
-                "The playlist is deleted here and removed from the iPod. The "
-                "songs it lists stay in your library and on the iPod."
+                "The playlist is deleted here and removed from the iPod. "
+                f"{spoken_cost}"
+                "The songs it lists stay in your library and on the iPod."
             )
         elif playlist is not None:
             body = (
@@ -1619,6 +1620,7 @@ class PlaylistViewMixin:
             body = (
                 f"{name}\n\n"
                 "Only the playlist is removed and the database is rebuilt. "
+                f"{spoken_cost}"
                 "The songs it lists stay on the iPod."
             )
         dialog = Adw.AlertDialog(heading="Delete this playlist?", body=body)

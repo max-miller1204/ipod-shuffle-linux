@@ -424,27 +424,6 @@ for playlist in listed:
 # -------------------------------------------------------------- the window
 
 
-class FakeSwitch:
-    def __init__(self):
-        self.active = False
-
-    def set_active(self, value):
-        self.active = value
-
-    def get_active(self):
-        return self.active
-
-
-class FakeChoice:
-    """Stands in for the Sync options playlist-grouping picker."""
-
-    def __init__(self, value=0):
-        self.value = value
-
-    def get_selected(self):
-        return self.value
-
-
 class Entry:
     def __init__(self, text):
         self.text = text
@@ -479,11 +458,6 @@ class FakeWindow:
         self.source_generation = 0
         self.speech_engine_available = speech
         self.playlist_unavailable = None if speech else "No speech engine installed"
-        self.playlist_voiceover = FakeSwitch()
-        self.track_voiceover = FakeSwitch()
-        self.playlist_mode = FakeChoice()
-        self.loaded_playlist_mode = 0
-        self.loaded_playlist_args = []
         self.view = "playlists"
         self.local_playlists = []
         self.playlists = []
@@ -609,7 +583,6 @@ class FakeWindow:
     _drop_unclaimed = gui.IpodWindow._drop_unclaimed
     _queue_playlists = gui.IpodWindow._queue_playlists
     _scan_queued_sources = gui.IpodWindow._scan_queued_sources
-    is_playlist_queued = gui.IpodWindow.is_playlist_queued
     _sync_options = gui.IpodWindow._sync_options
     _launch_pending_sync = gui.IpodWindow._launch_pending_sync
     _clear_pending = gui.IpodWindow._clear_pending
@@ -665,12 +638,10 @@ assert window.pending_sources == {
     str(PLAYLISTS / "Gym.m3u"): {str(PLAYLISTS / "Gym.m3u"), str(first)}
 }, window.pending_sources
 assert window.toasts[-1] == "1 track added to Gym · queued for sync", window.toasts
-# A playlist implies wanting its name read aloud, since a screenless device
-# has no other way to tell one from another - decided by the sync it is queued
-# for, so an edit does not rewrite the setting for every sync after it.
+# A playlist reaching the device needs its name read aloud, since a screenless
+# device has no other way to tell one from another.
 window._launch_pending_sync()
 assert "--playlist-voiceover" in window.commands[-1], window.commands[-1]
-assert not window.playlist_voiceover.active, "an edit rewrote a sync option"
 window.commands = []
 
 window._add_tracks_to_playlist("Gym", [track_for(first)])
@@ -1453,6 +1424,33 @@ assert swapped_rename.commands == [], swapped_rename.commands
 assert "changed" in swapped_rename.toasts[-1], swapped_rename.toasts
 gui.delete_local_playlist(PLAYLISTS / "Renamed.m3u")
 
+# The same rename on a machine with no speech engine, which is what the
+# confirmation warns about: the removal still runs, and nothing can be staged
+# to replace what it takes, so the playlist goes from the iPod and stays gone
+# until an engine is installed. A run where the new name was queued after all
+# would mean the dialog is warning about a loss that does not happen; one
+# where the removal did not run would mean it warns about a press that does
+# nothing.
+mute_renamer = FakeWindow(speech=False)
+mute_renamer.library_tracks([first])
+new_playlist(mute_renamer, "Mute")
+gui.write_playlist_entries(PLAYLISTS / "Mute.m3u", [str(first)])
+mute_renamer._load_local_playlists()
+mute_renamer.playlists = [("Mute", ["F00/AAAA.mp3"])]
+mute_renamer.current_playlist = "Mute"
+mute_renamer._on_rename_response(
+    None, "rename", "Mute", Entry("Muted"), "uuid:test-ipod"
+)
+assert (PLAYLISTS / "Muted.m3u").is_file(), "the rename wrote no file"
+assert "not queued" in mute_renamer.toasts[-1], mute_renamer.toasts
+assert not mute_renamer.is_queued(PLAYLISTS / "Muted.m3u"), (
+    mute_renamer.pending_sources
+)
+mute_removal = mute_renamer.commands[-1]
+assert mute_removal[0].endswith("ipod-remove.sh"), mute_removal
+assert mute_removal[-2:] == ["--", "Mute"], mute_removal
+gui.delete_local_playlist(PLAYLISTS / "Muted.m3u")
+
 # And neither unstages anything when the file did not budge. Being told a
 # rename or a delete failed, while the sync it was queued for has silently
 # stopped carrying it, leaves a playlist that is still there and a Sync that
@@ -1840,44 +1838,35 @@ assert send_window.is_queued(PLAYLISTS / "Later.m3u"), send_window.pending_sourc
 assert send_window.toasts[-1] == "Later · queued for sync", send_window.toasts
 
 # The spoken name is the only way to find a playlist again on a device with no
-# screen, so a queued playlist means spoken names on when Sync runs. Decided
-# in the sync it launches rather than by flipping the switch: a probe reads the
-# options back off the iPod and re-assigns it, and a probe follows every plug,
-# unplug and finished command - including the one that files a download into a
-# playlist.
-send_window.playlist_voiceover.set_active(False)
+# screen, so every sync asks for one. Nothing here decides it per run: the
+# rebuild and the device-playlist reorder are handed the same flags, so a
+# playlist that reached the iPod by any of the three is announceable.
 send_window._launch_pending_sync()
-assert "--playlist-voiceover" in send_window.commands[-1], (
-    "a probe setting the switch back left the playlist with no spoken name"
-)
-
-# Only that sync, though. The rebuild and the device-playlist reorder share
-# _sync_options, and what the sync is given is written back onto the iPod, so
-# putting it there would turn a setting the user switched off back on from a
-# run that copies no playlist at all.
-assert "--playlist-voiceover" not in send_window._sync_options(), (
+assert "--playlist-voiceover" in send_window.commands[-1], send_window.commands
+assert send_window._sync_options() == ["--voiceover", "--playlist-voiceover"], (
     send_window._sync_options()
 )
 
-# A queue of nothing but tracks leaves the switch the only say.
+# A queue of nothing but tracks is synced with the same flags. Track names are
+# spoken by the same mechanism, and there is nothing left to choose between.
 tracks_only = FakeWindow()
 tracks_only.pending_sources = {str(first): {str(first)}}
 tracks_only._launch_pending_sync()
-assert "--playlist-voiceover" not in tracks_only.commands[-1]
+assert "--playlist-voiceover" in tracks_only.commands[-1]
+assert "--voiceover" in tracks_only.commands[-1]
 
-# And with no speech engine there is nothing to speak the name with, so the
-# flag is not passed to a sync that could only fail on it.
+# A machine with no speech engine asks for the same names, and records none of
+# them. Either way that rebuild leaves the device unnamed, since the builder
+# empties the Speakable directories on every run. The flags go anyway because
+# they are also what overwrites the options saved on the iPod, so the next
+# rebuild from a computer that can speak records every name again; dropping
+# them would clear that file and take the way back with it.
 speechless = FakeWindow(speech=False)
 speechless.pending_sources = {str(PLAYLISTS / "Later.m3u"): {str(first)}}
 speechless._launch_pending_sync()
-assert "--playlist-voiceover" not in speechless.commands[-1]
-
-# The switch is still the user's to set, and a sync carries what it says.
-by_hand = FakeWindow()
-by_hand.playlist_voiceover.set_active(True)
-by_hand.pending_sources = {str(first): {str(first)}}
-by_hand._launch_pending_sync()
-assert "--playlist-voiceover" in by_hand.commands[-1]
+assert "--playlist-voiceover" in speechless.commands[-1], speechless.commands
+assert "--voiceover" in speechless.commands[-1], speechless.commands
+assert "--forget-options" not in speechless.commands[-1], speechless.commands
 
 # A download that fails after the window has moved on says so somewhere. Add
 # to a new playlist takes the user to the Playlists view while the download is

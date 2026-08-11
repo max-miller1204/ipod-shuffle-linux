@@ -54,9 +54,9 @@ class SearchViewMixin:
         anything.
 
         The placeholder names pasting because a field that only offers to
-        search reads as a field that only searches, and looking a pasted link
-        up here is the whole of what the Add from YouTube dialog was for. The
-        sentence naming both sources does not fit in a 26-character field and
+        search reads as a field that only searches, and this field is the only
+        thing in the window a pasted link goes into. The sentence naming both
+        sources does not fit in a 26-character field and
         a placeholder is clipped rather than ellipsised, so it goes in the
         tooltip - which is also what a screen reader reads out.
         """
@@ -264,8 +264,7 @@ class SearchViewMixin:
         playlist with three tracks in it. Capping the rows is right - an album
         link must not flood the section - but presenting what the cap left out
         as the whole thing is not, and Add all is what puts the rest back
-        within reach, at the moment the playlist is on screen rather than
-        behind a switch on a settings page.
+        within reach, at the moment the playlist is on screen.
         """
         self.search_playlist_row = Gtk.Box(spacing=12)
         self.search_playlist_row.add_css_class("sf-playlist-header")
@@ -726,8 +725,9 @@ class SearchViewMixin:
     def _download_playlist(self):
         """Fetch the whole list a pasted link named, not the rows shown.
 
-        The same download the link dialog's Whole playlist switch ran: without
-        --single, yt-dlp takes the list rather than the first video of it.
+        Without --single, yt-dlp takes the list rather than the first video of
+        it, which is the only way a pasted playlist arrives as more than the
+        track its link opens on.
         """
         playlist = self.search_playlist
         if playlist is None or not self._can_download():

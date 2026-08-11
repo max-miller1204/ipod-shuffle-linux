@@ -25,29 +25,6 @@ from pathlib import Path
 from harness import REPO, gui
 
 
-class Value:
-    def __init__(self, value):
-        self.value = value
-
-    def get_text(self):
-        return self.value
-
-    def get_active(self):
-        return self.value
-
-
-class FakeSwitch:
-    def __init__(self):
-        self.active = False
-        self.sensitive = True
-
-    def set_active(self, value):
-        self.active = value
-
-    def set_sensitive(self, value):
-        self.sensitive = value
-
-
 class FakeWidget:
     """Stands in for any widget _set_busy touches.
 
@@ -155,7 +132,6 @@ class FakeWindow:
         self.library = FakeLibrary()
         self.device_tracks = []
         self.speech_engine_available = True
-        self.playlist_voiceover = FakeSwitch()
         self.cache_figure = FakeWidget()
         self.cache_meter = FakeWidget()
         self.cache_clear = FakeWidget()
@@ -183,7 +159,7 @@ class FakeWindow:
         self.busy = busy
 
     def _sync_options(self):
-        return ["--dir-playlists=1", "--playlist-voiceover"]
+        return ["--voiceover", "--playlist-voiceover"]
 
     def _populate_device_summary(self):
         pass
@@ -206,7 +182,6 @@ class FakeWindow:
     _scan_pending_tracks = gui.IpodWindow._scan_pending_tracks
     _finish_pending_enrichment = gui.IpodWindow._finish_pending_enrichment
     _source_gone = staticmethod(gui.IpodWindow._source_gone)
-    is_playlist_queued = gui.IpodWindow.is_playlist_queued
     _commit_queue_sources = gui.IpodWindow._commit_queue_sources
     _queue_sources = gui.IpodWindow._queue_sources
     _queue_paths = gui.IpodWindow._queue_paths
@@ -807,17 +782,12 @@ assert "whole folder" in folder_window.toasts[-1], folder_window.toasts
 busy_window = FakeWindow()
 busy_window._busy_widgets = [FakeWidget() for _ in range(3)]
 for attr in (
-    "add_button",
-    "playlist_button",
-    "youtube_button",
     "sync_button",
     "new_playlist_button",
     "rebuild_button",
     "wipe_button",
     "eject_button",
     "sidebar_eject",
-    "playlist_mode",
-    "track_voiceover",
     "progress",
     "sync_revealer",
     "sync_spinner",
@@ -903,13 +873,11 @@ finally:
     gui.scan_tracks = original_scan_tracks
 
 gui.IpodWindow._set_busy(busy_window, False)
-# Making and importing a playlist writes a file in a folder of the user's own,
-# so neither waits for a speech engine - this window has none. What an engine
-# is needed for is putting a playlist on the device, which is refused when the
-# playlist is staged rather than when it is made.
-assert busy_window.playlist_button.sensitive, "importing needed a speech engine"
+# Making a playlist writes a file in a folder of the user's own, so it waits
+# for no speech engine - this window has none. What an engine is needed for is
+# putting a playlist on the device, which is refused when the playlist is
+# staged rather than when it is made.
 assert busy_window.new_playlist_button.sensitive, "New needed a speech engine"
-assert busy_window.youtube_button.sensitive, "busy reset left YouTube disabled"
 # Nothing is queued, so there is nothing for Sync to do.
 assert not busy_window.sync_button.sensitive, "Sync offered with an empty queue"
 assert all(w.sensitive for w in busy_window._busy_widgets), "widgets left disabled"
@@ -938,17 +906,12 @@ assert search_add.tooltip == busy_window.youtube_unavailable
 queued_window = FakeWindow()
 queued_window._busy_widgets = []
 for attr in (
-    "add_button",
-    "playlist_button",
-    "youtube_button",
     "sync_button",
     "new_playlist_button",
     "rebuild_button",
     "wipe_button",
     "eject_button",
     "sidebar_eject",
-    "playlist_mode",
-    "track_voiceover",
     "progress",
     "sync_revealer",
     "sync_spinner",
@@ -1059,25 +1022,17 @@ for rejected in ("", "youtube.com/watch?v=abc", "not a link", "file:///etc/passw
 
 window = FakeWindow()
 url = "https://www.youtube.com/watch?v=abc&list=PL123"
-gui.IpodWindow._on_youtube_response(
-    window, None, "download", Value(url), Value(False)
+fetch = gui.IpodWindow._start_youtube_download(
+    window, url, single=True, busy_message="Downloading from YouTube"
 )
 
-fetch = window.commands[0]
+assert fetch is window.commands[0], window.commands
 assert fetch[0].endswith("ipod-fetch.sh"), fetch
 assert fetch[-1] == url, fetch
-# Off means the linked video only. Without it a link that carries a list=
+# single means the linked video only. Without it a link that carries a list=
 # parameter quietly downloads someone's 200-track playlist.
 assert "--single" in fetch, fetch
 new_tracks = Path(fetch[fetch.index("--new-tracks") + 1])
-
-# A refused link must not start a download at all.
-rejected_window = FakeWindow()
-gui.IpodWindow._on_youtube_response(
-    rejected_window, None, "download", Value("not a link"), Value(False)
-)
-assert rejected_window.commands == [], rejected_window.commands
-assert rejected_window.toasts, "a rejected link said nothing"
 
 # What the download reported is exactly what gets queued. Anything else in the
 # library, downloaded on an earlier day, stays where it is.
@@ -1659,8 +1614,8 @@ assert gui.local_search_matches(search_library, "races")[0].state == gui.STATE_I
 assert gui.local_search_matches(search_library, "   ") == []
 assert gui.local_search_matches(search_library, "queen rain") == []
 
-# Adding a result runs the same download the dialog does, and refuses in every
-# case where it could not finish.
+# Adding a result runs the same download every other Add does, and refuses in
+# every case where it could not finish.
 result_window = FakeWindow()
 found_result = gui.SearchResult(
     title="Bohemian Rhapsody",
@@ -1697,9 +1652,8 @@ for attribute, value, why in (
     assert refusing.commands == [], why
 
 # Add all is the other download the section offers, and the one thing that
-# keeps a pasted playlist from being three tracks of itself. It is the dialog's
-# Whole playlist switch by another name: no --single, so yt-dlp takes the list
-# rather than the first video of it.
+# keeps a pasted playlist from being three tracks of itself: no --single, so
+# yt-dlp takes the list rather than the first video of it.
 playlist_window = FakeWindow()
 playlist_window._set_search_note = lambda _text: None
 playlist_window.search_playlist = gui.LinkedPlaylist(
@@ -1970,7 +1924,7 @@ class OfferWindow:
         self._offered_links = set()
 
 
-# What was pre-filled into the link dialog is offered under the field instead,
+# A link on the clipboard is offered under the field rather than put into it,
 # and offering is the whole of it: a clipboard that happens to hold a link must
 # never silently change what the next search is about.
 offering = OfferWindow()
@@ -2443,7 +2397,6 @@ def blocking_count(_mount_point, cancelled=None):
 
 original_find_ipods = gui.find_ipods
 original_volume_identity = gui.volume_identity
-original_saved_sync_options = gui.saved_sync_options
 original_list_playlists = gui.list_playlists
 original_spoken_playlists = gui.spoken_playlists
 original_count_tracks = gui.count_tracks
@@ -2452,7 +2405,6 @@ original_popen = gui.subprocess.Popen
 original_idle_add = gui.GLib.idle_add
 gui.find_ipods = lambda: [serialized_run.mount_point]
 gui.volume_identity = lambda _mount: serialized_run.device_identity
-gui.saved_sync_options = lambda _mount: (0, [], False, False)
 gui.list_playlists = lambda _mount: []
 gui.spoken_playlists = lambda _mount, _names: set()
 gui.count_tracks = blocking_count
@@ -2503,7 +2455,6 @@ finally:
     probe_thread.join(5)
     gui.find_ipods = original_find_ipods
     gui.volume_identity = original_volume_identity
-    gui.saved_sync_options = original_saved_sync_options
     gui.list_playlists = original_list_playlists
     gui.spoken_playlists = original_spoken_playlists
     gui.count_tracks = original_count_tracks

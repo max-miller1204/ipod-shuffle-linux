@@ -3,7 +3,7 @@
 Owns the Device & Settings page, the probe that reads the device on a worker
 thread and the summaries it paints - connected, absent, still looking - the
 sidebar's device card, the walk that reads the device's own tags with
-`tag_generation` guarding it, and the sync options saved on the device.
+`tag_generation` guarding it, and the flags every sync is run with.
 
 Borrows from the window: `busy` to know when a script is changing the device,
 the pending queue for the figures it shows, and `_toast`,
@@ -16,7 +16,7 @@ and asks each whether it is currently allowed to run.
 import threading
 from pathlib import Path
 
-from gi.repository import Adw, GLib, Gtk, Pango
+from gi.repository import GLib, Gtk, Pango
 
 from .config import STATE_IPOD, save_music_roots
 from .text import home_relative, human_size, plural
@@ -106,6 +106,13 @@ class DeviceViewMixin:
         # are: those go into _busy_widgets whole, because their rows carry
         # buttons. Every control on this page is in that list by name already.
         box.append(self._build_device_summary())
+        # Built only when there is nothing to speak names with. Every sync asks
+        # for spoken track and playlist names, so an engine that is installed
+        # is the ordinary case and needs no line of its own. Read once here
+        # rather than repainted, because window.py works the answer out at
+        # startup and nothing this window does can change it.
+        if not self.speech_engine_available:
+            box.append(self._build_speech_warning())
         columns = Gtk.Box(spacing=16, homogeneous=True)
         left = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=16, hexpand=True
@@ -117,9 +124,8 @@ class DeviceViewMixin:
         columns.append(right)
         box.append(columns)
 
-        left.append(self._build_sync_options())
-        right.append(self._build_folders_card())
-        right.append(self._build_cache_card())
+        left.append(self._build_folders_card())
+        left.append(self._build_cache_card())
         right.append(self._build_destructive_card())
         return scroller
 
@@ -207,115 +213,39 @@ class DeviceViewMixin:
         wrapper.append(self.device_banner)
         return wrapper
 
-    def _build_sync_options(self):
-        card, body = self._card(
-            "Sync options", "· applied on every sync and rebuild"
+    def _build_speech_warning(self):
+        """What a machine with no speech engine costs the iPod, whatever is pressed.
+
+        Its own card rather than a note beside a control, because there is no
+        control to sit beside: the flags a sync is run with are fixed, so this
+        is a statement about the machine rather than about a choice made here.
+        Stated as the condition rather than as the list of actions that meet
+        it, so an action nobody has written yet is not read as exempt.
+        """
+        warn = Gtk.Box(spacing=9)
+        warn.add_css_class("sf-warn-card")
+        icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+        icon.set_margin_start(11)
+        icon.set_margin_top(11)
+        icon.set_valign(Gtk.Align.START)
+        warn.append(icon)
+        text = label(
+            "No speech engine installed, so this computer cannot record the "
+            "names every sync asks for. Anything it does that rebuilds the "
+            "iPod's database drops every spoken name already on the device, "
+            "including ones another computer recorded, and cannot put them "
+            "back. Install pico2wave, espeak or say first: the device has no "
+            "screen, so a name it cannot read out is no name at all, and "
+            "playlists stay on this computer until one is there.",
+            "sf-caption",
+            wrap=True,
+            hexpand=True,
         )
-        listbox = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        listbox.add_css_class("boxed-list")
-
-        # Playlist names are stored only as spoken audio, never as text, since
-        # the device has no screen. Choosing a grouping therefore implies
-        # wanting the names read aloud, so that switch follows along.
-        self.playlist_mode = Adw.ComboRow(
-            title="Playlist grouping",
-            subtitle="How tracks are grouped into playlists when syncing",
-            model=Gtk.StringList.new(
-                ["None", "One per folder", "By artist", "By genre"]
-            ),
-        )
-        self.playlist_mode.connect("notify::selected", self._on_playlist_mode_changed)
-        listbox.append(self.playlist_mode)
-
-        self.track_voiceover = Adw.SwitchRow(
-            title="Speak track names",
-            subtitle="Announced when you press the VoiceOver button",
-        )
-        listbox.append(self.track_voiceover)
-
-        self.playlist_voiceover = Adw.SwitchRow(
-            title="Speak playlist names",
-            subtitle="Without this, playlists cannot be told apart on a "
-            "screenless device",
-        )
-        listbox.append(self.playlist_voiceover)
-
-        for row in (self.track_voiceover, self.playlist_voiceover):
-            row.connect("notify::active", self._on_voiceover_changed)
-
-        if not self.speech_engine_available:
-            for row in (self.track_voiceover, self.playlist_voiceover):
-                row.set_sensitive(False)
-
-        listbox.set_margin_start(14)
-        listbox.set_margin_end(14)
-        listbox.set_margin_top(10)
-        listbox.set_margin_bottom(12)
-        body.append(listbox)
-
-        if not self.speech_engine_available:
-            warn = Gtk.Box(spacing=9)
-            warn.add_css_class("sf-warn-card")
-            warn.set_margin_start(14)
-            warn.set_margin_end(14)
-            warn.set_margin_bottom(12)
-            icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
-            icon.set_margin_start(11)
-            icon.set_margin_top(11)
-            icon.set_valign(Gtk.Align.START)
-            warn.append(icon)
-            text = label(
-                "No speech engine installed, so spoken names cannot be "
-                "generated. Install pico2wave, espeak or say to enable the "
-                "two switches above.",
-                "sf-caption",
-                wrap=True,
-                hexpand=True,
-            )
-            text.set_margin_end(11)
-            text.set_margin_top(11)
-            text.set_margin_bottom(11)
-            warn.append(text)
-            body.append(warn)
-
-        # A plain row of three buttons sets a minimum width the whole window
-        # then has to honour, so they wrap instead.
-        actions = Gtk.FlowBox(
-            selection_mode=Gtk.SelectionMode.NONE,
-            max_children_per_line=3,
-            min_children_per_line=1,
-            column_spacing=8,
-            row_spacing=8,
-        )
-        actions.add_css_class("sf-flow")
-        actions.set_margin_start(14)
-        actions.set_margin_end(14)
-        actions.set_margin_bottom(14)
-        self.add_button = Gtk.Button(label="Add music folder…")
-        self.add_button.add_css_class("sf-button")
-        self.add_button.connect("clicked", self.on_add_music)
-        actions.append(self.add_button)
-
-        self.playlist_button = Gtk.Button(label="Import playlist file…")
-        self.playlist_button.add_css_class("sf-button")
-        self.playlist_button.set_tooltip_text(
-            "Adopt an M3U or PLS another program wrote. Making one needs "
-            "nothing but a name: use ＋ New under Playlists."
-        )
-        self.playlist_button.connect("clicked", self.on_import_playlist)
-        actions.append(self.playlist_button)
-
-        self.youtube_button = Gtk.Button(label="Add from YouTube…")
-        self.youtube_button.add_css_class("sf-button")
-        self.youtube_button.connect("clicked", self.on_add_youtube)
-        # Better to say why than to let the user paste a link and watch the
-        # download fail several steps later for a reason the log explains only
-        # to someone who already knows what to look for.
-        if self.youtube_unavailable:
-            self.youtube_button.set_tooltip_text(self.youtube_unavailable)
-        actions.append(self.youtube_button)
-        body.append(actions)
-        return card
+        text.set_margin_end(11)
+        text.set_margin_top(11)
+        text.set_margin_bottom(11)
+        warn.append(text)
+        return warn
 
     def _build_folders_card(self):
         card, body = self._card("Music folders", "· searched for local results")
@@ -464,7 +394,6 @@ class DeviceViewMixin:
 
         self._select_mount(probe.mount_point, probe.identity)
         self.stack.set_visible_child_name("device")
-        self._load_sync_options(probe.sync_options)
         self.playlists = probe.playlists
         self.spoken = probe.spoken
         self.device_track_count = probe.track_count
@@ -663,15 +592,6 @@ class DeviceViewMixin:
             and self.device_identity is not None
             and not self.discovering_sources
         )
-        self.add_button.set_sensitive(queue_enabled)
-        # Making and importing a playlist writes a file in a folder of your
-        # own, so neither waits for an iPod or for a speech engine. What those
-        # are needed for is putting one on the device, which the playlist's own
-        # page says in place of disabling the way you make it.
-        self.playlist_button.set_sensitive(not self.busy)
-        self.youtube_button.set_sensitive(
-            queue_enabled and not self.youtube_unavailable
-        )
         # Collected as they are built rather than repainted from here: a
         # repaint would discard the skeleton mid-search, and a device
         # appearing while YouTube is still answering is exactly when that
@@ -680,16 +600,15 @@ class DeviceViewMixin:
         for button in self.search_add_buttons:
             button.set_sensitive(downloadable)
             button.set_tooltip_text(self._youtube_download_tooltip())
+        # Making a playlist writes a file in a folder of your own, so it waits
+        # for neither an iPod nor a speech engine. What those are needed for is
+        # putting one on the device, which the playlist's own page says in
+        # place of disabling the way you make it.
         self.new_playlist_button.set_sensitive(not self.busy)
         self.rebuild_button.set_sensitive(enabled)
         self.wipe_button.set_sensitive(enabled)
         self.eject_button.set_sensitive(enabled)
         self.sidebar_eject.set_sensitive(enabled)
-        self.playlist_mode.set_sensitive(enabled)
-        self.track_voiceover.set_sensitive(enabled and self.speech_engine_available)
-        self.playlist_voiceover.set_sensitive(
-            enabled and self.speech_engine_available
-        )
         accounting_ready = (
             not self._device_scan_active or self._device_snapshot_ready
         )
@@ -900,49 +819,6 @@ class DeviceViewMixin:
             row.append(remove)
             self.folder_list.append(row)
 
-    # ----------------------------------------------------- options plumbing
-
-    def _on_playlist_mode_changed(self, *_args):
-        if self.loading_options:
-            return
-        if self.playlist_mode.get_selected() != 0 and self.speech_engine_available:
-            self.playlist_voiceover.set_active(True)
-
-    def _on_voiceover_changed(self, row, *_args):
-        if not self.speech_engine_available:
-            row.set_sensitive(row.get_active())
-
-    def _load_sync_options(self, options):
-        """Show the options the probe read back off the device."""
-        mode, playlist_args, track_voiceover, playlist_voiceover = options
-        self.loading_options = True
-        try:
-            self.playlist_mode.set_selected(mode)
-            self.track_voiceover.set_active(track_voiceover)
-            self.playlist_voiceover.set_active(playlist_voiceover)
-        finally:
-            self.loading_options = False
-        self.loaded_playlist_mode = mode
-        self.loaded_playlist_args = playlist_args
-
-    def _sync_options(self):
-        """Flags for the selected playlist and voiceover options."""
-        args = []
-        mode = self.playlist_mode.get_selected()
-        if mode == self.loaded_playlist_mode and self.loaded_playlist_args:
-            args.extend(self.loaded_playlist_args)
-        elif mode == 1:
-            args.append("--dir-playlists")
-        elif mode == 2:
-            args.append("--id3-playlists={artist}")
-        elif mode == 3:
-            args.append("--id3-playlists={genre}")
-        if self.track_voiceover.get_active():
-            args.append("--voiceover")
-        if self.playlist_voiceover.get_active():
-            args.append("--playlist-voiceover")
-        return args or ["--forget-options"]
-
     def on_add_folder(self, _button):
         dialog = Gtk.FileDialog(title="Add a folder to search")
 
@@ -970,3 +846,37 @@ class DeviceViewMixin:
         self.library.roots = [r for r in self.library.roots if r != root]
         save_music_roots(self.library.roots)
         self._rescan_library()
+
+    # -------------------------------------------------------- the sync flags
+
+    def _sync_options(self):
+        """The flags handed to every ipod-sync.sh run this window starts.
+
+        Fixed rather than chosen, and the same on every machine. The device
+        stores a name only as spoken audio, so a name it cannot say is no name
+        at all and both voiceovers are always worth their space; and with no
+        automatic grouping, the playlists on the device are the ones that were
+        put there rather than ones a sync invented out of folder or tag names.
+
+        Asked for even where nothing can record them. A missing speech engine
+        makes the builder write no recordings rather than fail, and a rebuild
+        run from such a machine leaves the device with none at all: the builder
+        empties iPod_Control/Speakable/Tracks and Playlists at the start of
+        every run and only refills what it can speak, so the names an
+        engine-equipped computer recorded do not survive a rebuild from one
+        that cannot - whichever action reached the builder, here or through
+        ipod-remove.sh. Nothing here can prevent that, which is what the
+        warning on the Device & Settings page is for. What asking anyway does
+        buy is the way back: the flags are also what is written into the
+        options saved on the iPod, so the next rebuild from a machine that can
+        speak records every name again. A run that named none of them would
+        clear that file too, and leave the device mute with nothing recording
+        the intent to fix it.
+
+        Passing them explicitly is also what retires a grouping an earlier
+        version was told to use: ipod-sync.sh replays iPod_Control/.sync-options
+        only when it is given no flags of its own, and writes what it was given
+        back over that file, so a device still carrying --auto-dir-playlists
+        stops grouping on its next sync without a migration to go and find it.
+        """
+        return ["--voiceover", "--playlist-voiceover"]

@@ -61,9 +61,9 @@ SHARED_STATE = {
     ),
     "player": ("playback_view", "search_view"),
     # What the machine cannot do, worked out once at startup.
-    "youtube_unavailable": ("device_view", "playback_view", "search_view"),
+    "youtube_unavailable": ("playback_view", "search_view"),
     "preview_unavailable": ("playback_view", "search_view"),
-    "speech_engine_available": ("device_view", "playlist_view", "queue"),
+    "speech_engine_available": ("commands", "device_view", "playlist_view"),
     # The queue, held by queue.py and shown by the device summary.
     "pending": ("device_view", "queue"),
     "pending_device_identity": ("device_view", "queue"),

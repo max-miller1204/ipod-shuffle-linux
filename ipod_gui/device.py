@@ -102,43 +102,6 @@ def find_ipods():
     return candidates
 
 
-def saved_sync_options(mount_point):
-    """Return the GUI state and equivalent CLI playlist arguments."""
-    options_file = Path(mount_point, "iPod_Control", ".sync-options")
-    try:
-        options = options_file.read_text().splitlines()
-    except OSError:
-        options = []
-
-    mode = 0
-    playlist_args = []
-    track_voiceover = False
-    playlist_voiceover = False
-    index = 0
-    while index < len(options):
-        option = options[index]
-        if option == "--auto-dir-playlists" and index + 1 < len(options):
-            value = options[index + 1]
-            playlist_args.append(f"--dir-playlists={value}")
-            mode = 1
-            index += 2
-        elif option == "--auto-id3-playlists" and index + 1 < len(options):
-            value = options[index + 1]
-            playlist_args.append(f"--id3-playlists={value}")
-            mode = 3 if value == "{genre}" else 2
-            index += 2
-        elif option == "--track-voiceover":
-            track_voiceover = True
-            index += 1
-        elif option == "--playlist-voiceover":
-            playlist_voiceover = True
-            index += 1
-        else:
-            index += 1
-
-    return mode, playlist_args, track_voiceover, playlist_voiceover
-
-
 def device_for(mount_point):
     """Block device backing a mount point, e.g. /dev/sda."""
     try:
@@ -446,7 +409,6 @@ class DeviceProbe:
         "candidates",
         "mount_point",
         "identity",
-        "sync_options",
         "playlists",
         "spoken",
         "track_count",
@@ -459,7 +421,6 @@ class DeviceProbe:
         candidates,
         mount_point=None,
         identity=None,
-        sync_options=None,
         playlists=None,
         spoken=None,
         track_count=0,
@@ -472,7 +433,6 @@ class DeviceProbe:
         # mistaken for one holding nothing.
         self.mount_point = mount_point
         self.identity = identity
-        self.sync_options = sync_options or (0, [], False, False)
         self.playlists = playlists or []
         self.spoken = spoken or set()
         self.track_count = track_count
@@ -485,8 +445,8 @@ class DeviceProbe:
 def probe_device(cancelled=None):
     """Read everything the window needs from the device, off the main loop.
 
-    Detection, identity, saved options, playlists, the track count and free
-    space in one pass. Every one of them is a subprocess or a walk over USB,
+    Detection, identity, playlists, the track count and free space in one
+    pass. Every one of them is a subprocess or a walk over USB,
     and a 2GB device full of small files makes the count alone slow enough to
     stall a redraw, so none of this may run where the window draws.
     """
@@ -508,9 +468,6 @@ def _probe_device(cancelled=None):
     mount_point = candidates[0]
     try:
         identity = volume_identity(mount_point)
-        if cancelled is not None and cancelled():
-            return DeviceProbe(candidates)
-        sync_options = saved_sync_options(mount_point)
         if cancelled is not None and cancelled():
             return DeviceProbe(candidates)
         playlists = list_playlists(mount_point)
@@ -547,7 +504,6 @@ def _probe_device(cancelled=None):
         candidates,
         mount_point=mount_point,
         identity=identity,
-        sync_options=sync_options,
         playlists=playlists,
         spoken=spoken,
         track_count=track_count,

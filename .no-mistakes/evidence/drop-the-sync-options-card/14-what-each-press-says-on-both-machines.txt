@@ -1,0 +1,75 @@
+Every sentence a press can put on screen about a missing speech engine, read
+off the window that drew it.
+
+The same demo device, opened twice: once on this machine, which has pico2wave,
+and once with a PATH those engines were taken out of. Nothing is stubbed - the
+app asks the PATH it is given, so the two runs are two machines. Each dialog
+was reached by pressing what a user presses: the sidebar's footer button, a
+playlist on the rail, the ⋯ on its page, the Remove on a track row.
+
+The pair is the point: the same four presses, on two machines. On one they say
+what they do; on the other each of them also says what the rebuild behind it
+costs, and the Device & Settings page carries the warning card as well.
+
+driver-speech-wording.py, beside this file, is what produced all of it.
+
+
+#################### a machine that can speak ####################
+
+== this machine has speech engine ==
+has_speech_engine() answered: True
+the flags every sync is run with: ['--voiceover', '--playlist-voiceover']
+iPod the app found for itself: /tmp/shot-demo/MAX SHUFFLE
+playlists it read off the device: ['morning ride']
+
+== Device & Settings, pressed in the sidebar ==
+cards on the page: ['108.3 GB', '325.7 GB', 'Music folders', 'Preview cache', 'Destructive', 'Rebuild database', 'Wipe iPod', 'Eject']
+buttons on the page: ['', 'Clear', 'Nothing queued', 'Rebuild', 'Wipe…', '⏏ Eject', '＋ Add folder…']
+screenshot: 02-after-device-settings.png (the same page, taken earlier)
+
+== Rename, pressed on a playlist that is on the iPod ==
+heading: 'Rename playlist'
+body: 'The name is what the iPod says out loud, so renaming a playlist that is already on the device removes the old one and stages the new name for the next sync.'
+screenshot: 11-rename-on-the-ipod-with-a-speech-engine.png
+
+== Delete, pressed on a playlist that is on the iPod ==
+heading: 'Delete this playlist?'
+body: 'Morning Ride\n\nThe playlist is deleted here and removed from the iPod. The songs it lists stay in your library and on the iPod.'
+screenshot: 15-delete-a-playlist-on-the-ipod-with-a-speech-engine.png
+
+== Remove, pressed on a track that is on the device ==
+heading: 'Remove this track?'
+body: 'Low Sun\n\nIt is deleted from the iPod and the database is rebuilt. Any copy in your own music folder is left alone.'
+screenshot: 16-remove-a-track-with-a-speech-engine.png
+
+#################### a machine with no speech engine ####################
+
+== this machine has no speech engine ==
+has_speech_engine() answered: False
+the flags every sync is run with: ['--voiceover', '--playlist-voiceover']
+iPod the app found for itself: /tmp/shot-demo-nospeech/MAX SHUFFLE
+playlists it read off the device: ['morning ride']
+
+== Device & Settings, pressed in the sidebar ==
+cards on the page: ['108.3 GB', '325.7 GB', 'Music folders', 'Preview cache', 'Destructive', 'Rebuild database', 'Wipe iPod', 'Eject']
+buttons on the page: ['', 'Clear', 'Nothing queued', 'Rebuild', 'Wipe…', '⏏ Eject', '＋ Add folder…']
+screenshot: 03-after-no-speech-engine.png
+
+== the warning card, on its own ==
+it reads: "No speech engine installed, so this computer cannot record the names every sync asks for. Anything it does that rebuilds the iPod's database drops every spoken name already on the device, including ones another computer recorded, and cannot put them back. Install pico2wave, espeak or say first: the device has no screen, so a name it cannot read out is no name at all, and playlists stay on this computer until one is there."
+screenshot: 09-the-corrected-warning-card.png
+
+== Rename, pressed on a playlist that is on the iPod ==
+heading: 'Rename playlist'
+body: "The name is what the iPod says out loud, so renaming a playlist that is already on the device removes the old one. With no speech engine installed, the rebuild that removal runs leaves the iPod's spoken names gone. The new name cannot be staged until one is installed, so the playlist leaves the iPod and does not come back."
+screenshot: 10-rename-on-the-ipod-no-speech-engine.png
+
+== Delete, pressed on a playlist that is on the iPod ==
+heading: 'Delete this playlist?'
+body: "Morning Ride\n\nThe playlist is deleted here and removed from the iPod. With no speech engine installed, the rebuild that removal runs leaves the iPod's spoken names gone. The songs it lists stay in your library and on the iPod."
+screenshot: 12-delete-a-playlist-on-the-ipod-no-speech-engine.png
+
+== Remove, pressed on a track that is on the device ==
+heading: 'Remove this track?'
+body: "Low Sun\n\nIt is deleted from the iPod and the database is rebuilt. With no speech engine installed, the rebuild that removal runs leaves the iPod's spoken names gone. Any copy in your own music folder is left alone."
+screenshot: 13-remove-a-track-no-speech-engine.png

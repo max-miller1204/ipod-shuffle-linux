@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""Focused checks for GUI playlist state and command-line mapping.
+"""Focused checks for the device probe and the flags a sync is run with.
 
-Also checks the single pass the window reads a connected device with. Every
+The probe is the single pass the window reads a connected device with. Every
 call it folds together used to run on the main loop, one at a time, so the
 value it returns has to agree with each of them exactly: a probe that quietly
 disagreed would paint a device that is not the one plugged in.
+
+The flags are the other half, and they are no longer a reading of anything.
+The device this runs against was last synced with a grouping the window has
+since stopped offering, so what it is handed now is what retires that choice.
 """
 
 import json
@@ -14,23 +18,11 @@ from pathlib import Path
 from harness import gui
 
 
-class Value:
-    def __init__(self, value):
-        self.value = value
-
-    def get_selected(self):
-        return self.value
-
-    def get_active(self):
-        return self.value
-
-
 class FakeWindow:
-    loaded_playlist_mode = 0
-    loaded_playlist_args = []
-    playlist_mode = Value(3)
-    track_voiceover = Value(True)
-    playlist_voiceover = Value(True)
+    """A window on a machine that can speak names, and one that cannot."""
+
+    def __init__(self, speech=True):
+        self.speech_engine_available = speech
 
 
 class ProbeWindow:
@@ -46,7 +38,6 @@ class ProbeWindow:
         self.device_usage = None
         self.playlists = []
         self.spoken = set()
-        self.loaded_options = None
         self.painted = []
         self.stack = self
 
@@ -56,9 +47,6 @@ class ProbeWindow:
     def _select_mount(self, mount_point, identity):
         self.mount_point = mount_point
         self.device_identity = identity
-
-    def _load_sync_options(self, options):
-        self.loaded_options = options
 
     def _populate_device_summary(self):
         self.painted.append("summary")
@@ -71,15 +59,11 @@ class ProbeWindow:
 
 
 mount_point = Path(sys.argv[1])
-state = gui.saved_sync_options(mount_point)
-assert state == (
-    3,
-    ["--id3-playlists={genre}"],
-    True,
-    True,
-), state
+saved_options = (
+    (mount_point / "iPod_Control" / ".sync-options").read_text().splitlines()
+)
 
-# One crossing to the device has to bring back exactly what the six separate
+# One crossing to the device has to bring back exactly what the five separate
 # calls did, so each is still run here and compared against the probe's copy.
 original_find_ipods = gui.find_ipods
 gui.find_ipods = lambda: [str(mount_point)]
@@ -91,7 +75,6 @@ finally:
 assert probe.readable is True, probe.readable
 assert probe.mount_point == str(mount_point), probe.mount_point
 assert probe.identity == gui.volume_identity(str(mount_point)), probe.identity
-assert probe.sync_options == state, probe.sync_options
 assert probe.playlists == gui.list_playlists(mount_point), probe.playlists
 assert probe.spoken == gui.spoken_playlists(
     mount_point, [name for name, _entries in probe.playlists]
@@ -115,7 +98,6 @@ probe_window = ProbeWindow()
 gui.IpodWindow._apply_probe(probe_window, probe_window.probe_generation, probe)
 assert probe_window.mount_point == str(mount_point), probe_window.mount_point
 assert probe_window.device_identity == probe.identity, probe_window.device_identity
-assert probe_window.loaded_options == state, probe_window.loaded_options
 assert probe_window.playlists == probe.playlists, probe_window.playlists
 assert probe_window.spoken == probe.spoken, probe_window.spoken
 assert probe_window.device_track_count == probe.track_count, (
@@ -127,22 +109,32 @@ assert probe_window.painted == ["device", "summary", "rail", "tags"], (
     probe_window.painted
 )
 
+# Fixed flags, not a reading of the device. This iPod was last synced with a
+# genre grouping, and the sync the GUI launches has to overwrite that rather
+# than inherit it: nothing in the window offers a grouping any more, so a
+# device still asking for one would keep generating playlists nobody chose.
+assert "--auto-id3-playlists" in saved_options, saved_options
 command_options = gui.IpodWindow._sync_options(FakeWindow())
-assert command_options == [
-    "--id3-playlists={genre}",
-    "--voiceover",
-    "--playlist-voiceover",
-], command_options
+assert command_options == ["--voiceover", "--playlist-voiceover"], command_options
+
+# The same flags on a machine with no speech engine, which records none of
+# them. Such a run leaves the device unnamed either way, because the builder
+# empties the Speakable directories every time and only refills what it can
+# speak. What the flags buy is the way back: they are saved to the device, so
+# the next rebuild from a machine that can speak records every name again.
+# Asking for less would clear that file instead, and leave the grouping above
+# for the next bare rebuild to replay.
+speechless_options = gui.IpodWindow._sync_options(FakeWindow(speech=False))
+assert speechless_options == ["--voiceover", "--playlist-voiceover"], (
+    speechless_options
+)
 
 print(
     json.dumps(
         {
-            "restored_gui_state": {
-                "playlist_mode": "By genre",
-                "speak_tracks": state[2],
-                "speak_playlists": state[3],
-            },
+            "saved_on_device": saved_options,
             "sync_script_arguments": command_options,
+            "sync_script_arguments_without_speech": speechless_options,
             "device_probe": {
                 "mount_point": probe.mount_point,
                 "readable": probe.readable,

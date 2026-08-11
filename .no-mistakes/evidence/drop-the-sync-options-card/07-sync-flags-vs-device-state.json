@@ -1,0 +1,24 @@
+{
+  "saved_on_device": [
+    "--auto-id3-playlists",
+    "{genre}",
+    "--track-voiceover",
+    "--playlist-voiceover"
+  ],
+  "sync_script_arguments": [
+    "--voiceover",
+    "--playlist-voiceover"
+  ],
+  "sync_script_arguments_without_speech": [
+    "--voiceover",
+    "--playlist-voiceover"
+  ],
+  "device_probe": {
+    "mount_point": "/tmp/state-smoke-run/Alex's iPod",
+    "readable": true,
+    "tracks": 1,
+    "playlists": [],
+    "spoken": [],
+    "free_bytes": 350782275584
+  }
+}

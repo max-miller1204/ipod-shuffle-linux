@@ -9,10 +9,9 @@ folder it wrote into.
 
 Borrows from the window: `mount_point` and `device_identity`, which the queue
 is only ever valid against, `library` for tracks it already knows,
-`speech_engine_available` and `_sync_options` to say what the sync it launches
-is asked for, and `_run`, `_set_busy`, `_toast`, `_merge_states`,
-`_populate_device_summary`, `_update_device_controls` and
-`_refresh_current_view`.
+`_sync_options` to say what the sync it launches is asked for, and `_run`,
+`_set_busy`, `_toast`, `_merge_states`, `_populate_device_summary`,
+`_update_device_controls` and `_refresh_current_view`.
 """
 
 import os
@@ -20,7 +19,7 @@ import tempfile
 import threading
 from pathlib import Path
 
-from gi.repository import Adw, Gdk, GLib, Gtk
+from gi.repository import GLib
 
 from .config import (
     AUDIO_EXTENSIONS,
@@ -29,9 +28,9 @@ from .config import (
     SYNC_SCRIPT,
     YOUTUBE_LIBRARY,
 )
-from .text import home_relative, plural
+from .text import plural
 from .tags import scan_tracks, walk_following_links
-from .youtube import fetch_command, fetched_sources, is_downloadable_url
+from .youtube import fetch_command, fetched_sources
 from .model import Track, local_playlist_tracks, read_local_playlist_tracks
 
 
@@ -84,19 +83,6 @@ class QueueMixin:
 
     def _pending_copy_tracks(self):
         return self._pending_accounting()[0]
-
-    def is_playlist_queued(self):
-        """Whether what is staged includes a playlist file.
-
-        Asked at the moment the sync is launched rather than remembered in a
-        switch: a device probe re-reads the options saved on the iPod and
-        re-assigns that switch, so a decision left there does not survive the
-        next refresh, which is every plug, unplug and finished command.
-        """
-        return any(
-            Path(source).suffix.lower() in PLAYLIST_EXTENSIONS
-            for source in self.pending_sources
-        )
 
     @staticmethod
     def _source_gone(source):
@@ -579,26 +565,15 @@ class QueueMixin:
         paths = sorted(self.pending_sources)
         copy_tracks, changes, _queued_bytes = self._pending_accounting()
         self.sync_total = len(copy_tracks)
-        options = self._sync_options()
-        # A playlist reaching the device implies wanting its name read aloud:
-        # on a player with no screen that name is the only way to find it
-        # again. Added to this run rather than to _sync_options, which the
-        # rebuild and the device-playlist reorder share: the sync saves what
-        # it was given back onto the iPod, so putting it there would turn a
-        # setting the user had switched off back on from a run that copies no
-        # playlist at all.
-        if (
-            self.speech_engine_available
-            and self.is_playlist_queued()
-            and "--playlist-voiceover" not in options
-        ):
-            options.append("--playlist-voiceover")
         self._run(
             [
                 str(SYNC_SCRIPT),
                 "--ipod",
                 self.mount_point,
-                *options,
+                # Spoken names among them, which is what makes a playlist
+                # findable on a device with no screen. Fixed for every run, so
+                # a sync that carries a playlist needs nothing added here.
+                *self._sync_options(),
                 # A track title can start with a dash, and the shell script
                 # would read that as a flag rather than a path.
                 "--",
@@ -615,8 +590,8 @@ class QueueMixin:
         The merge re-derives everything the queue leaves behind rather than
         this rebuilding it: the index the accounting reads, the state on every
         track that had been staged, and the tracks that were in the window only
-        because they were queued - a folder chosen with "Add music folder…" is
-        never a music root, so its songs leave with the queue that named them.
+        because they were queued - a download that landed outside the music
+        roots is named by nothing but the queue, so its songs leave with it.
         Written out here instead, that would be the merge's rule kept in two
         places, and this one would be the copy that goes stale.
         """
@@ -629,23 +604,12 @@ class QueueMixin:
 
     # ---------------------------------------------------------- new sources
 
-    def on_add_music(self, _button):
-        dialog = Gtk.FileDialog(title="Choose a music folder")
-
-        def chosen(dlg, result):
-            try:
-                folder = dlg.select_folder_finish(result)
-            except GLib.Error:
-                return
-            path = folder.get_path()
-            if not path:
-                self._toast("That location is not a local folder")
-                return
-            self._discover_music_folder(path)
-
-        dialog.select_folder(self, None, chosen)
-
     def _discover_music_folder(self, path):
+        """Read a folder's tags off the main loop, then queue what it holds.
+
+        Takes the path rather than choosing one, so the folder can come from
+        whatever drives this window from outside it.
+        """
         self.source_generation += 1
         generation = self.source_generation
         device_identity = self.device_identity
@@ -700,66 +664,6 @@ class QueueMixin:
         self._queue_sources({str(path): tracks}, metadata_complete=True)
         return False
 
-    def on_add_youtube(self, _button):
-        url_entry = Adw.EntryRow(title="YouTube link")
-        url_entry.set_activates_default(True)
-        whole_playlist = Adw.SwitchRow(
-            title="Whole playlist",
-            subtitle="Off downloads only the linked video",
-        )
-
-        fields = Adw.PreferencesGroup()
-        fields.add(url_entry)
-        fields.add(whole_playlist)
-
-        dialog = Adw.AlertDialog(
-            heading="Add from YouTube",
-            body=(
-                "The audio is converted to MP3, tagged with its artist and "
-                f"title, kept in {home_relative(YOUTUBE_LIBRARY)}, and queued "
-                "for the next sync."
-            ),
-        )
-        dialog.set_extra_child(fields)
-        dialog.add_response("cancel", "Cancel")
-        dialog.add_response("download", "Download")
-        dialog.set_response_appearance("download", Adw.ResponseAppearance.SUGGESTED)
-        dialog.set_default_response("download")
-        dialog.set_close_response("cancel")
-        dialog.connect("response", self._on_youtube_response, url_entry, whole_playlist)
-        dialog.present(self)
-
-        # Pasting a link is the entire interaction, so offer the one already on
-        # the clipboard rather than making the user paste it by hand.
-        display = Gdk.Display.get_default()
-        if display is not None:
-            display.get_clipboard().read_text_async(
-                None, self._offer_clipboard_url, url_entry
-            )
-
-    @staticmethod
-    def _offer_clipboard_url(clipboard, result, url_entry):
-        try:
-            text = clipboard.read_text_finish(result)
-        except GLib.Error:
-            return
-        if is_downloadable_url(text) and not url_entry.get_text():
-            url_entry.set_text(text.strip())
-
-    def _on_youtube_response(self, _dialog, response, url_entry, whole_playlist):
-        if response != "download":
-            return
-
-        url = url_entry.get_text().strip()
-        if not is_downloadable_url(url):
-            self._toast("Enter a link starting with http:// or https://")
-            return
-        self._start_youtube_download(
-            url,
-            single=not whole_playlist.get_active(),
-            busy_message="Downloading from YouTube",
-        )
-
     def _start_youtube_download(
         self,
         url,
@@ -771,14 +675,14 @@ class QueueMixin:
     ):
         """Fetch one link and queue whatever that run produced.
 
-        Shared by the dialog, by a search result and by the Add all beside a
-        pasted playlist, so each of them queues exactly the tracks the
-        download reported rather than the folder it wrote into. Add all is the
-        only caller that hands over `single=False` outright, making it the
-        whole-list download the dialog offers behind its Whole playlist
-        switch. `playlist` names the playlist a result was added to, which is
-        the one case where the download is a step towards something else
-        rather than the whole of what was asked for.
+        Shared by a search result, by adding one to a playlist and by the Add
+        all beside a pasted playlist, so each of them queues exactly the tracks
+        the download reported rather than the folder it wrote into. Add all is
+        the only caller that hands over `single=False`, making it the one
+        download that takes a whole list rather than the video a link names.
+        `playlist` names the playlist a result was added to, which is the one
+        case where the download is a step towards something else rather than
+        the whole of what was asked for.
         """
         # Written by the download and read when it completes, so only what this
         # run actually fetched enters the queue. Without it the whole library
