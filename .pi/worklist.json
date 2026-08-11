@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 149,
+  "revision": 150,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -327,6 +327,15 @@
       "updatedAt": "2026-08-09T21:00:48.010Z",
       "description": "/home/max/Pictures/Screenshots/Screenshot from 2026-08-09 15-46-02.png : \"Inspo shows like its not on the IPod\"\n\n/home/max/Pictures/Screenshots/Screenshot from 2026-08-09 15-46-08.png : \"2000 shows in ipod\"",
       "completedAt": "2026-08-09T21:00:48.010Z"
+    },
+    {
+      "id": "refuse-a-device-playlist-rename-that",
+      "title": "Refuse a device playlist rename that cannot restage the new name",
+      "description": "Renaming a playlist that is already on the iPod takes it off the device and cannot always put it back.\n\n_on_rename_response (ipod_gui/playlist_view.py) renames the local file, calls _stage_playlist(new_name), and then calls _remove_device_playlist(old_name) regardless of whether the staging succeeded. _stage_playlists returns early with the not-queued note when playlist_unavailable is set, so on a machine with no speech engine nothing is staged - and the removal still runs, so ipod-remove.sh strips the playlist off the device. Send to iPod cannot restage it either, because _can_send_playlist also requires speech_engine_available. The playlist leaves the iPod and stays gone until an engine is installed and the user notices they have to re-send it.\n\nThe fix is to make the removal conditional on the new name actually being stageable: if _stage_playlist did not stage, leave the device playlist where it is, rename here only, and say so. That is a behaviour change to a confirmation flow, which is why it was split out of the goal above rather than folded into it - that branch corrected the dialog wording so it stops promising a sync that cannot happen, and this goal makes the wording unnecessary.\n\nWorth checking whether the same shape exists anywhere else that pairs a stage with a removal, and whether the guard belongs in _stage_playlist's return value rather than at each call site.",
+      "group": "Playlists",
+      "status": "open",
+      "createdAt": "2026-08-11T05:25:25.499Z",
+      "updatedAt": "2026-08-11T05:25:25.499Z"
     }
   ],
   "retiredIds": [
