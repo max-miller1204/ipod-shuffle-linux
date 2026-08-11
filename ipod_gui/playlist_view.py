@@ -1553,10 +1553,9 @@ class PlaylistViewMixin:
         # machine that got this far has the engine, so Send to iPod is on
         # offer and puts the playlist back, and the rename refused above is
         # the one with no such way back. Against the iPod the rename was
-        # started on, though -
-        # this deletes a playlist and rebuilds a database, and the one under
-        # the mount now may be a different device that happens to carry a list
-        # of the same name.
+        # started on, though - this deletes a playlist and rebuilds a
+        # database, and the one under the mount now may be a different device
+        # that happens to carry a list of the same name.
         if self._playlist_on_device(old_name):
             if not self._confirmed_device(device_identity):
                 return

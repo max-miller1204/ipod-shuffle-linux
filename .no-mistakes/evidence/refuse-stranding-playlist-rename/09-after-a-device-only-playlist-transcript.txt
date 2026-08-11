@@ -1,0 +1,18 @@
+== 09-after-a-device-only-playlist ==
+this machine has no speech engine
+has_speech_engine() answered: False
+playlist_unavailable: 'No speech engine installed'
+iPod the app found for itself: /tmp/rename-demo/MAX SHUFFLE
+device identity it resolved: uuid:/dev/sdz
+playlists it read off the device: ['Morning Ride']
+playlists here: ['Downloads']
+'Morning Ride': no file here backs it, on the iPod: True
+
+-- before the press --
+playlists on the iPod's volume root: ['Morning Ride.m3u']
+spoken name recordings on the device: 2
+playlist files here: ['Downloads.m3u']
+queued for the next sync: []
+
+the ⋯ on 'Morning Ride' offers: ['MORNING RIDE', 'Remove from iPod…']
+screenshot: 09-after-a-device-only-playlists-menu.png

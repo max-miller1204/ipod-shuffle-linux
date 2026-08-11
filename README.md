@@ -775,6 +775,7 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - Only the playlists made in the app being offered when a song was added to one, with no way to make a playlist that arrived on the device by another route into one of those and nothing on screen saying it had been left out
 - A staged change that copies nothing - a playlist rewritten out of songs the device already holds - reported in the sidebar as `+0 B queued to sync`, and as `0 B queued` once the iPod was unplugged, both of which read as a size that failed to be worked out
 - The window advertising a minimum width narrower than a playlist page can be drawn in once its rows are on the iPod, because the check only ever measured that page showing a playlist that was not
+- Renaming a playlist the iPod was holding, on a machine with no speech engine, taking the old name off the device with nothing able to stage the new one, so the list left the iPod and the one control that would have put it back was refused for the same reason
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 
