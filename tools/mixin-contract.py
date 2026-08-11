@@ -69,7 +69,6 @@ SHARED_STATE = {
     "pending_device_identity": ("device_view", "queue"),
     "pending_records": ("device_view", "queue"),
     "pending_sources": ("device_view", "queue"),
-    "sync_total": ("commands", "queue"),
     # Whether either scan is still running, which is the whole state behind
     # the spinner the refresh button shows. The window owns the widget and
     # both scans have to be able to say they have started or finished, so the

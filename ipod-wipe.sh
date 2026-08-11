@@ -20,6 +20,16 @@ readonly STALE_STATE=(
 
 IPOD=""
 BACKUP_DIR=""
+PROGRESS_TARGET=""
+
+# Declared before anything can fail, because the result event is written from
+# wherever the run ends rather than from where the device is counted. WIPED is
+# what tells a run that got as far as emptying the device from one that died
+# before it: the same track count means "taken" in the first and "still there"
+# in the second.
+track_count=0
+playlist_count=0
+WIPED=0
 
 usage() {
     cat <<'EOF'
@@ -32,6 +42,10 @@ Options:
   -i, --ipod PATH     iPod mount point (default: autodetect)
   -b, --backup DIR    Copy existing music and databases to DIR first
   -y, --yes           Answer yes to every prompt
+      --progress-json[=FD]
+                      Report progress as one JSON object per line on
+                      descriptor FD (default 3), which the caller opens. The
+                      output below is unchanged.
   -h, --help          Show this message
 
 Example:
@@ -47,14 +61,36 @@ while [[ $# -gt 0 ]]; do
         -i|--ipod)   IPOD="$2"; shift 2 ;;
         -b|--backup) BACKUP_DIR="$2"; shift 2 ;;
         -y|--yes)    ASSUME_YES=1; shift ;;
+        --progress-json)   PROGRESS_TARGET=3; shift ;;
+        --progress-json=*) PROGRESS_TARGET="${1#*=}"; shift ;;
         -h|--help)   usage; exit 0 ;;
         *)           die "Unknown option: $1 (try --help)" ;;
     esac
 done
 
+# What the wipe took with it, for the last event on the stream. No plan and no
+# per-file events: a wipe is one bulk delete rather than a file at a time, so
+# what it has to report is which phase it is in, which the stages below say.
+progress_result_fields() {
+    if (( WIPED )); then
+        printf '%s\n' removed "$track_count" playlists "$playlist_count" tracks 0
+    else
+        printf '%s\n' removed 0 playlists 0
+    fi
+}
+
+# Opened before the iPod is looked for, so that a run with no iPod to work on
+# still reports why on the stream the caller is reading.
+progress_open wipe "$PROGRESS_TARGET"
+# From here on every failure leaves through leave(), which is what reports
+# the run's last event: the search below runs in a command substitution and
+# can fail before there is a device to watch.
+watch_failures
+
 IPOD="$(find_ipod "$IPOD")"
 assert_shuffle "$IPOD"
 watch_device "$IPOD"
+progress_event device ipod "$IPOD"
 
 MUSIC_DIR="$IPOD/iPod_Control/Music"
 ITUNES_DIR="$IPOD/iPod_Control/iTunes"
@@ -64,11 +100,12 @@ ITUNES_DIR="$IPOD/iPod_Control/iTunes"
 # the only record of which songs made up that playlist.
 mapfile -d '' -t ROOT_PLAYLISTS < <(root_playlist_files "$IPOD")
 
-track_count="$(find "$MUSIC_DIR" -type f 2>/dev/null | wc -l)"
+track_count="$(count_files "$MUSIC_DIR" 2>/dev/null)"
 info "iPod: $IPOD"
 info "Tracks currently on device: $track_count"
 
 if [[ -n "$BACKUP_DIR" ]]; then
+    progress_stage backup start
     info "Backing up to $BACKUP_DIR"
     mkdir -p "$BACKUP_DIR"
     [[ -d "$MUSIC_DIR" ]]  && cp -a "$MUSIC_DIR"  "$BACKUP_DIR/"
@@ -81,10 +118,11 @@ if [[ -n "$BACKUP_DIR" ]]; then
     # Verify before anything irreversible happens. The iTunesDB copy matters as
     # much as the audio: iPod filenames are scrambled four-character codes, and
     # that database is what maps them back to real artist and title metadata.
-    backed_up="$(find "$BACKUP_DIR/Music" -type f 2>/dev/null | wc -l)"
+    backed_up="$(count_files "$BACKUP_DIR/Music" 2>/dev/null)"
     (( backed_up == track_count )) \
         || die "Backup verification failed: $backed_up of $track_count files copied."
     info "Backup verified: $backed_up track(s) plus databases"
+    progress_stage backup 'done'
 fi
 
 if (( ! ASSUME_YES )); then
@@ -94,6 +132,7 @@ if (( ! ASSUME_YES )); then
     confirm "Wipe this iPod?" || die_with "$EXIT_DECLINED" "Aborted."
 fi
 
+progress_stage clear start
 if [[ -d "$MUSIC_DIR" ]]; then
     rm -rf "${MUSIC_DIR:?}"/*
     info "Removed $track_count track(s)"
@@ -102,6 +141,7 @@ mkdir -p "$MUSIC_DIR"
 
 if (( ${#ROOT_PLAYLISTS[@]} > 0 )); then
     rm -f -- "${ROOT_PLAYLISTS[@]}"
+    playlist_count=${#ROOT_PLAYLISTS[@]}
     info "Removed ${#ROOT_PLAYLISTS[@]} playlist(s)"
 fi
 
@@ -110,10 +150,16 @@ for f in "${STALE_STATE[@]}"; do
 done
 rm -f "$(sync_options_file "$IPOD")"
 info "Cleared stale iTunes state and previous-owner library binding"
+WIPED=1
+progress_stage clear 'done'
 
 rebuild_database "$IPOD"
 
-info "Preserved: $(find "$IPOD/iPod_Control/Speakable" -type f 2>/dev/null | wc -l) Speakable prompt file(s)"
+info "Preserved: $(count_files "$IPOD/iPod_Control/Speakable" 2>/dev/null) Speakable prompt file(s)"
 info "Wipe complete. The iPod is empty and ready for ./ipod-sync.sh"
 
 warn "Unmount before unplugging:  ./ipod-sync.sh --rebuild-only --eject"
+
+# Out through the same door as every failure, so that the run reports how it
+# ended and the caller reading the stream has it before the script returns.
+leave 0

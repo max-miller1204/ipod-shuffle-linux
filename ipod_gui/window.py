@@ -160,7 +160,6 @@ class IpodWindow(
         self.pending_records = {}
         self._pending_track_index = {}
         self.pending_device_identity = None
-        self.sync_total = 0
         # Setting a filter pill active while the view is still being built
         # fires its handler, which would repaint a grid that does not exist
         # yet. Flipped once the last widget is in place.

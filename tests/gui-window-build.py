@@ -964,6 +964,56 @@ def check_copying_a_device_playlist(window):
     window._populate_device_summary()
 
 
+def check_progress_bar_follows_the_stream(window):
+    """The sync bar, moved by the events a script writes while it runs.
+
+    The rest of the progress checking runs against a stand-in, which cannot
+    say whether the row a copied file adds can be built at all: this is the
+    only place the real Gtk.Box and its labels exist. The events are the ones
+    ipod-sync.sh emits, spelt as they arrive on the wire.
+    """
+    window._set_busy(True, "Copying to iPod")
+    window._clear_log()
+    for line in (
+        '{"event": "start", "schema": 1, "script": "sync"}',
+        '{"event": "plan", "total": 2}',
+        '{"event": "stage", "name": "copy", "state": "start"}',
+        '{"event": "file", "status": "copied", "name": "Harbour Light.mp3",'
+        ' "dest": "F00/LDPX.mp3", "done": 1, "total": 2}',
+        '{"event": "playlist", "status": "written", "name": "Road Trip",'
+        ' "tracks": 1, "done": 2, "total": 2}',
+        '{"event": "stage", "name": "rebuild", "state": "start"}',
+    ):
+        event = gui.progress_event(line)
+        if event is None:
+            failures.append(f"the window could not read its own event: {line}")
+            continue
+        window._note_progress(event)
+
+    if window.progress.get_fraction() != 1.0:
+        failures.append(
+            f"two of two items left the bar at {window.progress.get_fraction()}"
+        )
+    if window.sync_count.get_text() != "2 of 2":
+        failures.append(f"the bar counts {window.sync_count.get_text()!r}")
+    if window.sync_current.get_text() != "Rebuilding the database":
+        failures.append(
+            f"during the rebuild the bar says {window.sync_current.get_text()!r}"
+        )
+
+    said = [
+        label.get_text()
+        for label in walk(window.sync_file_list)
+        if isinstance(label, Gtk.Label)
+    ]
+    for expected in ("Harbour Light.mp3", "Copied", "Road Trip", "Playlist written"):
+        if expected not in said:
+            failures.append(f"the details pane never showed {expected!r}: {said}")
+
+    window._clear_log()
+    window._set_busy(False)
+
+
 def check_removals_say_what_the_rebuild_costs(window):
     """What a press that rebuilds the device warns about, with nothing to speak.
 
@@ -1373,6 +1423,7 @@ def inspect(window):
     check_delete_from_library(window)
     check_copying_a_device_playlist(window)
     check_removals_say_what_the_rebuild_costs(window)
+    check_progress_bar_follows_the_stream(window)
 
     # Naming a playlist and renaming one are one dialog assembled in one place,
     # so a break in it is a break in both, and neither is built until the user

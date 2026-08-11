@@ -9,8 +9,8 @@ mount.
 
 Borrows from the window: `mount_point` and `device_identity` to aim a command,
 `speech_engine_available` to say what a rebuild costs the iPod's spoken names,
-`_toast`, `_children`, `refresh`, `_rescan_library`, `_sync_options`,
-`_merge_states`, `_populate_device_summary`, `_populate_cache_card` and
+`_toast`, `refresh`, `_rescan_library`, `_sync_options`, `_merge_states`,
+`_populate_device_summary`, `_populate_cache_card` and
 `_update_device_controls`.
 """
 
@@ -22,7 +22,14 @@ from pathlib import Path
 from gi.repository import Adw, Gdk, GLib, GObject, Gtk
 
 from .config import REMOVE_SCRIPT, SYNC_SCRIPT, WIPE_SCRIPT
-from .text import COPIED_LINE, SPOKEN_NAMES_LOST, strip_ansi
+from .text import (
+    FILE_STATUS_LABELS,
+    PLAYLIST_STATUS_LABELS,
+    SPOKEN_NAMES_LOST,
+    STAGE_LABELS,
+    progress_event,
+    strip_ansi,
+)
 from .device import (
     DEVICE_IO_LOCK,
     resolve_device,
@@ -30,6 +37,15 @@ from .device import (
     unmounted_vfat_devices,
 )
 from .widgets import ELLIPSIZE_END, clear_children, label
+
+# The scripts that report their progress as JSON, and so the ones that get a
+# stream to report it on. Decided by which script is being run rather than by
+# each caller asking for it: a bar that appears depending on who started the
+# command would be a bar nobody could rely on. ipod-fetch.sh also runs through
+# _run and is not one of them - a download reports itself, through yt-dlp.
+PROGRESS_SCRIPTS = frozenset(
+    str(script) for script in (SYNC_SCRIPT, REMOVE_SCRIPT, WIPE_SCRIPT)
+)
 
 
 class CommandsMixin:
@@ -169,27 +185,62 @@ class CommandsMixin:
         end = buf.create_mark(None, buf.get_end_iter(), False)
         self.log_view.scroll_to_mark(end, 0, False, 0, 0)
         buf.delete_mark(end)
-        self._note_progress(text)
         return False
 
-    def _note_progress(self, text):
-        match = COPIED_LINE.match(text.rstrip("\n"))
-        if match is None:
-            return
-        name = match.group("name")
-        self.sync_current.set_text(name)
+    def _note_progress(self, event):
+        """Show one event of a running script's progress stream.
+
+        Everything the bar knows comes from the script itself: how many items
+        the run is going to report on, which one it has just finished, and what
+        it is doing during the stretches that are not a file at a time. An
+        event this window has no word for is shown as what it says rather than
+        dropped, because a run reporting something new is not a reason to leave
+        the bar looking stalled.
+        """
+        kind = event.get("event")
+        if kind == "file":
+            status = event.get("status", "")
+            name = event.get("name", "")
+            self.sync_current.set_text(name)
+            self._log_progress_row(name, FILE_STATUS_LABELS.get(status, status))
+            self._show_progress_counts(event)
+        elif kind == "playlist":
+            status = event.get("status", "")
+            name = event.get("name", "")
+            self.sync_current.set_text(name)
+            self._log_progress_row(
+                name, PLAYLIST_STATUS_LABELS.get(status, status)
+            )
+            self._show_progress_counts(event)
+        elif kind == "stage":
+            stage = event.get("name", "")
+            if event.get("state") == "start":
+                self.sync_current.set_text(STAGE_LABELS.get(stage, stage))
+        return False
+
+    def _log_progress_row(self, name, status):
         row = Gtk.Box(spacing=11)
         row.append(label("✓", "sf-caption", width_chars=2, xalign=0.5))
         row.append(label(name, "sf-body", hexpand=True, ellipsize=ELLIPSIZE_END))
-        row.append(label("Copied", "sf-caption"))
+        row.append(label(status, "sf-caption"))
         self.sync_file_list.append(row)
 
-        done = len(list(self._children(self.sync_file_list)))
-        if self.sync_total:
-            self.progress.set_fraction(min(1.0, done / self.sync_total))
-            self.sync_count.set_text(f"{done} of {self.sync_total}")
+    def _show_progress_counts(self, event):
+        """Move the bar to where the run says it has got to.
+
+        The counts ride on the event rather than being kept here, so a line
+        that never arrives costs the bar nothing: the next one still knows how
+        far along the run is.
+        """
+        done = event.get("done")
+        total = event.get("total")
+        if not isinstance(done, int) or not isinstance(total, int):
+            return
+        if total > 0:
+            self.progress.set_fraction(min(1.0, done / total))
+            self.sync_count.set_text(f"{done} of {total}")
         else:
-            self.sync_count.set_text(f"{done} copied")
+            self.sync_count.set_text(str(done))
 
     def _clear_log(self):
         self.log_view.get_buffer().set_text("")
@@ -260,20 +311,64 @@ class CommandsMixin:
 
             def run_process():
                 nonlocal code
+                # The script's own descriptor, opened here so the two streams
+                # cannot interleave: the log view shows what a person would
+                # read in a terminal, and the bar is driven by the JSON on the
+                # other one. Passed by number rather than as a fixed 3, which
+                # would mean renumbering a descriptor in the child and there is
+                # no safe moment to do that in a threaded process.
+                progress_read = progress_write = -1
+                command = list(argv)
+                if argv[0] in PROGRESS_SCRIPTS:
+                    progress_read, progress_write = os.pipe()
+                    # Straight after the script, because every command that
+                    # names paths ends with `--` and everything after that is
+                    # a path however much it looks like a flag - which is how
+                    # a track called "-1" reaches the copy, and how this
+                    # arrived as a folder nobody could find.
+                    command.insert(1, f"--progress-json={progress_write}")
+                reader = None
                 try:
                     proc = subprocess.Popen(
-                        argv,
+                        command,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
                         text=True,
                         bufsize=1,
+                        pass_fds=() if progress_write < 0 else (progress_write,),
                     )
+                    if progress_write >= 0:
+                        # The child holds the writing end now, so the end of
+                        # the stream is the script finishing with it rather
+                        # than this process letting go of a copy it is not
+                        # using. The cleanup below would close it in any case;
+                        # what this decides is when the reader is told.
+                        os.close(progress_write)
+                        progress_write = -1
+                        reader = threading.Thread(
+                            target=self._read_progress,
+                            args=(progress_read,),
+                            daemon=True,
+                        )
+                        progress_read = -1
+                        reader.start()
                     if proc.stdout is not None:
                         for line in proc.stdout:
                             GLib.idle_add(self._log, line)
                     code = proc.wait()
                 except (OSError, TypeError, ValueError) as exc:
                     GLib.idle_add(self._log, f"failed to run: {exc}\n")
+                finally:
+                    for descriptor in (progress_read, progress_write):
+                        if descriptor >= 0:
+                            os.close(descriptor)
+                    if reader is not None:
+                        # Joined before the run is called finished, so that
+                        # what the script said it did has reached the window
+                        # before the window says it is over. Bounded, because
+                        # a descriptor some other child of the script inherited
+                        # and kept open is not worth hanging the window on.
+                        reader.join(5)
 
             if device_command:
                 with DEVICE_IO_LOCK.write():
@@ -294,6 +389,26 @@ class CommandsMixin:
 
         threading.Thread(target=worker, daemon=True).start()
         return True
+
+    def _read_progress(self, descriptor):
+        """Hand the script's progress events to the main loop as they arrive.
+
+        Its own thread, because the log and the progress are two descriptors
+        of one process: reading them one after the other would stop the script
+        the moment the stream nobody was reading filled up.
+        """
+        try:
+            with os.fdopen(
+                descriptor, "r", encoding="utf-8", errors="replace"
+            ) as stream:
+                for line in stream:
+                    event = progress_event(line)
+                    if event is not None:
+                        GLib.idle_add(self._note_progress, event)
+        except OSError:
+            # The run itself is what matters and it is still going; the log
+            # beside the bar is what will say how it ended.
+            pass
 
     def _cancel_device_command(self):
         self._set_busy(False)
@@ -346,7 +461,6 @@ class CommandsMixin:
             self.sync_revealer.set_reveal_child(True)
             if on_failure is not None:
                 on_failure()
-        self.sync_total = 0
         self.refresh()
         self._rescan_library()
         return False

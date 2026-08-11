@@ -126,6 +126,7 @@ Queueing an album or a track shows it as pending space in the storage meter, mar
 A staged track's own button becomes **Unqueue**, which takes back out whatever staged it: a track you queued on its own leaves on its own, and one that joined the queue as part of a playlist or a folder takes that whole list or folder with it.
 That is what the button is for - a playlist queued by mistake is otherwise a hundred tracks to take back one at a time - and the sync is a batch you are still assembling, so nothing has been copied either way.
 The copy reports each file as it lands, which a 2GB device over USB 2.0 badly needed: the progress bar, the file list and the raw script output all sit in a bar above the player.
+What the bar shows comes from the script itself, on [a stream of its own](#what-a-run-is-doing-while-it-is-doing-it), so each row says what became of that file - copied, already there, not found - and the bar names the database rebuild rather than sitting on the last track it copied through it.
 
 The grid groups by album or by artist, and swaps for a sortable table of every track: click a column to sort by title, album, state or length.
 Both choices are remembered, so the app reopens on the view you left it in rather than back on the album grid.
@@ -640,6 +641,49 @@ This is the same reading the window takes when you plug the iPod in, and it cove
 
 Without `--json`, `--list` still prints nothing but the track paths, so the two forms of the same question give the same answer in different shapes.
 
+### What a run is doing, while it is doing it
+
+```bash
+./ipod-sync.sh --progress-json ~/Music/roadtrip 3>progress.ndjson
+./ipod-sync.sh --progress-json=7 ~/Music/roadtrip 7>&1 1>/dev/null | your-program
+```
+
+`ipod-sync.sh`, `ipod-remove.sh` and `ipod-wipe.sh` will report what they are doing as one JSON object per line, on a file descriptor you open.
+The default is `3`; `--progress-json=FD` names another, which is what the window uses, since a descriptor it did not choose is one it would have to renumber in the child.
+A descriptor nobody opened is refused rather than reported into nowhere.
+
+This is an additional stream, not a replacement.
+The scripts are the product, and what they print stays exactly as it reads in a terminal: the suite runs the same sync twice, once with the stream and once without, and compares the two outputs.
+
+Every line is one event, and the `event` field says which:
+
+| Event | What it says |
+| --- | --- |
+| `start` | The run has begun: which `script` it is, and the `schema` of what follows |
+| `device` | The `ipod` it settled on, which is worth having when you let it autodetect |
+| `plan` | How many items the run will report on, as `total` |
+| `stage` | A `name`d stretch that is one long wait rather than an item at a time - `backup`, `clear`, `copy`, `rebuild` - with `state` `start` or `done` |
+| `file` | One file the run has finished with: its `status`, its `name`, where it landed as `dest`, and `done` of `total` |
+| `playlist` | One playlist: its `status`, its `name`, how many `tracks` it now holds, and `done` of `total` |
+| `result` | The last line of every run: `ok`, the `code` the script is about to exit with, and what it did |
+
+A file's `status` is `copied`, `duplicate` for one already on the device, `missing` for a playlist entry that is not on this computer, `broken` for a dangling symlink, or `removed`.
+A playlist's is `written`, `removed`, or `skipped`.
+The `result` carries whichever counters the script keeps: `copied`, `duplicates`, `unsupported`, `broken`, `removed`, `playlists`, and `tracks` for how many the device holds afterwards.
+It reports what the run actually did rather than what it set out to do, so a removal stopped at the prompt says it removed nothing.
+
+`done` counts the items in the plan and reaches `total` exactly, which is what lets it drive a bar that gets to the end.
+Only files the firmware could play are counted, so the cover art in an album folder is neither planned nor reported - it is in the `unsupported` count and nowhere else.
+`total` follows the count when a run turns out to have more to do than it planned: removing a track also takes it out of any playlist naming it, which nothing could have known before the removal.
+A wipe emits no plan and no `file` events at all, because it is one bulk delete rather than a file at a time; its stages are what there is to show.
+
+A run that fails still ends with a `result`, carrying the same code the script exits with, so a reader always has a last line rather than a stream that stops.
+The stream is closed and its writer waited for before the script returns, so a caller holding the exit code has the whole document.
+And a caller that stops reading half way through - a window closed during a copy - does not take the copy with it: the script says the stream has gone and carries on to the end.
+
+The JSON is written by `ipod-report.py`, for the reason the reports above are, and it will not encode an event or a status that is not in its own table.
+A typo in a script is a run that fails loudly rather than a line that reaches you as valid JSON meaning nothing.
+
 ### What is installed
 
 ```bash
@@ -786,6 +830,8 @@ The shell scripts are the product; each one does a job the command line can do o
 
 `ipod-report.py` is the one exception to that shape: it is the JSON the scripts report with, not a command of its own.
 It is Python because JSON is not something a shell can emit safely, and a track name holding a quote, a backslash or a newline is ordinary on a device whose names came from tags and YouTube titles.
+It writes the progress stream for the same reason, as one process for a whole run rather than one per event: a sync copies thousands of files, and starting an interpreter for each would cost more than the copying does.
+The scripts hand it plain fields over a pipe, separated by the unit separator and ended by NUL, that being the one byte a filename cannot hold.
 It repeats what `ipod_gui/device.py` reads rather than importing it, because the scripts have to run on a machine with no GTK bindings at all, exactly as `lib.sh`'s `list_vfat_mounts` repeats `find_ipods()`.
 What that costs is the chance of the two drifting apart, so `tests/device-report.py` takes both readings of one device and compares them field by field.
 
@@ -878,8 +924,15 @@ A machine with no `python3` is covered against a PATH holding every other progra
 Preview playback is checked the same way, against a stand-in pipeline whose messages the test delivers by hand: GStreamer only reports a track ending, or failing to decode, on a running main loop, and it is optional besides, so a suite that needed it installed would be skipped exactly where the state machine is least exercised.
 The preview cache is the exception: promoting, pruning and clearing are checked against real files in a temporary directory, because a promotion that leaves the file where it was would look identical in memory and lose the track at the next prune.
 Thumbnail fetching is checked against a local HTTP server rather than YouTube, so the suite covers the answers that matter - a missing image, an empty one, one larger than the cap, and a URL scheme that is not HTTP - without depending on the network or on a particular video still existing.
-Symlinked sources are checked on both sides of the same folder, because the script and the GUI walk it separately and the count the GUI produces is what drives the sync progress bar: `tests/gui-scan-paths.py` prints what the scan finds, and the suite holds it against what the sync actually copied.
+The progress stream is checked as a protocol rather than as text: the suite runs a sync whose source holds a name with a quote and a backslash in it and another with a newline, and asserts that each came back exactly as it is on disk, that the count reached the total having gone up one at a time, and that a removal and a wipe report themselves the same way.
+The failures are covered beside them, because they are what the stream is for: a run with no iPod still ends with a result carrying the code it exits with, and a caller that stops reading half way through a copy leaves the copy finishing rather than killing the script with a broken pipe.
+The window's half is pinned against the same table `ipod-report.py` encodes from, so a status the scripts can send with no word for it in the bar fails there rather than reaching a user as a bare identifier.
+
+Symlinked sources are checked on both sides of the same folder, because the script and the GUI walk it separately and both have to survive what is in that tree: `tests/gui-scan-paths.py` prints what the scan finds, and the suite holds it against what the sync actually copied.
 That folder carries every case the walk has to survive - a linked track, a linked folder, a link out of the tree, a dangling link, and a folder that links back to its own parent - since `os.walk` has no loop detection of its own and would otherwise recurse through the last one forever.
+
+`tests/gui-progress-stream.py` is the seam between the window and the scripts, and it is the only check where the two halves actually meet: the window runs a real sync the way the app runs one, with a descriptor it opened for the progress and a thread reading it back.
+Every other check of the bar starts from JSON written by hand, so none of them would notice a flag the script never saw - which is exactly what it caught the first time it ran, the descriptor being announced after the `--` that makes everything following it a path.
 
 `tests/gui-repaint-coalescing.py` covers the repaint queue, which needs a main loop but no display: a library scan publishes a batch every 25 tracks, and each of those used to rebuild every card in the grid.
 That was not only wasted work: a batch arriving while the pointer rested on a card rebuilt that card underneath it, which is the flashing that was reported, and a rebuild under an open menu destroys the widget the focus is on, which GTK answers by moving the focus out of the popup.

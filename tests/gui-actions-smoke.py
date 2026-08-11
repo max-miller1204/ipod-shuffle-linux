@@ -1702,7 +1702,6 @@ class FailureWindow:
     """Enough of the window for _finish to report a failure against."""
 
     def __init__(self):
-        self.sync_total = 1
         self.toasts = []
         self.failures = 0
         self.details_toggle = FakeWidget()
@@ -2017,7 +2016,6 @@ finally:
 # runs has to name every queued path and nothing else. Copying the whole
 # library instead would fill a 2GB device from a single click.
 queue_window = FakeWindow()
-queue_window.sync_total = 0
 sync_source = Path(tempfile.mkdtemp()) / "Music"
 sync_source.mkdir()
 queued_paths = {
@@ -2136,7 +2134,8 @@ assert staged[separator + 1:] == sorted(
 # The re-read before a sync sees the links, because the copy will. The
 # folder that holds nothing but a link stays a source, and the link that
 # appeared inside an already-queued folder joins the queue.
-assert queue_window.sync_total == len(queued_paths) + 4, queue_window.sync_total
+staged_tracks = gui.IpodWindow._pending_copy_tracks(queue_window)
+assert len(staged_tracks) == len(queued_paths) + 4, staged_tracks
 assert str(added_after_queue) in queue_window.pending
 assert str(linked_during_sync) in queue_window.pending
 assert str(linked_only_link) in queue_window.pending
@@ -2489,7 +2488,6 @@ assert eject_guard.toasts, "stale device eject failed silently"
 class FinishWindow:
     def __init__(self):
         self.events = []
-        self.sync_total = 1
 
     def _invalidate_device_snapshot(self):
         self.events.append("invalidate")
@@ -2512,13 +2510,11 @@ gui.IpodWindow._finish(
     finish_window, 0, "Done", device_command=True
 )
 assert finish_window.events[0] == "invalidate", finish_window.events
-assert finish_window.sync_total == 0
 
 # An empty queue must not launch a script at all.
 idle_window = FakeWindow()
 idle_window.pending = set()
 idle_window.pending_sources = {}
-idle_window.sync_total = 0
 gui.IpodWindow.on_sync_pending(idle_window, None)
 assert idle_window.commands == [], idle_window.commands
 
@@ -2682,26 +2678,143 @@ for _key, _title, _expand, sort_key in gui.TRACK_COLUMNS:
         Gtk.Ordering.LARGER,
     ), _key
 
-# ------------------------------------------------------ per-file sync output
+# --------------------------------------------------------- progress stream
 #
-# ipod-sync.sh prints one of these per file; the sync bar counts them. The
-# destination can contain spaces, so the pattern must not stop at one.
-progress = gui.COPIED_LINE.match("  + Harbour Light.mp3 -> F00/LDPX.mp3\n".rstrip())
-assert progress, "per-file sync line no longer parses"
-assert progress.group("name") == "Harbour Light.mp3", progress.group("name")
-assert progress.group("dest") == "F00/LDPX.mp3", progress.group("dest")
+# The bar is driven by the JSON the scripts write on a stream of their own,
+# rather than by matching a regex against the copy lines in their human
+# output, which broke whenever one of those lines was reworded and failed
+# silently when it did.
 
-spaced = gui.COPIED_LINE.match("  + A Song.mp3 -> Some Folder/B QRST.mp3")
-assert spaced, "a destination containing a space did not parse"
-assert spaced.group("dest") == "Some Folder/B QRST.mp3", spaced.group("dest")
 
-# Aggregate lines are not per-file lines and must not be counted as copies.
-for line in ("==> Copied 4 file(s)", "warning: Skipped 1 unsupported file(s)"):
-    assert gui.COPIED_LINE.match(line) is None, line
+class ProgressWindow:
+    """Enough of the sync bar for the progress events to move it."""
 
-# The shell script must still emit the format the bar parses.
-sync_sh = (REPO / "ipod-sync.sh").read_text(encoding="utf-8")
-assert "'  + %s -> %s\\n'" in sync_sh, "ipod-sync.sh stopped reporting each file"
+    # The real one, because where the bar ends up is the whole question here;
+    # only the row that gets appended is stood in for, since a Gtk.Box holds
+    # its labels where an assertion cannot read them.
+    _show_progress_counts = gui.IpodWindow._show_progress_counts
+
+    def __init__(self):
+        self.progress = FakeWidget()
+        self.sync_count = FakeWidget()
+        self.sync_current = FakeWidget()
+        self.rows = []
+
+    def _log_progress_row(self, name, status):
+        self.rows.append((name, status))
+
+
+def show_progress(window, line):
+    event = gui.progress_event(line)
+    assert event is not None, line
+    gui.IpodWindow._note_progress(window, event)
+
+
+sync_bar = ProgressWindow()
+show_progress(sync_bar, '{"event": "plan", "total": 4}')
+# A plan on its own moves nothing: what it says is how much there is to do,
+# and until something is done the bar has nothing to show for it.
+assert sync_bar.sync_count.text is None, sync_bar.sync_count.text
+assert sync_bar.rows == [], sync_bar.rows
+
+show_progress(sync_bar, '{"event": "stage", "name": "copy", "state": "start"}')
+assert sync_bar.sync_current.text == "Copying", sync_bar.sync_current.text
+
+show_progress(
+    sync_bar,
+    '{"event": "file", "status": "copied", "name": "Harbour Light.mp3",'
+    ' "dest": "F00/LDPX.mp3", "done": 1, "total": 4}',
+)
+assert sync_bar.sync_current.text == "Harbour Light.mp3", sync_bar.sync_current.text
+assert sync_bar.sync_count.text == "1 of 4", sync_bar.sync_count.text
+assert sync_bar.progress.fraction == 0.25, sync_bar.progress.fraction
+assert sync_bar.rows == [("Harbour Light.mp3", "Copied")], sync_bar.rows
+
+# Each status says what happened to that file, rather than every row reading
+# as a copy the way the old per-file line could only mean.
+show_progress(
+    sync_bar,
+    '{"event": "file", "status": "duplicate", "name": "Old Song.mp3",'
+    ' "done": 2, "total": 4}',
+)
+assert sync_bar.rows[-1] == ("Old Song.mp3", "Already there"), sync_bar.rows
+show_progress(
+    sync_bar,
+    '{"event": "file", "status": "missing", "name": "Gone.mp3",'
+    ' "done": 3, "total": 4}',
+)
+assert sync_bar.rows[-1] == ("Gone.mp3", "Not found"), sync_bar.rows
+show_progress(
+    sync_bar,
+    '{"event": "playlist", "status": "written", "name": "Road Trip",'
+    ' "tracks": 2, "done": 4, "total": 4}',
+)
+assert sync_bar.rows[-1] == ("Road Trip", "Playlist written"), sync_bar.rows
+assert sync_bar.sync_count.text == "4 of 4", sync_bar.sync_count.text
+assert sync_bar.progress.fraction == 1.0, sync_bar.progress.fraction
+
+# The rebuild is the long silent half of a short run, and a bar still naming
+# the last file copied through it looks like one that has stopped.
+show_progress(sync_bar, '{"event": "stage", "name": "rebuild", "state": "start"}')
+assert sync_bar.sync_current.text == "Rebuilding the database", (
+    sync_bar.sync_current.text
+)
+# A stage ending says nothing on its own: what follows is either the next
+# stage or the run finishing, and both have an event of their own.
+show_progress(sync_bar, '{"event": "stage", "name": "rebuild", "state": "done"}')
+assert sync_bar.sync_current.text == "Rebuilding the database", (
+    sync_bar.sync_current.text
+)
+
+# A run that reports no plan - a wipe is one bulk delete rather than a file at
+# a time - leaves the bar without a fraction rather than inventing one.
+wipe_bar = ProgressWindow()
+show_progress(wipe_bar, '{"event": "start", "schema": 1, "script": "wipe"}')
+show_progress(wipe_bar, '{"event": "stage", "name": "backup", "state": "start"}')
+assert wipe_bar.sync_current.text == "Backing up", wipe_bar.sync_current.text
+assert wipe_bar.progress.fraction == 0.0, wipe_bar.progress.fraction
+
+# Nothing arriving on the stream may take the window with it: a line that is
+# not JSON, or an event it has no word for, has to leave the bar usable.
+assert gui.progress_event("not json at all\n") is None
+assert gui.progress_event('"a string, not an event"\n') is None
+assert gui.progress_event('{"no": "event name"}\n') is None
+show_progress(
+    sync_bar,
+    '{"event": "file", "status": "invented", "name": "Odd.mp3",'
+    ' "done": 5, "total": 4}',
+)
+assert sync_bar.rows[-1] == ("Odd.mp3", "invented"), sync_bar.rows
+gui.IpodWindow._note_progress(sync_bar, {"event": "something-new"})
+
+# The vocabulary is declared once, in the program that encodes the stream and
+# refuses to write anything outside it, so every status the scripts can send
+# is one this window is holding a word for.
+report_source = (REPO / "ipod-report.py").read_text(encoding="utf-8")
+progress_words = re.search(
+    r"PROGRESS_VOCABULARY = \{(.*?)\n\}", report_source, re.S
+)
+assert progress_words, "ipod-report.py no longer declares the progress vocabulary"
+
+
+def encodable(event, field):
+    """The values ipod-report.py will encode for one field of one event."""
+    match = re.search(
+        rf'\("{event}", "{field}"\): \((.*?)\),$',
+        progress_words.group(1),
+        re.M,
+    )
+    assert match, (event, field)
+    return set(re.findall(r'"([^"]+)"', match.group(1)))
+
+
+assert encodable("file", "status") == set(gui.FILE_STATUS_LABELS), (
+    gui.FILE_STATUS_LABELS
+)
+assert encodable("playlist", "status") == set(gui.PLAYLIST_STATUS_LABELS), (
+    gui.PLAYLIST_STATUS_LABELS
+)
+assert encodable("stage", "name") == set(gui.STAGE_LABELS), gui.STAGE_LABELS
 
 # ------------------------------------------------------------ preview player
 #

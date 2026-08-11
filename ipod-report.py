@@ -7,6 +7,11 @@ parsing "iPod now holds 42 track(s)". This writes the same facts as JSON, and
 it is one program rather than a helper in each script so that every report
 names, orders and escapes its fields the same way.
 
+Two shapes of report live here. A device or capability report is one document
+about a moment; the progress stream is one object per line about a run that is
+still going, and it is the same program because the escaping question is the
+same one.
+
 Python rather than shell because JSON is not something a shell can emit
 safely. Track and playlist names on this device come from tags and from
 YouTube titles, so a quote, a backslash or a newline in one is ordinary, and
@@ -323,6 +328,166 @@ def capability_report(lines):
     }
 
 
+# --------------------------------------------------------------- progress
+#
+# What a long operation is doing while it is still doing it, one JSON object
+# per line. The scripts hand their events over a pipe rather than writing the
+# JSON themselves, for the reason at the top of this file: a track name came
+# from a tag or a YouTube title, so a quote, a backslash or a newline in one is
+# ordinary. One interpreter for a whole run rather than one per event, because
+# a sync copies thousands of files and starting Python for each would cost more
+# than the copying does.
+#
+# Fields arrive separated by the unit separator, records by NUL - the one byte
+# a filename cannot hold, so no name can break a record in half.
+
+# Every event, its fields in the order they are written, and the type each
+# field arrives as. An event or a field that is not here is a mistake in the
+# script that sent it rather than something to pass through: the whole point of
+# the stream is that a reader can rely on its shape, and a typo that reached a
+# consumer as valid JSON would be a silent one.
+PROGRESS_EVENTS = {
+    "start": {"script": str},
+    "device": {"ipod": str},
+    "plan": {"total": int},
+    "stage": {"name": str, "state": str},
+    "file": {"status": str, "name": str, "dest": str, "done": int, "total": int},
+    "playlist": {
+        "status": str,
+        "name": str,
+        "tracks": int,
+        "done": int,
+        "total": int,
+    },
+    "result": {
+        "code": int,
+        "copied": int,
+        "duplicates": int,
+        "unsupported": int,
+        "broken": int,
+        "removed": int,
+        "playlists": int,
+        "tracks": int,
+    },
+}
+
+# What each event cannot be read without. Everything else is optional, because
+# a counter a script does not keep is better left out than sent as a zero that
+# reads as a measurement.
+PROGRESS_REQUIRED = {
+    "start": ("script",),
+    "device": ("ipod",),
+    "plan": ("total",),
+    "stage": ("name", "state"),
+    "file": ("status", "name", "done", "total"),
+    "playlist": ("status", "name", "done", "total"),
+    "result": ("code",),
+}
+
+# The fields that are drawn from a fixed vocabulary rather than from the
+# device. Pinned here so that a consumer showing a word per status knows the
+# whole set it has to have a word for, and so a misspelled one fails here
+# instead of arriving as a status nothing has ever heard of.
+PROGRESS_VOCABULARY = {
+    ("start", "script"): ("sync", "remove", "wipe"),
+    ("stage", "name"): ("backup", "clear", "copy", "rebuild"),
+    ("stage", "state"): ("start", "done"),
+    ("file", "status"): ("copied", "duplicate", "missing", "broken", "removed"),
+    ("playlist", "status"): ("written", "removed", "skipped"),
+}
+
+
+def progress_value(event, field, kind, value):
+    """One field of an event, as the type and vocabulary it is declared with."""
+    if kind is int:
+        try:
+            return int(value)
+        except ValueError:
+            raise ValueError(
+                f"{event}.{field} is a number, not {value!r}"
+            ) from None
+    allowed = PROGRESS_VOCABULARY.get((event, field))
+    if allowed is not None and value not in allowed:
+        raise ValueError(f"{event}.{field} is not one of {allowed}: {value!r}")
+    return value
+
+
+def progress_document(record):
+    """One event of the stream, from the record a script wrote.
+
+    The record is the event's name followed by alternating field names and
+    values. Fields come back in the order they are declared rather than the
+    order they were written, so two runs of the same event read the same way.
+    """
+    fields = record.split(RECORD_SEPARATOR)
+    # Written with a separator after every field, so the last one is followed
+    # by an empty string that is punctuation rather than a value.
+    if fields and fields[-1] == "":
+        fields.pop()
+    name = fields[0] if fields else ""
+    declared = PROGRESS_EVENTS.get(name)
+    if declared is None:
+        raise ValueError(f"unknown progress event: {name!r}")
+    pairs = fields[1:]
+    if len(pairs) % 2:
+        raise ValueError(f"progress event {name} has a field with no value")
+
+    values = {}
+    for field, value in zip(pairs[::2], pairs[1::2]):
+        if field not in declared:
+            raise ValueError(f"progress event {name} has no field {field!r}")
+        values[field] = progress_value(name, field, declared[field], value)
+    missing = [field for field in PROGRESS_REQUIRED[name] if field not in values]
+    if missing:
+        raise ValueError(f"progress event {name} is missing {missing}")
+
+    document = {"event": name}
+    if name == "start":
+        # Only on the first event: a reader checks the shape of the stream
+        # once, and repeating it on every line would be noise on the ones that
+        # matter. Same number as the reports above, on the same rule.
+        document["schema"] = SCHEMA
+    if name == "result":
+        # Said by the stream rather than by both ends of it, so that what
+        # counts as success is decided in one place.
+        document["ok"] = values["code"] == 0
+    document.update(
+        {field: values[field] for field in declared if field in values}
+    )
+    return document
+
+
+def progress_stream(source, out):
+    """Turn a script's records into one JSON object per line, as they arrive.
+
+    Flushed per line, because the whole value of this stream is that it says
+    what is happening while it is still happening; a buffer would hand it over
+    once the run it describes had finished.
+    """
+    pending = b""
+    while True:
+        chunk = source.read1(65536)
+        if not chunk:
+            break
+        pending += chunk
+        while True:
+            record, separator, rest = pending.partition(b"\0")
+            if not separator:
+                break
+            pending = rest
+            # Undecodable bytes become the replacement character rather than
+            # being carried through: a name a FAT volume handed back as bytes
+            # no decode accepts is on its way to a label somebody reads, and a
+            # question mark in it is a better answer than a document a strict
+            # parser rejects.
+            document = progress_document(record.decode("utf-8", "replace"))
+            out.write(json.dumps(document) + "\n")
+            out.flush()
+    if pending:
+        raise ValueError("the progress stream ended part way through a record")
+    return 0
+
+
 def emit(document):
     """Write the document, or nothing at all.
 
@@ -344,7 +509,8 @@ def main(argv):
     if len(argv) < 2:
         print(
             "usage: ipod-report.py device|identity <mount-point>\n"
-            "       ipod-report.py capabilities  (records on stdin)",
+            "       ipod-report.py capabilities  (records on stdin)\n"
+            "       ipod-report.py progress      (records on stdin)",
             file=sys.stderr,
         )
         return 2
@@ -382,6 +548,26 @@ def main(argv):
             print(f"error: could not read the capabilities: {error}", file=sys.stderr)
             return 1
         return emit(document)
+
+    if action == "progress":
+        if len(argv) != 2:
+            print("error: progress takes its records on stdin", file=sys.stderr)
+            return 2
+        try:
+            return progress_stream(sys.stdin.buffer, sys.stdout)
+        except ValueError as error:
+            print(f"error: bad progress record: {error}", file=sys.stderr)
+            return 1
+        except OSError as error:
+            # Whoever asked for the stream has stopped reading it, most likely
+            # by closing the window the run was started from. The run itself is
+            # none of this program's business and carries on. Python flushes
+            # stdout again on the way out and would report the same broken pipe
+            # a second time, as an exception nobody can act on, so what is left
+            # of the stream goes nowhere instead.
+            print(f"error: could not write the progress: {error}", file=sys.stderr)
+            os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+            return 1
 
     print(f"error: unknown report: {action}", file=sys.stderr)
     return 2
