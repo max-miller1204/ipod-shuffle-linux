@@ -171,7 +171,7 @@ Taking such a playlist off the device is under the `⋯` beside the copy, which 
 
 Neither kind of playlist is sortable by column: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
 
-A playlist another program wrote is adopted by copying the `.m3u` into `~/Music/Playlists`, which is the folder the window reads: press **Refresh** and it is there among your own, an ordinary playlist you can edit from then on.
+A playlist another program wrote is adopted by copying the `.m3u` into `~/Music/Playlists`, which is the folder the window reads: press the refresh button in the header and it is there among your own, an ordinary playlist you can edit from then on.
 Its entries have to be absolute paths to files this computer holds, since nothing rewrites them on the way in: a relative entry is read against `~/Music/Playlists` rather than the folder the list came from, and an entry naming a file that is not there is a line that finds nothing.
 Only `.m3u` is read, so a `.pls` does not appear in the window at all until it is converted.
 
@@ -458,7 +458,6 @@ A machine with no speech engine passes the same two flags, and the builder write
 Which action asked for the rebuild makes no difference: every change to the device ends in one, and `ipod-remove.sh` reaches the same builder through the options saved on the iPod rather than through anything the app passes.
 Passing the flags anyway is what makes that recoverable rather than permanent: they are saved to the device, so the next rebuild from a machine that can speak records every name again, whereas dropping them would clear the saved options too.
 Install a speech engine before changing anything on an iPod that already announces its playlists; the **Device & Settings** page warns when this machine has none, and the confirmation before a removal or a rename says it again.
-The playlist file and its tracks join the staged queue until you press **Sync**.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
 

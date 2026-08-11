@@ -1,0 +1,27 @@
+The note records what shipped, so the two claims it turns on were run rather
+than read.
+
+1. "_sync_options returns ["--voiceover", "--playlist-voiceover"]
+   unconditionally". Called through the package, once as a machine that can
+   speak and once as one that cannot - the case the rejected --forget-options
+   fallback would have changed:
+
+   has_speech_engine()=True  -> ipod-sync.sh --voiceover --playlist-voiceover
+   has_speech_engine()=False -> ipod-sync.sh --voiceover --playlist-voiceover
+
+   Same flags either way, which is what the note says and what the spec
+   paragraph above it had specified otherwise.
+
+2. What the commit did to the roadmap, read as goals rather than as lines of
+   JSON - one goal appended, one goal's description extended, nothing else
+   touched, and the ninth "Done <date>." note joining the eight already there:
+
+   before revision 148: 29 goals, 20 done, 8 carrying a 'Done <date>.' note
+   after  revision 152: 30 goals, 20 done, 9 carrying a 'Done <date>.' note
+   added:    ['refuse-a-device-playlist-rename-that']
+   removed:  []
+   edited:   ['drop-the-sync-options-card-and-the']
+   reads the corrected goal as a prerequisite: ['a-headless-cli-over-the-ipod-gui-package']
+
+   The revision moved 148 -> 152 rather than by one, because each of the four
+   commits on this branch was a separate stepstone CLI write.

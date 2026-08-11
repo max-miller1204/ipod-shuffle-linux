@@ -1,0 +1,67 @@
+The worklist as its own consumer reads it. Every command below was run from
+the worktree against the committed .pi/worklist.json - no copy, no fixture -
+with the published CLI: npx -y stepstone@latest.
+
+1. The goal the review found contradicting itself, read back whole. The
+   original spec paragraph still says what was planned; the note appended
+   under it says what shipped instead, and why.
+
+   $ npx -y stepstone@latest project show drop-the-sync-options-card-and-the
+   drop-the-sync-options-card-and-the: Drop the Sync options card and the three add buttons from Device and settings
+   status: done
+   group: UI
+   created: 2026-08-07T21:41:30.889Z
+   updated: 2026-08-11T05:18:23.555Z
+   completed: 2026-08-10T17:42:42.872Z
+   depends on:
+     let-the-search-box-own-pasted-youtube [done]
+   blocks:
+     a-headless-cli-over-the-ipod-gui-package
+   description:
+   Everything under Sync options on the Device and settings page is now reachable elsewhere in the GUI, so the card and the three action buttons beside it go.
+   
+   Remove the Playlist grouping ComboRow and the Speak track names / Speak playlist names switches from _build_sync_options (ipod_gui/device_view.py:203). Syncing should always use no automatic grouping with both spoken names on, so _sync_options (device_view.py:884) returns ["--voiceover", "--playlist-voiceover"], falling back to ["--forget-options"] when has_speech_engine() is false, because spoken names cannot be generated without an engine. Keep the warning card that explains a missing engine. Passing explicit flags is also what clears stale state rather than needing a migration: ipod-sync.sh replays a device's saved .sync-options only when DB_ARGS is empty (ipod-sync.sh:130), so a device that already has --auto-dir-playlists written into iPod_Control/.sync-options stops grouping on its next sync.
+   
+   Remove the three buttons at device_view.py:287-309 (Add music folder..., Import playlist file..., Add from YouTube...) along with the dialog plumbing only they reach: on_add_music (queue.py:551), on_import_playlist (playlist_view.py:1099), on_add_youtube (queue.py:622), _on_youtube_response and _offer_clipboard_url. Keep _discover_music_folder, _import_playlist and _start_youtube_download. Those take a path or a URL directly instead of opening a chooser, they are where the actual work lives, and they are the seam the headless CLI and Gio actions goals under Agent interfaces would drive. _start_youtube_download already has three other callers, and _import_playlist is a thin wrapper over import_playlist_file (playlists.py:274), which stays regardless.
+   
+   The home page already covers what the buttons did. youtube_search_target (youtube.py:83) detects a pasted link and looks it up as itself rather than searching for the text as a phrase, so a URL pasted into search resolves to that video. Folders are added under Music folders and their tracks queued from the Library. Playlists are made with the New button. The Whole playlist toggle is the one thing search does not yet cover, which is why "Let the search box own pasted YouTube links" is a prerequisite rather than this goal accepting the loss: that goal moves whole playlist downloading into the search results, and this one must not land first.
+   
+   Also update the button list in window.py:187-189, the sensitivity rules in _update_device_controls (device_view.py:626-633), _load_sync_options (device_view.py:871) and its probe call at device_view.py:460, and saved_sync_options (device.py:105, called at device.py:485), which decodes the grouping mode out of .sync-options and would be left with no reader. Tests that touch this surface: tests/gui-window-build.py, tests/gui-state-smoke.py, tests/gui-actions-smoke.py, tests/gui-playlists.py.
+   
+   Worth landing before "A headless CLI over the ipod_gui package" so the CLI does not wrap controls that are about to disappear.
+   
+   Done 2026-08-11, with two deviations from the spec above.
+   
+   _sync_options returns ["--voiceover", "--playlist-voiceover"] unconditionally; the --forget-options fallback specified above was rejected during review. --forget-options makes ipod-sync.sh delete iPod_Control/.sync-options, and the device-playlist drag reorder runs a rebuild with no speech gate at all, so one drag on a machine with no engine erased the saved state and every later replay-based rebuild ran bare - including the one ipod-remove.sh does for the GUI's own per-track Remove. Passing the flags still retires a stale --auto-dir-playlists, which was the actual requirement, because ipod-sync.sh overwrites that file with whatever it is given.
+   
+   Related and worth knowing before touching this: the builder empties iPod_Control/Speakable/Tracks and Speakable/Playlists at the start of every run and only refills what it can speak, so any sync or rebuild from a machine with no engine leaves the whole device unnamed. That predates this goal and is not fixed by it. What the flags buy is the way back, since they are saved to the device and the next rebuild from a machine that can speak records every name again. The Device & Settings warning card and the three confirmation dialogs that rebuild - remove track, delete device playlist, rename device playlist - now say so.
+   
+   Adopting a foreign playlist file left the GUI rather than moving: on_import_playlist is gone and _import_playlist has no caller but the tests. A .pls and a relative-path .m3u have no route in at all until the headless CLI and Gio actions goals land, which the README now states plainly. That was accepted deliberately.
+   
+   Split out of the review: "Refuse a device playlist rename that cannot restage the new name".
+
+2. The goal the review split out, now filed on its own.
+
+   $ npx -y stepstone@latest project show refuse-a-device-playlist-rename-that
+   refuse-a-device-playlist-rename-that: Refuse a device playlist rename that cannot restage the new name
+   status: open
+   group: Playlists
+   created: 2026-08-11T05:25:25.499Z
+   updated: 2026-08-11T05:37:11.932Z
+   description:
+   Renaming a playlist that is already on the iPod takes it off the device and cannot always put it back.
+   
+   _on_rename_response (ipod_gui/playlist_view.py) renames the local file, calls _stage_playlist(new_name), and then calls _remove_device_playlist(old_name) regardless of whether the staging succeeded. _stage_playlists returns early with the not-queued note when playlist_unavailable is set, so on a machine with no speech engine nothing is staged - and the removal still runs, so ipod-remove.sh strips the playlist off the device. Send to iPod cannot restage it either, because _can_send_playlist also requires speech_engine_available. The playlist leaves the iPod and stays gone until an engine is installed and the user notices they have to re-send it.
+   
+   It is not a one-line guard, because nothing _stage_playlists hands back says whether staging was possible: it returns "" for non-failure cases as well, so an empty note does not mean "did not stage". Renaming an empty playlist the device holds is the case that breaks the obvious reading. It takes the not-entries-and-not-on-device branch, since the new name is not on the device yet, so nothing is wanted and the call returns "" - while _playlist_on_device(old_name) is still true and the removal is exactly what should run. Skip it there and the old name stays on the iPod as a device-only playlist: its row's Delete still reaches it, but no automatic path takes it off any more, because that name is never staged again. Finding a signal that separates "could not stage" from "nothing to stage" is the actual work, wherever that signal ends up living.
+   
+   Split out of "Drop the Sync options card and the three add buttons from Device and settings", which corrected the dialog's wording so it stops promising a sync that cannot happen.
+   
+
+3. It is not filed off to one side: the CLI lists it in the unblocked
+   frontier a session picks work from.
+
+   $ npx -y stepstone@latest project ready
+   [open] json-output-and-stable-exit-codes-for: JSON output and stable exit codes for the shell scripts
+   [open] images-in-songs-playlists: Images in songs + playlists
+   [open] refuse-a-device-playlist-rename-that: Refuse a device playlist rename that cannot restage the new name
