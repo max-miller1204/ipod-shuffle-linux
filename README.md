@@ -461,7 +461,7 @@ That is also what retires a grouping an earlier version of the app was told to u
 A machine with no speech engine passes the same two flags, and the builder writes no recordings rather than failing - but it empties `iPod_Control/Speakable/Tracks` and `Speakable/Playlists` at the start of every run and only refills what it can speak, so anything done from such a machine that rebuilds the database leaves the whole device unnamed, including names another computer recorded.
 Which action asked for the rebuild makes no difference: every change to the device ends in one, and `ipod-remove.sh` reaches the same builder through the options saved on the iPod rather than through anything the app passes.
 Passing the flags anyway is what makes that recoverable rather than permanent: they are saved to the device, so the next rebuild from a machine that can speak records every name again, whereas dropping them would clear the saved options too.
-Install a speech engine before changing anything on an iPod that already announces its playlists; the **Device & Settings** page warns when this machine has none, and every confirmation that runs a rebuild says it again.
+Install a speech engine before changing anything on an iPod that already announces its playlists; the **Device & Settings** page warns when this machine has none, and the confirmation before a removal says it again.
 Renaming a playlist the device holds is the one such press it can refuse outright rather than confirm, because that one also has to put the new name back on afterwards, which it cannot.
 A playlist listing no tracks has nothing to put back, so that rename is confirmed like any other change to the device, carrying the same warning about the names it costs.
 
