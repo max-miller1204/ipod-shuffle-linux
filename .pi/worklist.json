@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 150,
+  "revision": 151,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -331,11 +331,11 @@
     {
       "id": "refuse-a-device-playlist-rename-that",
       "title": "Refuse a device playlist rename that cannot restage the new name",
-      "description": "Renaming a playlist that is already on the iPod takes it off the device and cannot always put it back.\n\n_on_rename_response (ipod_gui/playlist_view.py) renames the local file, calls _stage_playlist(new_name), and then calls _remove_device_playlist(old_name) regardless of whether the staging succeeded. _stage_playlists returns early with the not-queued note when playlist_unavailable is set, so on a machine with no speech engine nothing is staged - and the removal still runs, so ipod-remove.sh strips the playlist off the device. Send to iPod cannot restage it either, because _can_send_playlist also requires speech_engine_available. The playlist leaves the iPod and stays gone until an engine is installed and the user notices they have to re-send it.\n\nThe fix is to make the removal conditional on the new name actually being stageable: if _stage_playlist did not stage, leave the device playlist where it is, rename here only, and say so. That is a behaviour change to a confirmation flow, which is why it was split out of the goal above rather than folded into it - that branch corrected the dialog wording so it stops promising a sync that cannot happen, and this goal makes the wording unnecessary.\n\nWorth checking whether the same shape exists anywhere else that pairs a stage with a removal, and whether the guard belongs in _stage_playlist's return value rather than at each call site.",
+      "description": "Renaming a playlist that is already on the iPod takes it off the device and cannot always put it back.\n\n_on_rename_response (ipod_gui/playlist_view.py) renames the local file, calls _stage_playlist(new_name), and then calls _remove_device_playlist(old_name) regardless of whether the staging succeeded. _stage_playlists returns early with the not-queued note when playlist_unavailable is set, so on a machine with no speech engine nothing is staged - and the removal still runs, so ipod-remove.sh strips the playlist off the device. Send to iPod cannot restage it either, because _can_send_playlist also requires speech_engine_available. The playlist leaves the iPod and stays gone until an engine is installed and the user notices they have to re-send it.\n\nThe shape of the fix is to make the removal conditional on the new name actually being stageable: if the new name did not reach the queue, leave the device playlist where it is, rename here only, and say so. That is a behaviour change to a confirmation flow, which is why it was split out of \"Drop the Sync options card and the three add buttons from Device and settings\" rather than folded into it - the branch that landed that goal corrected the dialog wording so it stops promising a sync that cannot happen, and this goal makes the wording unnecessary.\n\nThe trap is taking the note _stage_playlists returns as that signal. It returns \"\" for non-failure cases too, so \"if note:\" is not the test. Renaming an empty playlist that the device holds takes the not-entries-and-not-on-device branch - the new name is not on the device yet, so nothing is wanted and the call returns \"\" - while _playlist_on_device(old_name) is still true and the removal is exactly what should run, being the only thing that will ever take the old empty list off the iPod. A guard that reads \"\" as \"did not stage\" skips it and strands that playlist on the device with nothing left to remove it.\n\nThat is why the open question is the actual work: the guard probably belongs in _stage_playlist's return value rather than at each call site, and to carry one it has to tell \"could not stage\" apart from \"nothing to stage\". Worth checking whether the same shape exists anywhere else that pairs a stage with a removal.\n",
       "group": "Playlists",
       "status": "open",
       "createdAt": "2026-08-11T05:25:25.499Z",
-      "updatedAt": "2026-08-11T05:25:25.499Z"
+      "updatedAt": "2026-08-11T05:31:04.838Z"
     }
   ],
   "retiredIds": [
