@@ -1894,10 +1894,15 @@ grep -Fq 'yt-dlp is too old' "$EVIDENCE_DIR/old-yt-dlp-fallback.txt"
 # rather than as the sentence beside it. Both streams go to the evidence file,
 # because a code is only useful while the sentence still says what happened,
 # and stdin comes from /dev/null so a prompt is declined rather than waited on.
+#
+# The status the run actually produced is left in LAST_EXIT_CODE, so a check
+# that two programs agree on a code can compare what they returned.
+LAST_EXIT_CODE=0
 exit_code_is() {
     local expected="$1" evidence="$2" status=0
     shift 2
     "$@" > "$EVIDENCE_DIR/$evidence" 2>&1 < /dev/null || status=$?
+    LAST_EXIT_CODE="$status"
     if (( status != expected )); then
         echo "expected exit $expected, got $status: $*" >&2
         exit 1
@@ -1950,6 +1955,9 @@ IPOD_DB_TOOL="$TEST_ROOT/vanishing-db-builder.py" \
     exit_code_is 5 exit-code-device-gone.txt \
     "$ROOT/ipod-sync.sh" --ipod "$VANISH_IPOD" --yes "$VANISH_SOURCE"
 grep -Fq 'stopped answering' "$EVIDENCE_DIR/exit-code-device-gone.txt"
+# What a script leaves with when the volume goes away, kept for the writer to
+# be held against further down: it has to answer with this same number.
+lib_gone_code="$LAST_EXIT_CODE"
 
 # The other half of that guard, and the reason it looks at the device rather
 # than at the failure: a builder that fails while the iPod is still sitting
@@ -2000,11 +2008,28 @@ exit_code_is 1 exit-code-not-on-the-ipod.txt \
     "$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" --yes '../escape.mp3'
 
 # The one number ipod-report.py has to repeat, because a report run on its own
-# still has to be able to say the device went away.
-report_gone_code="$(sed -n 's/^EXIT_DEVICE_GONE = \([0-9]*\)$/\1/p' "$ROOT/ipod-report.py")"
-lib_gone_code="$(sed -n 's/^readonly EXIT_DEVICE_GONE=\([0-9]*\)$/\1/p' "$ROOT/lib.sh")"
-test -n "$report_gone_code"
-test "$report_gone_code" = "$lib_gone_code"
+# still has to be able to say the device went away. Taken from the writer by
+# running it rather than by reading it: once over a device it can describe, so
+# the answer below is a device that went rather than a report that never
+# works, and then over the same path with the volume gone, where it owes the
+# caller the number the scripts produced above and nothing on stdout to read
+# as a device.
+REPORT_GONE_IPOD="$TEST_ROOT/report-gone-ipod"
+mkdir -p "$REPORT_GONE_IPOD/iPod_Control/Music/Beach Boys" \
+    "$REPORT_GONE_IPOD/iPod_Control/iTunes"
+printf 'a song\n' > "$REPORT_GONE_IPOD/iPod_Control/Music/Beach Boys/Surfin.mp3"
+/usr/bin/python3 "$ROOT/ipod-report.py" device "$REPORT_GONE_IPOD" \
+    > "$EVIDENCE_DIR/report-device-present.json"
+grep -Fq '"Beach Boys/Surfin.mp3"' "$EVIDENCE_DIR/report-device-present.json"
+
+rm -rf -- "$REPORT_GONE_IPOD"
+report_gone_code=0
+/usr/bin/python3 "$ROOT/ipod-report.py" device "$REPORT_GONE_IPOD" \
+    > "$EVIDENCE_DIR/report-device-gone.json" \
+    2> "$EVIDENCE_DIR/report-device-gone.txt" || report_gone_code=$?
+test "$report_gone_code" -eq "$lib_gone_code"
+test ! -s "$EVIDENCE_DIR/report-device-gone.json"
+grep -Fq 'stopped answering' "$EVIDENCE_DIR/report-device-gone.txt"
 
 # --check answers what this machine can do without installing anything, which
 # is the point of it: a caller has to be able to ask before deciding to.
@@ -2156,6 +2181,7 @@ printf '%s\n' \
     "PASS: an unreadable options file and an unreadable album produced no report at all" \
     "PASS: no iPod, several iPods, a vanished one, a missing dependency and a refusal each got their own code" \
     "PASS: a builder that failed with the iPod still connected stayed a plain failure" \
+    "PASS: the report writer answered a vanished device with the scripts' own code" \
     "PASS: --check reported what is installed without installing, and its code matched its document" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
