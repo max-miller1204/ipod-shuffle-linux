@@ -2137,6 +2137,142 @@ assert prose.count(" unavailable (") == available.count(False), prose
 PY
 test ! -s "$EVIDENCE_DIR/install-check-json-stderr.txt"
 
+# The last thing an install does is print that same report, now that the
+# install has had its turn, so a person watching one finish and a caller that
+# asked --check are told the same thing. Every other installer run here stops
+# early on purpose and never reaches it, so this one has to finish: two
+# stand-ins take the place of the network, a local repository for the database
+# builder and a virtualenv whose pip has no index to reach, and the shipped
+# script does the rest.
+FULL_TOOLS="$TEST_ROOT/full-install-tools"
+FULL_XDG="$TEST_ROOT/full-install-xdg"
+UPSTREAM_STUB="$TEST_ROOT/upstream-db-tool"
+
+mkdir -p "$UPSTREAM_STUB"
+printf '%s\n' '"""Stand-in for the upstream database builder."""' \
+    > "$UPSTREAM_STUB/ipod-shuffle-4g.py"
+git -c init.defaultBranch=main -C "$UPSTREAM_STUB" init --quiet
+git -C "$UPSTREAM_STUB" add ipod-shuffle-4g.py
+git -C "$UPSTREAM_STUB" \
+    -c user.name=Tests -c user.email=tests@example.invalid \
+    commit --quiet -m 'Stand-in database builder'
+# Cloned here rather than by the installer, which would have to reach GitHub
+# for it; the update path it takes instead is the same git and the same
+# working tree afterwards.
+git clone --quiet "$UPSTREAM_STUB" "$FULL_TOOLS/IPod-Shuffle-4g"
+
+mkdir -p "$FULL_TOOLS/venv/bin" "$FULL_TOOLS/venv/site"
+cat > "$FULL_TOOLS/venv/bin/python" <<'STUB'
+#!/bin/sh
+# The virtualenv's interpreter: the system one, seeing only what pip has put
+# in the site directory beside it.
+PYTHONPATH="$(dirname "$0")/../site"
+export PYTHONPATH
+exec /usr/bin/python3 "$@"
+STUB
+cat > "$FULL_TOOLS/venv/bin/pip" <<'STUB'
+#!/bin/sh
+# No index to reach, but it does for mutagen what the real one does: puts it
+# where the interpreter beside it will find it, and not a moment before it is
+# asked to. That is what tells a report taken after the install from one
+# taken before it.
+here="$(dirname "$0")"
+printf '%s\n' "$*" > "$here/../pip-invocation.txt"
+printf '%s\n' 'version_string = "1.47.0-stand-in"' > "$here/../site/mutagen.py"
+STUB
+cat > "$FULL_TOOLS/venv/bin/yt-dlp" <<'STUB'
+#!/bin/sh
+case "$1" in
+    --version) printf '%s\n' '2025.11.12' ;;
+    --help)    printf '%s\n' '  --js-runtimes RUNTIMES  Runtimes to use' ;;
+esac
+STUB
+chmod +x "$FULL_TOOLS/venv/bin/python" "$FULL_TOOLS/venv/bin/pip" \
+    "$FULL_TOOLS/venv/bin/yt-dlp"
+
+# The suite's own builder and interpreter are dropped for these runs, so the
+# installer works on the tools directory it was pointed at, the way it does on
+# a real machine.
+full_install() {
+    env -u IPOD_DB_TOOL -u IPOD_VENV_PYTHON -u IPOD_VENV_YT_DLP \
+        IPOD_TOOLS_DIR="$FULL_TOOLS" XDG_DATA_HOME="$FULL_XDG" \
+        "$ROOT/install.sh" "$@"
+}
+
+full_before_status=0
+full_install --check \
+    > "$EVIDENCE_DIR/install-complete-before.txt" 2>&1 || full_before_status=$?
+test "$full_before_status" -eq 6
+test ! -e "$FULL_TOOLS/venv/site/mutagen.py"
+
+full_install --no-system > "$EVIDENCE_DIR/install-complete.txt" 2>&1
+grep -Fq -- "-r $ROOT_REAL/requirements.txt" "$FULL_TOOLS/venv/pip-invocation.txt"
+grep -Fq 'mutagen 1.47.0-stand-in' "$EVIDENCE_DIR/install-complete.txt"
+grep -Fq 'yt-dlp 2025.11.12' "$EVIDENCE_DIR/install-complete.txt"
+grep -Fq 'Done.' "$EVIDENCE_DIR/install-complete.txt"
+
+full_after_status=0
+full_install --check \
+    > "$EVIDENCE_DIR/install-complete-after.txt" 2>&1 || full_after_status=$?
+
+/usr/bin/python3 - \
+    "$EVIDENCE_DIR/install-complete-before.txt" \
+    "$EVIDENCE_DIR/install-complete.txt" \
+    "$EVIDENCE_DIR/install-complete-after.txt" \
+    "$full_after_status" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+CAPABILITY = re.compile(
+    r"^(?:==>|warning:)   (\S.*?)  +(ok|unavailable)(?: \((.*)\))?$"
+)
+
+
+def capabilities(path, heading):
+    """The capability lines a report printed, as (label, verdict, detail)."""
+    text = re.sub(r"\x1b\[[0-9;]*m", "", Path(path).read_text(encoding="utf-8"))
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        if line.endswith(heading):
+            lines = lines[index + 1:]
+            break
+    else:
+        raise AssertionError(f"no {heading} section in {path}")
+    found = [match.groups() for match in map(CAPABILITY.match, lines) if match]
+    assert found, f"no capability lines under {heading} in {path}"
+    return found
+
+
+def verdict(entries, label):
+    matches = [entry[1] for entry in entries if entry[0] == label]
+    assert len(matches) == 1, (label, entries)
+    return matches[0]
+
+
+before = capabilities(sys.argv[1], "Dependencies")
+verifying = capabilities(sys.argv[2], "Verifying")
+after = capabilities(sys.argv[3], "Dependencies")
+status = int(sys.argv[4])
+
+# One probe pass over the nine capabilities, rendered where the install ends,
+# rather than a verification section written in its own words: the same
+# capabilities with the same verdicts and the same details --check reports of
+# the machine the install left behind.
+assert len(verifying) == 9, verifying
+assert verifying == after, (verifying, after)
+assert status == (0 if all(e[1] == "ok" for e in after) else 6), status
+
+# And taken after the install rather than before it. mutagen reaches the
+# virtualenv during the run, so a report assembled any earlier would still be
+# calling metadata support missing here - which is exactly what the same
+# command said before the run.
+assert verdict(before, "metadata support") == "unavailable", before
+assert verdict(verifying, "metadata support") == "ok", verifying
+for installed in ("python virtualenv", "database builder"):
+    assert verdict(verifying, installed) == "ok", verifying
+PY
+
 exit_code_is 1 install-json-without-check.txt "$ROOT/install.sh" --json
 grep -Fq -- '--json only reports' "$EVIDENCE_DIR/install-json-without-check.txt"
 exit_code_is 1 remove-json-without-list.txt \
@@ -2222,6 +2358,7 @@ printf '%s\n' \
     "PASS: the report writer answered a vanished device with the scripts' own code" \
     "PASS: a machine without python3 got the dependency code once, and still listed" \
     "PASS: --check reported what is installed without installing, and its code matched its document" \
+    "PASS: an install that finished ended with the report --check prints, taken after it" \
     > "$EVIDENCE_DIR/product-e2e-summary.txt"
 
 cat "$EVIDENCE_DIR/product-e2e-summary.txt"

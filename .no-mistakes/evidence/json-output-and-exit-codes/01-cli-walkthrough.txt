@@ -1,0 +1,409 @@
+
+======================================================================
+SETUP: a real sync onto a fake iPod, so there is something to report on
+
+======================================================================
+
+$ ./ipod-sync.sh --ipod /tmp/tmp.oak1W99ioN/iPod --playlist-voiceover /tmp/tmp.oak1W99ioN/Music/Summer Mix.m3u /tmp/tmp.oak1W99ioN/Music/Quiet "one".m3u
+==> iPod: /tmp/tmp.oak1W99ioN/iPod
+  + Surfin'.mp3 -> Beach Boys/Surfin'.mp3
+  + Harvest Moon.mp3 -> Neil Young/Harvest Moon.mp3
+==> Playlist 'Summer Mix': 2 track(s)
+warning: Playlist name contains characters FAT rejects; it will be called 'Quiet _one_' on the device.
+  + Heart of Gold.mp3 -> Neil Young/Heart of Gold.mp3
+==> Playlist 'Quiet _one_': 1 track(s)
+==> Copied 3 file(s)
+==> Rebuilding iTunesSD database
+==> iPod now holds 3 track(s)
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+wrote the spoken recording for 'Summer Mix' as ec24d229a9428fb4.wav
+
+======================================================================
+1. THE READ-ONLY SURFACE: what --list said before, and what --json says now
+
+======================================================================
+
+$ ./ipod-remove.sh --ipod /tmp/tmp.oak1W99ioN/iPod --list
+Beach Boys/Surfin'.mp3
+Neil Young/Harvest Moon.mp3
+Neil Young/Heart of Gold.mp3
+[exit 0]
+
+$ ./ipod-remove.sh --ipod /tmp/tmp.oak1W99ioN/iPod --list --json
+{
+  "schema": 1,
+  "mount_point": "/tmp/tmp.oak1W99ioN/iPod",
+  "identity": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc",
+  "storage": {
+    "total_bytes": 491001659392,
+    "used_bytes": 116189978624,
+    "free_bytes": 349794914304
+  },
+  "track_count": 3,
+  "tracks": [
+    "Beach Boys/Surfin'.mp3",
+    "Neil Young/Harvest Moon.mp3",
+    "Neil Young/Heart of Gold.mp3"
+  ],
+  "playlists": [
+    {
+      "name": "Quiet _one_",
+      "spoken": false,
+      "entries": [
+        "Neil Young/Heart of Gold.mp3"
+      ]
+    },
+    {
+      "name": "Summer Mix",
+      "spoken": true,
+      "entries": [
+        "Beach Boys/Surfin'.mp3",
+        "Neil Young/Harvest Moon.mp3"
+      ]
+    }
+  ],
+  "sync_options": [
+    "--playlist-voiceover"
+  ]
+}
+[exit 0]
+
+======================================================================
+2. A CALLER USING IT: no prose parsed, no 'iPod now holds 42 track(s)'
+
+======================================================================
+
+$ /usr/bin/python3 /tmp/tmp.oak1W99ioN/consume.py ./.no-mistakes/evidence/json-output-and-exit-codes/02-device-report.json
+schema           1
+mount point      /tmp/tmp.oak1W99ioN/iPod
+identity         uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc
+free space       349.8 GB of 491.0 GB
+tracks           3
+                 Beach Boys/Surfin'.mp3
+                 Neil Young/Harvest Moon.mp3
+                 Neil Young/Heart of Gold.mp3
+playlist         Quiet _one_ (1 entries, silent on the device)
+playlist         Summer Mix (2 entries, announced)
+saved options    --playlist-voiceover
+
+a path from the report, handed straight back:
+  ./ipod-remove.sh --yes "Beach Boys/Surfin'.mp3"
+[exit 0]
+
+======================================================================
+3. install.sh --check: what is installed, without installing anything
+
+======================================================================
+
+$ ./install.sh --check
+==> Dependencies
+warning:   python virtualenv    unavailable (not created yet at /tmp/tmp.oak1W99ioN/tools/venv/bin/python)
+warning:   database builder     unavailable (not installed at /tmp/tmp.oak1W99ioN/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py)
+warning:   metadata support     unavailable (mutagen is not in the virtualenv)
+==>   graphical interface  ok (/usr/bin/python3)
+==>   preview playback     ok
+==>   voiceover            ok
+==>   audio conversion     ok
+==>   javascript runtime   ok (bun)
+warning:   youtube downloads    unavailable (no yt-dlp)
+[exit 6]
+
+$ ./install.sh --check --json
+{
+  "schema": 1,
+  "satisfied": false,
+  "capabilities": [
+    {
+      "id": "python-virtualenv",
+      "available": false,
+      "label": "python virtualenv",
+      "detail": "not created yet at /tmp/tmp.oak1W99ioN/tools/venv/bin/python",
+      "packages": []
+    },
+    {
+      "id": "database-builder",
+      "available": false,
+      "label": "database builder",
+      "detail": "not installed at /tmp/tmp.oak1W99ioN/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py",
+      "packages": []
+    },
+    {
+      "id": "metadata",
+      "available": false,
+      "label": "metadata support",
+      "detail": "mutagen is not in the virtualenv",
+      "packages": []
+    },
+    {
+      "id": "graphical-interface",
+      "available": true,
+      "label": "graphical interface",
+      "detail": "/usr/bin/python3",
+      "packages": [
+        "python3-gi",
+        "gir1.2-gtk-4.0",
+        "gir1.2-adw-1"
+      ]
+    },
+    {
+      "id": "preview-playback",
+      "available": true,
+      "label": "preview playback",
+      "detail": "",
+      "packages": [
+        "gir1.2-gstreamer-1.0",
+        "gstreamer1.0-plugins-base",
+        "gstreamer1.0-plugins-good",
+        "gstreamer1.0-plugins-bad"
+      ]
+    },
+    {
+      "id": "voiceover",
+      "available": true,
+      "label": "voiceover",
+      "detail": "",
+      "packages": [
+        "libttspico-utils"
+      ]
+    },
+    {
+      "id": "audio-conversion",
+      "available": true,
+      "label": "audio conversion",
+      "detail": "",
+      "packages": [
+        "ffmpeg"
+      ]
+    },
+    {
+      "id": "javascript-runtime",
+      "available": true,
+      "label": "javascript runtime",
+      "detail": "bun",
+      "packages": []
+    },
+    {
+      "id": "youtube-downloads",
+      "available": false,
+      "label": "youtube downloads",
+      "detail": "no yt-dlp",
+      "packages": []
+    }
+  ],
+  "missing_packages": []
+}
+[exit 6]
+
+the prose and the document left with the same code: 6 and 6
+nothing was installed and nothing was written:
+
+$ test ! -e /tmp/tmp.oak1W99ioN/tools
+[exit 0]
+
+$ test ! -e /tmp/tmp.oak1W99ioN/xdg
+[exit 0]
+
+# the same probe on a machine with no ffmpeg and no speech engine
+
+$ env PATH=/tmp/tmp.oak1W99ioN/no-ffmpeg-bin IPOD_TOOLS_DIR=/tmp/tmp.oak1W99ioN/tools XDG_DATA_HOME=/tmp/tmp.oak1W99ioN/xdg /usr/bin/python3 /tmp/tmp.oak1W99ioN/read-check.py ./install.sh
+exit 6 - satisfied: False
+  missing: python virtualenv    python3 cannot create one
+  missing: database builder     not installed at /tmp/tmp.oak1W99ioN/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py
+  missing: metadata support     mutagen is not in the virtualenv
+  missing: voiceover            no speech engine
+  missing: audio conversion     no ffmpeg
+  missing: javascript runtime   needs Deno >= 2.3, Node >= 22, or Bun 1.2.11-1.3.14
+  missing: youtube downloads    no yt-dlp
+  apt install python3-venv libttspico-utils ffmpeg
+[exit 0]
+
+======================================================================
+4. THE FIVE STATES, AS CODES A CALLER CAN BRANCH ON
+
+======================================================================
+
+# 3 - no iPod: nothing plugged in
+
+$ bash -c 
+    source "$1"; list_vfat_mounts() { :; }; find_ipod "" _ ./lib.sh
+error: No mounted iPod found. Plug it in, or pass the mount point explicitly.
+[exit 3]
+
+# 3 - no iPod: a path named explicitly with nothing at it
+
+$ ./ipod-remove.sh --ipod /tmp/tmp.oak1W99ioN/nothing-mounted-here --list
+error: Not a directory: /tmp/tmp.oak1W99ioN/nothing-mounted-here
+[exit 3]
+
+# 4 - several iPods, none of them named
+
+$ bash -c 
+    source "$1"; root="$2"
+    list_vfat_mounts() { printf "%s\n" "$root/one" "$root/two"; }
+    find_ipod "" _ ./lib.sh /tmp/tmp.oak1W99ioN/two
+error: Multiple iPods found; pass one explicitly:
+  /tmp/tmp.oak1W99ioN/two/one
+  /tmp/tmp.oak1W99ioN/two/two
+[exit 4]
+
+# 5 - the device stopped answering mid-operation
+
+$ env IPOD_DB_TOOL=/tmp/tmp.oak1W99ioN/vanishing-builder.py ./ipod-sync.sh --ipod /tmp/tmp.oak1W99ioN/vanishing-ipod --yes /tmp/tmp.oak1W99ioN/Music/Neil Young
+==> iPod: /tmp/tmp.oak1W99ioN/vanishing-ipod
+  + Heart of Gold.mp3 -> Neil Young/Heart of Gold.mp3
+  + Harvest Moon.mp3 -> Neil Young/Harvest Moon.mp3
+==> Copied 2 file(s)
+==> Rebuilding iTunesSD database
+error: The iPod stopped answering; it was unplugged or replaced mid-operation.
+[exit 5]
+
+# 1 - a builder that failed with the iPod still sitting there
+
+$ env IPOD_DB_TOOL=/tmp/tmp.oak1W99ioN/failing-builder.py ./ipod-sync.sh --ipod /tmp/tmp.oak1W99ioN/vanishing-ipod --yes /tmp/tmp.oak1W99ioN/Music/Neil Young
+==> iPod: /tmp/tmp.oak1W99ioN/vanishing-ipod
+  + Heart of Gold.mp3 -> Neil Young/Heart of Gold.mp3
+  + Harvest Moon.mp3 -> Neil Young/Harvest Moon.mp3
+==> Copied 2 file(s)
+==> Rebuilding iTunesSD database
+[exit 1]
+
+# 6 - a missing dependency: the database builder is not installed
+
+$ env IPOD_DB_TOOL=/tmp/tmp.oak1W99ioN/no-such-builder.py ./ipod-remove.sh --ipod /tmp/tmp.oak1W99ioN/iPod --yes Beach Boys/Surfin'.mp3
+==> iPod: /tmp/tmp.oak1W99ioN/iPod
+error: Database tool missing at /tmp/tmp.oak1W99ioN/no-such-builder.py - run ./install.sh first.
+[exit 6]
+the track is still on the device: yes
+
+# 7 - a declined prompt: unattended, so the answer is end of input
+
+$ ./ipod-remove.sh --ipod /tmp/tmp.oak1W99ioN/iPod Beach Boys/Surfin'.mp3
+==> iPod: /tmp/tmp.oak1W99ioN/iPod
+==> Reusing saved options: --playlist-voiceover
+==> About to remove 1 track(s):
+  Beach Boys/Surfin'.mp3
+warning: The iPod holds the only copy unless you have these elsewhere.
+error: Aborted.
+[exit 7]
+the track is still on the device: yes
+
+# 7 - the other prompt: a volume that may not be a shuffle
+
+$ ./ipod-wipe.sh --ipod /tmp/tmp.oak1W99ioN/not-a-shuffle
+warning: No iPod_Control/Speakable directory found.
+warning: This may not be a shuffle. These scripts only support the shuffle 3G/4G.
+error: Aborted.
+[exit 7]
+
+# 1 - an unknown flag
+
+$ ./ipod-remove.sh --no-such-flag
+error: Unknown option: --no-such-flag (try --help)
+[exit 1]
+
+# 1 - a path that is not on the device
+
+$ ./ipod-remove.sh --ipod /tmp/tmp.oak1W99ioN/iPod --yes ../escape.mp3
+==> iPod: /tmp/tmp.oak1W99ioN/iPod
+error: Not a path on this iPod: ../escape.mp3
+[exit 1]
+
+# 1 - --json asked for on a path that acts rather than reports
+
+$ ./ipod-remove.sh --ipod /tmp/tmp.oak1W99ioN/iPod --json Beach Boys/Surfin'.mp3
+error: --json only reports; add --list.
+[exit 1]
+
+# 1 - install.sh --json without --check
+
+$ ./install.sh --json
+error: --json only reports; add --check.
+[exit 1]
+
+======================================================================
+5. A DEFINITE ANSWER OR NO ANSWER, NEVER A STALE ONE
+
+======================================================================
+
+# an album the walk cannot enter: rglob would have yielded nothing and
+#  reported a full iPod as empty. stdout has to stay empty instead.
+$ ipod-remove.sh --list --json   # with an unreadable album
+stderr: error: could not read the iPod: [Errno 13] Permission denied: '/tmp/tmp.oak1W99ioN/iPod/iPod_Control/Music/Neil Young'
+stdout: 0 bytes
+[exit 1]
+
+# a saved-options file that exists and cannot be read
+$ ipod-remove.sh --list --json   # with an unreadable .sync-options
+stderr: error: could not read the iPod: [Errno 21] Is a directory: '/tmp/tmp.oak1W99ioN/iPod/iPod_Control/.sync-options'
+stdout: 0 bytes
+[exit 1]
+
+# the device pulled out from under the report itself
+
+$ /usr/bin/python3 ./ipod-report.py device /tmp/tmp.oak1W99ioN/gone-ipod
+{
+  "schema": 1,
+  "mount_point": "/tmp/tmp.oak1W99ioN/gone-ipod",
+  "identity": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc",
+  "storage": {
+    "total_bytes": 491001659392,
+    "used_bytes": 116190179328,
+    "free_bytes": 349794713600
+  },
+  "track_count": 1,
+  "tracks": [
+    "Beach Boys/Surfin.mp3"
+  ],
+  "playlists": [],
+  "sync_options": []
+}
+[exit 0]
+
+$ ipod-report.py device /tmp/tmp.oak1W99ioN/gone-ipod   # after it was unplugged
+stderr: error: the iPod stopped answering: /tmp/tmp.oak1W99ioN/gone-ipod stopped answering mid-read
+stdout: 0 bytes
+[exit 5]  <- the same 5 the scripts leave with
+
+# a machine with no python3 at all: the report says so once, with the
+#  dependency code, and the plain listing still answers without it
+$ PATH=<no python3> ipod-remove.sh --list --json
+stderr: error: python3 is required but not installed.
+stdout: 0 bytes
+[exit 6]
+
+$ PATH=<no python3> ipod-remove.sh --list
+Beach Boys/Surfin'.mp3
+Neil Young/Harvest Moon.mp3
+Neil Young/Heart of Gold.mp3
+[exit 0]
+
+======================================================================
+6. THE TABLE A CALLER BRANCHES ON, AS THE RUNS ABOVE LEFT IT
+
+======================================================================
+
+code  state
+----  -----------------------------------------------------------
+   6  install.sh --check with a capability missing
+   3  no iPod: nothing plugged in
+   3  no iPod: a path named explicitly with nothing at it
+   4  several iPods, none of them named
+   5  the device stopped answering mid-operation
+   1  a builder that failed with the iPod still sitting there
+   6  a missing dependency: the database builder is not installed
+   7  a declined prompt: unattended, so the answer is end of input
+   7  the other prompt: a volume that may not be a shuffle
+   1  an unknown flag
+   1  a path that is not on the device
+   1  --json asked for on a path that acts rather than reports
+   1  install.sh --json without --check
+   1  a report whose device holds an album it cannot read
+   1  a report whose device holds saved options it cannot read
+   5  the report writer alone, on a device that went away
+   6  --json on a machine with no python3 on it
+   0  --list on that same machine, which never needed python3
+
+======================================================================
+walkthrough finished

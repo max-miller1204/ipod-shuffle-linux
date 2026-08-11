@@ -1,0 +1,65 @@
+$ ipod-remove.sh --list --json   # every name here came from a tag
+{
+  "schema": 1,
+  "mount_point": "/tmp/tmp.CG1pZkwgrx/iPod",
+  "identity": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc",
+  "storage": {
+    "total_bytes": 491001659392,
+    "used_bytes": 116151132160,
+    "free_bytes": 349833760768
+  },
+  "track_count": 4,
+  "tracks": [
+    "He said \"hi\"/quote'd.mp3",
+    "Sigur R\u00f3s/Hopp\u00edpolla \u2605.mp3",
+    "Sigur R\u00f3s/undecodable-\udcff.mp3",
+    "back\\slash/tab\there.mp3"
+  ],
+  "playlists": [
+    {
+      "name": "F\u00f6s\u26a1tudagur",
+      "spoken": false,
+      "entries": [
+        "Sigur R\u00f3s/Hopp\u00edpolla \u2605.mp3"
+      ]
+    }
+  ],
+  "sync_options": []
+}
+[exit 0]
+
+the document is pure ASCII, so it stays valid under any locale: True
+it parses, and the names come back as they are on the volume:
+    'He said "hi"/quote\'d.mp3'
+    'Sigur Rós/Hoppípolla ★.mp3'
+    'Sigur Rós/undecodable-\udcff.mp3'
+    'back\\slash/tab\there.mp3'
+    playlist 'Fös⚡tudagur' -> ['Sigur Rós/Hoppípolla ★.mp3']
+
+# a caller acting on a path it read out of the report, unmodified -
+# including the one holding a byte no UTF-8 decode accepts
+
+$ ipod-remove.sh --yes Sigur\ Rós/Hoppípolla\ ★.mp3
+==> iPod: /tmp/tmp.CG1pZkwgrx/iPod
+==> Removed 1 track(s)
+==> Removed playlist 'Fös⚡tudagur': every track it listed is gone
+==> Rebuilding iTunesSD database
+==> iPod now holds 3 track(s)
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+$ ipod-remove.sh --yes $'Sigur Rós/undecodable-\377.mp3'
+==> iPod: /tmp/tmp.CG1pZkwgrx/iPod
+==> Removed 1 track(s)
+==> Rebuilding iTunesSD database
+==> iPod now holds 2 track(s)
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+$ ipod-remove.sh --list --json | python3 -c "read what is left"
+2 tracks left, and the playlist went with them:
+    'He said "hi"/quote\'d.mp3'
+    'back\\slash/tab\there.mp3'
+    playlists: []

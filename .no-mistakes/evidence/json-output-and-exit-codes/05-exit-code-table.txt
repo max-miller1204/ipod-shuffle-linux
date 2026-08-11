@@ -1,0 +1,18 @@
+   6  install.sh --check with a capability missing
+   3  no iPod: nothing plugged in
+   3  no iPod: a path named explicitly with nothing at it
+   4  several iPods, none of them named
+   5  the device stopped answering mid-operation
+   1  a builder that failed with the iPod still sitting there
+   6  a missing dependency: the database builder is not installed
+   7  a declined prompt: unattended, so the answer is end of input
+   7  the other prompt: a volume that may not be a shuffle
+   1  an unknown flag
+   1  a path that is not on the device
+   1  --json asked for on a path that acts rather than reports
+   1  install.sh --json without --check
+   1  a report whose device holds an album it cannot read
+   1  a report whose device holds saved options it cannot read
+   5  the report writer alone, on a device that went away
+   6  --json on a machine with no python3 on it
+   0  --list on that same machine, which never needed python3
