@@ -1,0 +1,18 @@
+== 09-a-playlist-made-here ==
+this machine has no speech engine
+has_speech_engine() answered: False
+playlist_unavailable: 'No speech engine installed'
+iPod the app found for itself: /tmp/rename-demo/MAX SHUFFLE
+device identity it resolved: uuid:/dev/sdz
+playlists it read off the device: ['Morning Ride']
+playlists here: ['Downloads']
+'Downloads': lists 2 track(s), on the iPod: False
+
+-- before the press --
+playlists on the iPod's volume root: ['Morning Ride.m3u']
+spoken name recordings on the device: 2
+playlist files here: ['Downloads.m3u']
+queued for the next sync: []
+
+the ⋯ on 'Downloads' offers: ['DOWNLOADS', 'Rename…', 'Delete…']
+screenshot: 09-a-playlist-made-heres-menu.png

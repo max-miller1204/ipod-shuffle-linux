@@ -1,0 +1,33 @@
+== 02-after-no-speech-engine ==
+this machine has no speech engine
+has_speech_engine() answered: False
+playlist_unavailable: 'No speech engine installed'
+iPod the app found for itself: /tmp/rename-demo/MAX SHUFFLE
+device identity it resolved: uuid:/dev/sdz
+playlists it read off the device: ['Morning Ride']
+playlists here: ['Downloads', 'Morning Ride']
+'Morning Ride': lists 2 track(s), on the iPod: True
+
+-- before the press --
+playlists on the iPod's volume root: ['Morning Ride.m3u']
+spoken name recordings on the device: 2
+playlist files here: ['Downloads.m3u', 'Morning Ride.m3u']
+queued for the next sync: []
+
+the ⋯ on 'Morning Ride' offers: ['MORNING RIDE', 'Rename…', 'Delete…']
+pressed: Rename…
+
+-- nothing opened: the press was refused --
+the window said: 'No speech engine installed, so renaming Morning Ride would take it off the iPod with nothing able to put the new name there'
+screenshot: 02-after-no-speech-engine-refused.png
+
+-- after the press --
+playlists on the iPod's volume root: ['Morning Ride.m3u']
+spoken name recordings on the device: 2
+playlist files here: ['Downloads.m3u', 'Morning Ride.m3u']
+queued for the next sync: []
+what the window said: ['No speech engine installed, so renaming Morning Ride would take it off the iPod with nothing able to put the new name there']
+taken off the iPod by this press: nothing
+
+-- the app's own output pane --
+(empty: no script was run)

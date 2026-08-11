@@ -25,8 +25,9 @@ falls back to the placeholder its name generates.
 
 Borrows from the window: `playlists` and `spoken` as the probe left them,
 `device_tracks` and `library` to resolve an entry into a track, `mount_point`,
-`device_identity`, `busy` and `speech_engine_available` to know what can reach
-the device, `_library_scan_running` and `_device_snapshot_ready` to know
+`device_identity`, `busy`, `speech_engine_available` and the
+`playlist_unavailable` reason derived beside it to know what can reach the
+device, `_library_scan_running` and `_device_snapshot_ready` to know
 whether those two readings can be quoted yet, and `show_view`, `_run`,
 `_toast`, `_confirmed_device`, `_sync_options`, `_queue_playlists`,
 `is_queued`, `unqueue_source`, `focus_search`, `on_delete_track` and
@@ -1184,6 +1185,31 @@ class PlaylistViewMixin:
     def _stage_playlist(self, name):
         return self._stage_playlists([name])
 
+    def _staging_wanted(self, playlist, on_device=None):
+        """Whether the next sync has anything to do about this playlist.
+
+        An emptied playlist still has to reach the sync, which is what removes
+        its copy from the device; one that was never there has nothing to say.
+
+        `on_device` is whether the device holds the name the sync would find
+        this playlist under, and is passed by a caller asking about a name the
+        file has not taken yet. A rename passes False and means it: the dialog
+        refuses every name the page already shows, the device's own playlists
+        are among them, so no name a rename can end at is one over there.
+
+        The exception is a rename that only changes case. The names a rename
+        is refused drop the old one case-sensitively while the device is
+        asked case-folded, so "Gym" -> "GYM" is allowed through and lands on
+        the same folded name the iPod is already holding. What that costs is
+        bounded to a sentence: an empty playlist renamed that way is told
+        nothing is staged to replace it while the queue does take it, and the
+        device copy comes off under either answer, so what the iPod ends up
+        holding is the same.
+        """
+        if on_device is None:
+            on_device = self._playlist_on_device(playlist.name)
+        return bool(playlist.entries or on_device)
+
     def _stage_playlists(self, names):
         """Queue playlists and their tracks for the next sync, if they can be.
 
@@ -1206,16 +1232,15 @@ class PlaylistViewMixin:
             return ""
         if not self.mount_point or self.device_identity is None:
             return ""
-        # An emptied playlist still has to reach the sync, which is what
-        # removes its copy from the device; one that was never there has
-        # nothing to say, and what is already staged names a list the sync
-        # would now find nothing in.
+        # Unstaged where nothing is wanted, because what was queued names a
+        # list the sync would now find nothing in: a change that has stopped
+        # being one.
         wanted = []
         for playlist in playlists:
-            if not playlist.entries and not self._playlist_on_device(playlist.name):
-                self.unqueue_source(playlist.path)
-            else:
+            if self._staging_wanted(playlist):
                 wanted.append(playlist)
+            else:
+                self.unqueue_source(playlist.path)
         if not wanted:
             return ""
         if self.playlist_unavailable:
@@ -1390,9 +1415,56 @@ class PlaylistViewMixin:
             self._toast(f"{name} created")
         self._select_playlist(name)
 
+    def _rename_refusal(self, playlist):
+        """Why renaming this playlist would strand it on the iPod, or None.
+
+        A rename the device holds is two halves: the old name comes off the
+        iPod now, and the new one goes on at the next sync. The whole move
+        therefore rests on the new name reaching the queue, and where it
+        cannot the press is a playlist taken off the device with nothing able
+        to put it back - Send to iPod wants exactly what staging wants, so it
+        is refused for the same reason, and the list stays gone until that
+        reason is fixed and the user works out they have to send it again.
+
+        The empty playlist the device holds is why this is not the note
+        _stage_playlists hands back. Nothing is staged for that one under
+        either name and nothing needs to be, so the note is the same "" a
+        refusal to stage would leave - while the removal is the whole of what
+        its rename does over there, and the only thing that will ever take
+        the old empty list off the iPod.
+
+        Returns the sentence to say rather than a flag, because what is
+        refused and how the refusal reads are one decision and both call
+        sites say the same thing. Asked before the dialog opens and again
+        before the file moves: a probe can put the playlist on the device
+        while the dialog is standing open.
+
+        The sentence names the reason and the consequence and no way out.
+        The reason string already says what is missing, and every instruction
+        this app could give here would be wrong or destructive: Delete on a
+        playlist that is both here and on the device deletes the file here
+        too, and a row the two share has no "Remove from iPod" of its own.
+        """
+        if not self._playlist_on_device(playlist.name):
+            return None
+        if not self.mount_point or self.device_identity is None:
+            return None
+        if not self._staging_wanted(playlist, on_device=False):
+            return None
+        if not self.playlist_unavailable:
+            return None
+        return (
+            f"{self.playlist_unavailable}, so renaming {playlist.name} would "
+            "take it off the iPod with nothing able to put the new name there"
+        )
+
     def on_rename_playlist(self, name):
         playlist = self._local_playlist(name)
         if playlist is None:
+            return None
+        refused = self._rename_refusal(playlist)
+        if refused:
+            self._toast(refused)
             return None
         taken = [
             other.name for other in self._shown_playlists() if other.name != name
@@ -1402,14 +1474,20 @@ class PlaylistViewMixin:
                 "The name is what the iPod says out loud, so renaming a "
                 "playlist that is already on the device removes the old one"
             )
-            if self.speech_engine_available:
+            if self._staging_wanted(playlist, on_device=False):
                 asked += " and stages the new name for the next sync."
             else:
+                # The empty playlist, which is also the only one that reaches
+                # here with nothing able to speak a name: the removal is the
+                # whole of what this press does over there, so a sentence
+                # about staging would be describing a sync that has no reason
+                # to mention this playlist at all.
                 asked += (
-                    f". {SPOKEN_NAMES_LOST} The new name cannot be staged "
-                    "until one is installed, so the playlist leaves the iPod "
-                    "and does not come back."
+                    ". This playlist lists no tracks, so nothing is staged "
+                    "to replace it."
                 )
+            if not self.speech_engine_available:
+                asked += f" {SPOKEN_NAMES_LOST}"
         else:
             asked = "The name is what the iPod will say out loud."
         return self._name_dialog(
@@ -1441,6 +1519,13 @@ class PlaylistViewMixin:
         playlist = self._local_playlist(old_name)
         if playlist is None:
             return
+        # Again, and before anything moves: the dialog was answered against a
+        # window the last probe painted, and one landing while it stood open
+        # can have put this playlist on the device since.
+        refused = self._rename_refusal(playlist)
+        if refused:
+            self._toast(refused)
+            return
         if rename_local_playlist(playlist.path, new_name) is None:
             self._toast(f"Could not rename {old_name}")
             return
@@ -1456,10 +1541,21 @@ class PlaylistViewMixin:
         self._toast(f"Renamed to {new_name}{note}")
         # The device knows the old name and nothing will remove it: the sync
         # writes the playlist its file is called, so the renamed copy would
-        # arrive beside the one it replaces. Against the iPod the rename was
-        # started on, though - this deletes a playlist and rebuilds a database,
-        # and the one under the mount now may be a different device that
-        # happens to carry a list of the same name.
+        # arrive beside the one it replaces. Unconditional because the refusal
+        # above is what makes it safe - by here the new name is staged, or the
+        # playlist lists nothing for a sync to stage, and either way this
+        # takes nothing off the iPod that will not be replaced or is not
+        # wanted there. A track the library has not read yet only defers the
+        # first of those: staging goes away to read tags and commit later, so
+        # this runs before the queue has heard anything, and a scan superseded
+        # while it reads returns without queueing or saying so. What that
+        # leaves behind is reachable, which is the whole difference - a
+        # machine that got this far has the engine, so Send to iPod is on
+        # offer and puts the playlist back, and the rename refused above is
+        # the one with no such way back. Against the iPod the rename was
+        # started on, though - this deletes a playlist and rebuilds a
+        # database, and the one under the mount now may be a different device
+        # that happens to carry a list of the same name.
         if self._playlist_on_device(old_name):
             if not self._confirmed_device(device_identity):
                 return

@@ -157,6 +157,10 @@ Because the device stores playlist names only as spoken audio, every sync asks f
 The dot beside a playlist means what it means beside a track: on the iPod, or here and waiting to be.
 A playlist wears the first cover the songs in it carry, so a list made out of records you have artwork for looks like those records rather than like a coloured tile.
 
+**Rename…**, under the `⋯` on a playlist's own page beside **Delete…**, is one change here and two on a device already holding the playlist, since the name is what the iPod says out loud: the old name comes off the device as you accept it, and the new one goes on at the next sync, which the confirmation says before it happens.
+That second half needs a speech engine like any other playlist reaching the device, so without one a rename that has a new name to stage is refused rather than confirmed - it would take the playlist off the iPod with nothing able to put it back, **Send to iPod** included.
+Install an engine and the rename is available again, and it was never refused for a playlist the iPod is not holding, nor for one listing no tracks, which has no second half to it.
+
 The **Playlists** view also lists the playlists that exist only on the device - a folder or tag grouping a sync generated, a list made on another computer, or one a sync run from the terminal put there.
 Those are shown, reordered and removed but not edited, because their entries name copies on the iPod rather than files in your music folders, and for the same reason they are not among the playlists a track's `⋯` offers to add a song to.
 Every menu that offers playlists names the ones it is leaving out, so a playlist missing from it is never missing silently.
@@ -167,7 +171,7 @@ Copying stages nothing: the iPod is already holding this playlist, so the copy a
 A song this computer cannot account for - one that reached the iPod from a machine you no longer have, or that has since been deleted here - is counted in the line above the buttons and spelled out in a confirmation before anything is written, because the copy is what a later sync writes back and the tracks it leaves out would leave the playlist on the device.
 The songs themselves stay on the iPod either way.
 While your music folders or the iPod are still being read, that count is not stated and the copy is not offered: both readings arrive a batch at a time, and a figure taken from half of one would offer a copy shorter than the playlist actually is.
-Taking such a playlist off the device is under the `⋯` beside the copy, which is where a playlist made here keeps its own **Delete**.
+Taking such a playlist off the device is under the same `⋯` on its own page, here beside the copy, which offers that in place of the **Rename…** and **Delete…** a playlist made here keeps there.
 
 Neither kind of playlist is sortable by column: a playlist's order is the one thing you arranged by hand, and offering to sort it by title would throw that away.
 
@@ -457,7 +461,9 @@ That is also what retires a grouping an earlier version of the app was told to u
 A machine with no speech engine passes the same two flags, and the builder writes no recordings rather than failing - but it empties `iPod_Control/Speakable/Tracks` and `Speakable/Playlists` at the start of every run and only refills what it can speak, so anything done from such a machine that rebuilds the database leaves the whole device unnamed, including names another computer recorded.
 Which action asked for the rebuild makes no difference: every change to the device ends in one, and `ipod-remove.sh` reaches the same builder through the options saved on the iPod rather than through anything the app passes.
 Passing the flags anyway is what makes that recoverable rather than permanent: they are saved to the device, so the next rebuild from a machine that can speak records every name again, whereas dropping them would clear the saved options too.
-Install a speech engine before changing anything on an iPod that already announces its playlists; the **Device & Settings** page warns when this machine has none, and the confirmation before a removal or a rename says it again.
+Install a speech engine before changing anything on an iPod that already announces its playlists; the **Device & Settings** page warns when this machine has none, and the confirmation before a removal says it again.
+Renaming a playlist the device holds is the one such press it can refuse outright rather than confirm, because that one also has to put the new name back on afterwards, which it cannot.
+A playlist listing no tracks has nothing to put back, so that rename is confirmed like any other change to the device, carrying the same warning about the names it costs.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
 
@@ -769,6 +775,7 @@ Each of these was a real bug, and reintroducing any one of them fails the suite 
 - Only the playlists made in the app being offered when a song was added to one, with no way to make a playlist that arrived on the device by another route into one of those and nothing on screen saying it had been left out
 - A staged change that copies nothing - a playlist rewritten out of songs the device already holds - reported in the sidebar as `+0 B queued to sync`, and as `0 B queued` once the iPod was unplugged, both of which read as a size that failed to be worked out
 - The window advertising a minimum width narrower than a playlist page can be drawn in once its rows are on the iPod, because the check only ever measured that page showing a playlist that was not
+- Renaming a playlist the iPod was holding, on a machine with no speech engine, taking the old name off the device with nothing able to stage the new one, so the list left the iPod and the one control that would have put it back was refused for the same reason
 
 The failed-write check is skipped when the suite runs as root because root ignores permission bits; CI refuses to run the suite as root so that coverage cannot disappear silently.
 

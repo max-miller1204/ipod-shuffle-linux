@@ -1,0 +1,53 @@
+== 01-before-no-speech-engine ==
+this machine has no speech engine
+has_speech_engine() answered: False
+playlist_unavailable: 'No speech engine installed'
+iPod the app found for itself: /tmp/rename-demo/MAX SHUFFLE
+device identity it resolved: uuid:/dev/sdz
+playlists it read off the device: ['Morning Ride']
+playlists here: ['Downloads', 'Morning Ride']
+'Morning Ride': lists 2 track(s), on the iPod: True
+
+-- before the press --
+playlists on the iPod's volume root: ['Morning Ride.m3u']
+spoken name recordings on the device: 2
+playlist files here: ['Downloads.m3u', 'Morning Ride.m3u']
+queued for the next sync: []
+
+the ⋯ on 'Morning Ride' offers: ['MORNING RIDE', 'Rename…', 'Delete…']
+pressed: Rename…
+
+-- the confirmation it opened --
+heading: 'Rename playlist'
+body: "The name is what the iPod says out loud, so renaming a playlist that is already on the device removes the old one. With no speech engine installed, the rebuild that removal runs leaves the iPod's spoken names gone. The new name cannot be staged until one is installed, so the playlist leaves the iPod and does not come back."
+screenshot: 01-before-no-speech-engine-confirmation.png
+typed the new name: 'Evening Ride'
+accepted
+screenshot: 01-before-no-speech-engine-outcome.png
+
+-- after the press --
+playlists on the iPod's volume root: []
+spoken name recordings on the device: 0
+playlist files here: ['Downloads.m3u', 'Evening Ride.m3u']
+queued for the next sync: []
+what the window said: ['Renamed to Evening Ride · not queued: no speech engine installed', 'Playlist removed']
+taken off the iPod by this press: ['Morning Ride.m3u']
+
+-- the app's own output pane --
+==> iPod: /tmp/rename-demo/MAX SHUFFLE
+==> Reusing saved options: --playlist-voiceover
+==> Removed 1 playlist(s); the songs they listed stay on the iPod.
+==> Rebuilding iTunesSD database
+Warning: macOS say not found, voicever won't be generated using it.
+Warning: pico2wave not found, voicever won't be generated using it.
+Warning: espeak not found, voicever won't be generated using it.
+Warning: RHVoice not found, Russian voicever won't be generated.
+Error: Did not find any voiceover program. Voiceover disabled.
+Writing database. This may take a while...
+Database written successfully:
+Tracks 2
+Albums 1
+Artists 1
+Playlists 0
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject

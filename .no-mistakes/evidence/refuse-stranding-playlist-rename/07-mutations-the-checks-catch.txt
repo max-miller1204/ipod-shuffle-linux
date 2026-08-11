@@ -1,0 +1,67 @@
+== the shipped code ==
+  tests/gui-playlists.py:    pass
+  tests/gui-window-build.py: pass
+  (both pass, as they must)
+
+== round 1: the whole pre-change file (b48928c72713d0fc1dc3cee7be17ada1e3b24859) ==
+   the rename that cannot restage the new name is confirmed and run
+  tests/gui-playlists.py:    FAIL
+    said: type object 'IpodWindow' has no attribute '_staging_wanted'
+        _staging_wanted = gui.IpodWindow._staging_wanted
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    AttributeError: type object 'IpodWindow' has no attribute '_staging_wanted'
+  tests/gui-window-build.py: FAIL
+    libEGL warning: DRI3 error: Could not get DRI3 device
+    libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+    FAIL: the rename dialog for Built never says 'nothing is staged to replace it': 'The name is what the iPod says out loud, so renaming a playlist that is already on the device removes the old one and stages the new name for the next sync.'
+    FAIL: renaming a playlist on the iPod with nothing able to speak the new name still offered a confirmation: <Adw.AlertDialog object at 0x7bebac50f640 (AdwAlertDialog at 0x329bf330)>
+  caught
+
+== round 2: no refusal before the dialog opens ==
+  tests/gui-playlists.py:    pass
+  tests/gui-window-build.py: FAIL
+    libEGL warning: DRI3 error: Could not get DRI3 device
+    libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+    FAIL: renaming a playlist on the iPod with nothing able to speak the new name still offered a confirmation: <Adw.AlertDialog object at 0x7482f41901c0 (AdwAlertDialog at 0x24437650)>
+  caught
+
+== round 3: no refusal before the file moves ==
+  tests/gui-playlists.py:    FAIL
+    said: a refused rename moved the file
+        assert not (PLAYLISTS / "Muted.m3u").exists(), "a refused rename moved the file"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    AssertionError: a refused rename moved the file
+  tests/gui-window-build.py: pass
+  caught
+
+== round 4: the refusal asks about the old name instead of the new one ==
+  tests/gui-playlists.py:    FAIL
+    said: the rename wrote no file
+        assert (PLAYLISTS / "Refilled.m3u").is_file(), "the rename wrote no file"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    AssertionError: the rename wrote no file
+  tests/gui-window-build.py: FAIL
+    libEGL warning: DRI3 error: Could not get DRI3 device
+    libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+    FAIL: the Rename of a playlist on the iPod opened <Adw.AlertDialog object at 0x7224ac43a040 (AdwAlertDialog at 0x15f2ea90)> rather than a dialog
+  caught
+
+== round 5: the confirmation promises staging whenever it can speak ==
+  tests/gui-playlists.py:    pass
+  tests/gui-window-build.py: FAIL
+    libEGL warning: DRI3 error: Could not get DRI3 device
+    libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+    FAIL: the rename dialog for Built never says 'nothing is staged to replace it': 'The name is what the iPod says out loud, so renaming a playlist that is already on the device removes the old one and stages the new name for the next sync.'
+  caught
+
+== round 6: nothing is unstaged when nothing is wanted ==
+  tests/gui-playlists.py:    FAIL
+    said: {'/tmp/playlists-9fyyd9fx/Gym.m3u': {'/tmp/playlists-9fyyd9fx/Gym.m3u'}, '/tmp/playlists-9fyyd9fx/From Menu.m3u': {'/tmp/playlists-9fyyd9fx/From Menu.m3u'}}
+        assert str(PLAYLISTS / "Gym.m3u") not in window.pending_sources, (
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    AssertionError: {'/tmp/playlists-9fyyd9fx/Gym.m3u': {'/tmp/playlists-9fyyd9fx/Gym.m3u'}, '/tmp/playlists-9fyyd9fx/From Menu.m3u': {'/tmp/playlists-9fyyd9fx/From Menu.m3u'}}
+  tests/gui-window-build.py: pass
+  caught
+
+the working tree is back to the shipped code:
+  (no output above means unmodified)
