@@ -157,6 +157,10 @@ Because the device stores playlist names only as spoken audio, every sync asks f
 The dot beside a playlist means what it means beside a track: on the iPod, or here and waiting to be.
 A playlist wears the first cover the songs in it carry, so a list made out of records you have artwork for looks like those records rather than like a coloured tile.
 
+**Rename…**, under the same `⋯`, is one change here and two on a device already holding the playlist, since the name is what the iPod says out loud: the old name comes off the device as you accept it, and the new one goes on at the next sync, which the confirmation says before it happens.
+That second half needs a speech engine like any other playlist reaching the device, so without one the rename is refused rather than confirmed - it would take the playlist off the iPod with nothing able to put it back, **Send to iPod** included.
+Take it off the device yourself first and the rename is available again, as it is for any playlist the iPod is not holding.
+
 The **Playlists** view also lists the playlists that exist only on the device - a folder or tag grouping a sync generated, a list made on another computer, or one a sync run from the terminal put there.
 Those are shown, reordered and removed but not edited, because their entries name copies on the iPod rather than files in your music folders, and for the same reason they are not among the playlists a track's `⋯` offers to add a song to.
 Every menu that offers playlists names the ones it is leaving out, so a playlist missing from it is never missing silently.
@@ -457,7 +461,8 @@ That is also what retires a grouping an earlier version of the app was told to u
 A machine with no speech engine passes the same two flags, and the builder writes no recordings rather than failing - but it empties `iPod_Control/Speakable/Tracks` and `Speakable/Playlists` at the start of every run and only refills what it can speak, so anything done from such a machine that rebuilds the database leaves the whole device unnamed, including names another computer recorded.
 Which action asked for the rebuild makes no difference: every change to the device ends in one, and `ipod-remove.sh` reaches the same builder through the options saved on the iPod rather than through anything the app passes.
 Passing the flags anyway is what makes that recoverable rather than permanent: they are saved to the device, so the next rebuild from a machine that can speak records every name again, whereas dropping them would clear the saved options too.
-Install a speech engine before changing anything on an iPod that already announces its playlists; the **Device & Settings** page warns when this machine has none, and the confirmation before a removal or a rename says it again.
+Install a speech engine before changing anything on an iPod that already announces its playlists; the **Device & Settings** page warns when this machine has none, and every confirmation that runs a rebuild says it again.
+Renaming a playlist the device holds is the one such press it refuses outright rather than confirming, because that one also has to put the new name back on afterwards, which it cannot.
 
 Every track always stays reachable through the built-in "All songs" playlist, whatever else you create.
 

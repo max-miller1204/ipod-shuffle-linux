@@ -563,8 +563,10 @@ class FakeWindow:
     _move_track_between = gui.IpodWindow._move_track_between
     _add_result_to_playlist = gui.IpodWindow._add_result_to_playlist
     _after_playlist_change = gui.IpodWindow._after_playlist_change
+    _staging_wanted = gui.IpodWindow._staging_wanted
     _stage_playlist = gui.IpodWindow._stage_playlist
     _stage_playlists = gui.IpodWindow._stage_playlists
+    _rename_refusal = gui.IpodWindow._rename_refusal
     _send_playlist_to_ipod = gui.IpodWindow._send_playlist_to_ipod
     _add_download_to_playlist = gui.IpodWindow._add_download_to_playlist
     _on_new_playlist_response = gui.IpodWindow._on_new_playlist_response
@@ -1424,13 +1426,14 @@ assert swapped_rename.commands == [], swapped_rename.commands
 assert "changed" in swapped_rename.toasts[-1], swapped_rename.toasts
 gui.delete_local_playlist(PLAYLISTS / "Renamed.m3u")
 
-# The same rename on a machine with no speech engine, which is what the
-# confirmation warns about: the removal still runs, and nothing can be staged
-# to replace what it takes, so the playlist goes from the iPod and stays gone
-# until an engine is installed. A run where the new name was queued after all
-# would mean the dialog is warning about a loss that does not happen; one
-# where the removal did not run would mean it warns about a press that does
-# nothing.
+# The same rename on a machine with no speech engine is refused outright,
+# and nothing at all happens. The removal is half a rename: the old name comes
+# off the device now and the new one goes on at the next sync, and here the
+# new one cannot be staged - Send to iPod wants the same engine, so the
+# playlist would leave the iPod with nothing left able to put it back. What is
+# said names the reason and the way out, because the refusal is only about
+# this playlist being on the device: taking it off is what makes the rename
+# available again.
 mute_renamer = FakeWindow(speech=False)
 mute_renamer.library_tracks([first])
 new_playlist(mute_renamer, "Mute")
@@ -1441,15 +1444,49 @@ mute_renamer.current_playlist = "Mute"
 mute_renamer._on_rename_response(
     None, "rename", "Mute", Entry("Muted"), "uuid:test-ipod"
 )
+assert not (PLAYLISTS / "Muted.m3u").exists(), "a refused rename moved the file"
+assert (PLAYLISTS / "Mute.m3u").is_file(), "the playlist went missing entirely"
+assert mute_renamer.commands == [], mute_renamer.commands
+assert "No speech engine installed" in mute_renamer.toasts[-1], (
+    mute_renamer.toasts
+)
+assert "remove Mute from the iPod first" in mute_renamer.toasts[-1], (
+    mute_renamer.toasts
+)
+
+# The same machine renaming the same playlist once it is not on the device: the
+# refusal is about what the iPod would be left holding, so with nothing over
+# there it has nothing to say. Still nothing queued, because that needs the
+# engine either way - and that is exactly why an empty note cannot be read as
+# "did not stage".
+mute_renamer.playlists = []
+mute_renamer._on_rename_response(
+    None, "rename", "Mute", Entry("Muted"), "uuid:test-ipod"
+)
 assert (PLAYLISTS / "Muted.m3u").is_file(), "the rename wrote no file"
 assert "not queued" in mute_renamer.toasts[-1], mute_renamer.toasts
-assert not mute_renamer.is_queued(PLAYLISTS / "Muted.m3u"), (
-    mute_renamer.pending_sources
-)
-mute_removal = mute_renamer.commands[-1]
-assert mute_removal[0].endswith("ipod-remove.sh"), mute_removal
-assert mute_removal[-2:] == ["--", "Mute"], mute_removal
+assert mute_renamer.commands == [], mute_renamer.commands
 gui.delete_local_playlist(PLAYLISTS / "Muted.m3u")
+
+# And the case the guard must not catch, which is the one that makes it more
+# than "did not queue": an empty playlist the device holds. Nothing is staged
+# for it under either name and nothing needs to be, so _stage_playlists says
+# the same "" a refusal would - while the removal here is the whole of what
+# the rename does over there, and the only thing that will ever take the old
+# empty list off the iPod. Skipped, it would strand a device-only playlist
+# nothing automatic can reach again.
+emptied_renamer = FakeWindow(speech=False)
+new_playlist(emptied_renamer, "Emptied")
+emptied_renamer.playlists = [("Emptied", ["F00/AAAA.mp3"])]
+emptied_renamer.current_playlist = "Emptied"
+emptied_renamer._on_rename_response(
+    None, "rename", "Emptied", Entry("Refilled"), "uuid:test-ipod"
+)
+assert (PLAYLISTS / "Refilled.m3u").is_file(), "the rename wrote no file"
+emptied_removal = emptied_renamer.commands[-1]
+assert emptied_removal[0].endswith("ipod-remove.sh"), emptied_removal
+assert emptied_removal[-2:] == ["--", "Emptied"], emptied_removal
+gui.delete_local_playlist(PLAYLISTS / "Refilled.m3u")
 
 # And neither unstages anything when the file did not budge. Being told a
 # rename or a delete failed, while the sync it was queued for has silently

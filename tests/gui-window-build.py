@@ -990,7 +990,23 @@ def check_removals_say_what_the_rebuild_costs(window):
         window.playlists,
         window.track_names,
         window.speech_engine_available,
+        window.playlist_unavailable,
     )
+
+    def speech(available):
+        """Both of what the window derives from one probe, moved together.
+
+        __init__ reads the engine once and writes the flag and the reason a
+        playlist cannot be queued from that one answer, so they never disagree
+        in the app. Setting only the flag here would leave a window that says
+        it cannot speak while every playlist path still believes it can, and
+        the check would pass against behaviour the user never gets.
+        """
+        window.speech_engine_available = available
+        window.playlist_unavailable = (
+            None if available else "No speech engine installed"
+        )
+
     relpath = "iPod_Control/Music/F00/ABCD.mp3"
     window.mount_point = "/media/alex/iPod"
     window.device_identity = "fixture-ipod"
@@ -1005,6 +1021,15 @@ def check_removals_say_what_the_rebuild_costs(window):
         failures.append(
             "this check needs a playlist that is both here and on the iPod, "
             "and no file in the sandbox library backs 'Built'"
+        )
+    # "Built" lists nothing by here, which is what keeps its Rename on offer
+    # with no engine at all: a rename that would have to stage the new name is
+    # refused outright rather than confirmed, so an empty playlist is the only
+    # one whose confirmation can still be read in that state.
+    elif window._local_playlist("Built").entries:
+        failures.append(
+            "this check reads the rename dialog with no speech engine, which "
+            "only an empty playlist still opens, and 'Built' lists tracks"
         )
     cases = (
         (
@@ -1032,7 +1057,7 @@ def check_removals_say_what_the_rebuild_costs(window):
         ),
     )
     for available in (True, False):
-        window.speech_engine_available = available
+        speech(available)
         for named, press, reassurance in cases:
             standing = window.get_visible_dialog()
             press()
@@ -1065,39 +1090,72 @@ def check_removals_say_what_the_rebuild_costs(window):
             dialog.force_close()
 
     # What the rename goes on to say it will do, which is the half of that
-    # dialog the shared clause does not cover. _on_rename_response stages the
-    # new name and removes the old one from the device either way, so with an
-    # engine the new name is queued for the next sync rather than synced by
-    # this press - and with none it cannot be queued at all, which is a
-    # playlist off the iPod with nothing able to put it back.
-    for available, promised in (
-        (True, "stages the new name for the next sync"),
-        (False, "cannot be staged"),
+    # dialog the shared clause does not cover. A rename the device holds is
+    # the old name off the iPod now and the new one on at the next sync, so
+    # what is promised depends on whether that second half can happen: a
+    # playlist listing tracks stages the new name, an empty one has nothing to
+    # stage and says so, and with nothing able to speak a name the first of
+    # those is not confirmed at all - it is the press that would take a
+    # playlist off the device with nothing able to put it back, so no dialog
+    # opens for it. Presented rather than asked of a predicate, because a
+    # sentence promising the wrong half is only wrong once it is on screen.
+    stocked = gui.create_local_playlist(
+        gui.PLAYLIST_LIBRARY, "Stocked", ["/music/Artist/Song.mp3"]
+    )
+    window._load_local_playlists()
+    window.playlists = [("Built", [relpath]), ("Stocked", [relpath])]
+    speech(True)
+    for named, promised in (
+        ("Stocked", "stages the new name for the next sync"),
+        ("Built", "nothing is staged to replace it"),
     ):
-        window.speech_engine_available = available
-        dialog = window.on_rename_playlist("Built")
+        dialog = window.on_rename_playlist(named)
         if not isinstance(dialog, Adw.AlertDialog):
-            failures.append(
-                "renaming a playlist on the iPod with a speech engine "
-                f"{'present' if available else 'absent'} opened {dialog!r}"
-            )
+            failures.append(f"renaming {named} on the iPod opened {dialog!r}")
             continue
         body = dialog.get_body()
         if promised not in body:
-            failures.append(f"the rename dialog never says {promised!r}: {body!r}")
-        if not available and "leaves the iPod" not in body:
             failures.append(
-                "the rename dialog never says the playlist itself goes from "
-                f"the device, not only its recording: {body!r}"
+                f"the rename dialog for {named} never says {promised!r}: {body!r}"
             )
         dialog.emit("response", "cancel")
         dialog.force_close()
+
+    # The refusal itself, which is a press that opens nothing. What it says is
+    # tests/gui-playlists.py's, where a toast can be read back; here it is
+    # that the dialog promising the staging is not the thing that appears.
+    speech(False)
+    standing = window.get_visible_dialog()
+    refused = window.on_rename_playlist("Stocked")
+    if refused is not None or window.get_visible_dialog() is not standing:
+        failures.append(
+            "renaming a playlist on the iPod with nothing able to speak the "
+            f"new name still offered a confirmation: {refused!r}"
+        )
+        if isinstance(refused, Adw.AlertDialog):
+            refused.emit("response", "cancel")
+            refused.force_close()
+    # The same playlist with the device not holding it is renamed as usual: the
+    # refusal is about what the iPod would be left with, not about the engine.
+    window.playlists = [("Built", [relpath])]
+    allowed = window.on_rename_playlist("Stocked")
+    if not isinstance(allowed, Adw.AlertDialog):
+        failures.append(
+            "renaming a playlist the device does not hold was refused for "
+            f"want of a speech engine: {allowed!r}"
+        )
+    else:
+        allowed.emit("response", "cancel")
+        allowed.force_close()
+    gui.delete_local_playlist(stocked)
+    window._load_local_playlists()
     (
         window.mount_point,
         window.device_identity,
         window.playlists,
         window.track_names,
         window.speech_engine_available,
+        window.playlist_unavailable,
     ) = was
 
 
