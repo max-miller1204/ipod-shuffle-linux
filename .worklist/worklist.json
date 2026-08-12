@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 168,
+  "revision": 169,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -304,9 +304,10 @@
         "rails-for-destructive-operations-run",
         "a-deterministic-screenshot-harness-for"
       ],
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-07T21:37:54.443Z",
-      "updatedAt": "2026-08-07T21:37:54.443Z"
+      "updatedAt": "2026-08-12T12:20:33.102Z",
+      "completedAt": "2026-08-12T12:20:33.102Z"
     },
     {
       "id": "count-queued-tracks-the-library-index",
