@@ -23,6 +23,15 @@ def main():
     env = dict(os.environ)
     env["SHUFFLE_HEADLESS_TEST"] = "1"
     env.update(
+        # Unsetting WAYLAND_DISPLAY does not take GTK off the desktop. GDK
+        # tries the Wayland backend before the X11 one, and a Wayland client
+        # given no socket name falls back to $XDG_RUNTIME_DIR/wayland-0 - the
+        # developer's own compositor - so the private display below would be
+        # started, paid for and never drawn on. Naming the backend is what
+        # actually decides it, and pinning it to the one server this runner
+        # controls also means a failure to start that server is a failure to
+        # run, rather than a window opening on the desktop.
+        GDK_BACKEND="x11",
         GTK_USE_PORTAL="0",
         GIO_USE_VFS="local",
         NO_AT_BRIDGE="1",

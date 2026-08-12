@@ -9,9 +9,13 @@ attribute that does not exist yet by the time __init__ collects _busy_widgets.
 Those are exactly the failures splitting one window class into mixins can
 introduce, and constructing it is the only thing that finds them.
 
-Needs a display, so CI runs it under xvfb. It refuses to run without one rather
-than skipping: a check that quietly does nothing is worse than one that fails,
-because it reads as coverage that is not there.
+Needs a display, and starts its own: run it directly and it re-executes itself
+through tools/headless-run.py, which gives it a private Xvfb display and a
+private session bus, so the window it builds is never one on the desktop and
+never reaches the application already running there. It refuses to run without
+that isolation rather than skipping or falling back: a check that quietly does
+nothing is worse than one that fails, because it reads as coverage that is not
+there.
 
 Hermetic: HOME is a temporary directory, set before the package is imported,
 so the scan started during construction reads an empty folder rather than the
@@ -20,10 +24,19 @@ real music library and the caches point somewhere disposable.
 
 import base64
 import os
+import subprocess
 import sys
 import tempfile
 import traceback
 from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+if not os.environ.get("SHUFFLE_HEADLESS_TEST"):
+    raise SystemExit(
+        subprocess.run(
+            [sys.executable, REPO / "tools/headless-run.py", sys.executable, __file__]
+        ).returncode
+    )
 
 _SANDBOX = tempfile.mkdtemp(prefix="ipod-gui-build-")
 os.environ["HOME"] = _SANDBOX
@@ -52,9 +65,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 # window being broken rather than as the machine having no screen.
 Gtk.init_check()
 if Gdk.Display.get_default() is None:
-    raise SystemExit(
-        "no display: run this under `xvfb-run -a`, or on a desktop session"
-    )
+    raise SystemExit("no display: tools/headless-run.py started none to build on")
 
 # Detection is gui-detection-smoke's subject; here it only has to be quick and
 # to answer the same way every run, so the construction is what is being read.
