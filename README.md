@@ -863,7 +863,11 @@ Nothing in a screenshot says which page is one long album title away from that, 
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the Xephyr recipe that brings the window up at exactly 1180x760 on any machine.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the three main-loop checks, and both real-window checks under xvfb on every push and pull request.
+`tests/headless-cli.py` covers `python3 -m ipod_gui.cli` the way another program meets it, running the real module against a library, playlist folder and preview cache of its own: it asserts each of the four shapes of run the command promises - a document and nothing else, a sentence on stderr with no document, an answer that is real but partial and still leaves non-zero, and a usage line from the argument parser that reaches none of the model at all.
+What those commands promise is what is on disk afterwards, so it is read back there: a track named relatively stored in an M3U as the absolute path it meant, the artist folder taken with the last preview in it, and a music root kept as it was named rather than with its symlinks resolved.
+Its `search --youtube` runs against the same `yt-dlp` stand-in the suite uses, which is what lets both answers - videos that came back, and YouTube out of reach - be checked without a network.
+
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the headless CLI check, the three main-loop checks, and both real-window checks under xvfb on every push and pull request.
 
 ## Credits
 

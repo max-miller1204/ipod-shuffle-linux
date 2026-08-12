@@ -2,6 +2,7 @@
 
 The [README](../README.md) is written for a person reading a terminal.
 The scripts also answer in JSON, they report what they are doing while they do it, and they say what went wrong as a number rather than as English, so that another program can act on any of it without reading prose.
+The application the window is built on answers the same way with no display, and that is the last section here.
 
 ## What is on the device
 

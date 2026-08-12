@@ -256,7 +256,7 @@ def build_parser():
     sub = parser.add_subparsers(dest="command", required=True)
     library = sub.add_parser("library")
     library.add_argument("--group", choices=("album", "artist"), default="album")
-    device = sub.add_parser("device")
+    sub.add_parser("device")
     search = sub.add_parser("search")
     search.add_argument("query")
     search.add_argument("--youtube", action="store_true")

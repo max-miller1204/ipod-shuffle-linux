@@ -216,6 +216,21 @@ assert sorted(track["path"] for track in library["result"]["tracks"]) == sorted(
 )
 assert library["result"]["counts"]["library"] == 3
 assert [album["trackCount"] for album in library["result"]["albums"]] == [3]
+
+# The other half of the window's own toggle. Both groupings answer under the
+# same key, so a caller that asked for artists and was handed albums would have
+# nothing to tell them apart by: what says which arrived is the collection
+# itself - titled by artist, with the album count where a performer's name sits
+# under the other grouping.
+by_artist = run("library", "--group", "artist")
+assert [collection["trackCount"] for collection in by_artist["result"]["albums"]] == [3]
+assert [collection["title"] for collection in by_artist["result"]["albums"]] == sorted(
+    {track["artist"] for track in by_artist["result"]["tracks"]}
+)
+assert by_artist["result"]["albums"][0]["artist"] == "1 album"
+assert by_artist["result"]["albums"] != library["result"]["albums"]
+assert by_artist["result"]["counts"] == library["result"]["counts"]
+
 search = run("search", "Song")
 assert [track["path"] for track in search["result"]["local"]] == [str(song)]
 assert search["result"]["complete"] is True
@@ -263,6 +278,37 @@ run("config", "--music-root", str(music))
 
 device = run("device")
 assert set(device["result"]) == {"candidates", "mountPoint", "identity", "readable", "trackCount", "playlists", "storage"}
+
+# A probe of an empty USB bus is the same document a command that read nothing
+# would write, so detection is pointed at a folder shaped like a synced shuffle
+# - the suite's own findmnt double, the way product-e2e.sh points it - and the
+# reading has to be that folder rather than the shape of one.
+shuffle = home / "ALEX IPOD"
+(shuffle / "iPod_Control" / "Music" / "F00").mkdir(parents=True)
+for name in ("Song.mp3", "Other.mp3"):
+    (shuffle / "iPod_Control" / "Music" / "F00" / name).write_bytes(b"audio")
+(shuffle / "Road Trip.m3u").write_text(
+    "#EXTM3U\niPod_Control/Music/F00/Song.mp3\n", encoding="utf-8"
+)
+mounted = run(
+    "device",
+    PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
+    FAKE_IPOD_MOUNT=str(shuffle),
+)
+assert mounted["result"]["candidates"] == [str(shuffle)]
+assert mounted["result"]["mountPoint"] == str(shuffle)
+assert mounted["result"]["readable"] is True
+assert mounted["result"]["identity"]
+# Two files under iPod_Control/Music, and the playlist at the volume root named
+# relative to the music folder, which is how the window lists what is on it.
+assert mounted["result"]["trackCount"] == 2
+assert mounted["result"]["playlists"] == [
+    {"name": "Road Trip", "entries": ["F00/Song.mp3"], "spoken": False}
+]
+assert mounted["result"]["storage"]["totalBytes"] > 0
+assert mounted["result"]["storage"]["usedBytes"] + mounted["result"]["storage"][
+    "freeBytes"
+] <= mounted["result"]["storage"]["totalBytes"]
 
 # The searcher is asked for, so both answers it can give are checked: results
 # that came back, and a search that could not reach YouTube - which is not the
