@@ -113,20 +113,22 @@ if not settle(
 content = window.toasts
 # Allocated until the layout has caught up rather than once, because a width
 # that crosses one of the window's breakpoints is not laid out in a single
-# pass: the breakpoint bin applies the new setters, hides its child and asks
+# pass: the breakpoint bin applies the new setters, unmaps its child and asks
 # for another allocation on the next frame. Snapshotting after the one pass
 # captures nothing at all - which is every width from the sidebar's collapse
 # threshold down, including the 760px shot this tool is asked for.
+#
+# Waited on by whether the content came back mapped, and nothing else: what
+# the window passes down to it is the window's business, and on a composited
+# desktop the shadow around the frame makes it not the window's own width.
 if not settle(
-    lambda: content.get_mapped()
-    and (content.get_width(), content.get_height()) == (args.width, HEIGHT),
+    lambda: content.get_mapped(),
     step=lambda: window.allocate(args.width, HEIGHT, -1, None),
 ):
     sys.exit(
-        f"the window never laid out at {args.width}x{HEIGHT}: its content "
-        f"stopped at {content.get_width()}x{content.get_height()} and needs "
-        f"at least {content.measure(Gtk.Orientation.HORIZONTAL, -1)[0]}px of "
-        "width"
+        f"the window's content never came up mapped at {args.width}x{HEIGHT}: "
+        f"it needs at least "
+        f"{content.measure(Gtk.Orientation.HORIZONTAL, -1)[0]}px of width"
     )
 
 # What the window says it is showing, read back before anything is written: a
@@ -144,6 +146,12 @@ if not sum(state["visibleCounts"].values()):
         "shot of an empty window"
     )
 
+# The size the shot is of, forced rather than read back, which is the whole
+# point of allocating instead of asking a window manager for a window: the
+# layout above settles the widget tree, and this pins the box it is measured
+# and painted in to the one that was asked for.
+content.allocate(args.width, HEIGHT, -1, None)
+
 snapshot = Gtk.Snapshot.new()
 # The scale is a transform on the render node, not the surface: nothing here
 # goes through a compositor, so GDK_SCALE alone only picks the 2x icon assets
@@ -153,6 +161,22 @@ content.do_snapshot(content, snapshot)
 node = snapshot.to_node()
 if node is None:
     sys.exit("the window rendered no content")
+# What the tree actually paints into, which is where a dropped scale shows up:
+# the viewport below fixes the PNG's size from the same two arguments, so it
+# cannot tell 2x apart from 1x painted into a corner, and this can. The width
+# is the allocation exactly; the height is only bounded by it, because the
+# content stops a few pixels short of the box it is given.
+painted = node.get_bounds().size
+if round(painted.width) != args.width * args.scale:
+    sys.exit(
+        f"the snapshot paints {round(painted.width)}px across, not the "
+        f"{args.width * args.scale}px {args.width} at {args.scale}x asks for"
+    )
+if round(painted.height) > HEIGHT * args.scale:
+    sys.exit(
+        f"the snapshot paints {round(painted.height)}px down, past the "
+        f"{HEIGHT * args.scale}px it would be cropped to"
+    )
 renderer = Gsk.CairoRenderer.new()
 renderer.realize(None)
 # An explicit viewport rather than the node's own bounds, which are the union

@@ -17,8 +17,9 @@ def png_size(path):
 
     The bytes are the format's, not this repository's: the signature, then a
     length and the chunk type, then width and height as big-endian uint32.
-    Read rather than assumed because the size is the one thing about the shot
-    that a wrong scale changes and a file the viewer still opens.
+    This is the tool's output contract - a file that really is the pixel box
+    that was asked for - and not a check of the scale, which is pinned inside
+    the tool where the render node can be measured against it.
     """
     header = path.read_bytes()[:24]
     assert header[:8] == SIGNATURE, f"{path} is not a PNG"
@@ -27,31 +28,40 @@ def png_size(path):
 
 
 repo = Path(__file__).resolve().parents[1]
-root = Path(tempfile.mkdtemp(prefix="screenshot-harness-")) / "demo"
-out = Path(os.environ.get("SCREENSHOT_EVIDENCE_DIR", root.parent / "shots"))
-subprocess.run(
-    [sys.executable, "tools/demo-library.py", str(root)],
-    cwd=repo,
-    check=True,
-    stdout=subprocess.DEVNULL,
-)
-for page, width, scale in (("library", 1180, 1), ("playlists", 760, 2)):
-    target = out / f"{page}-{width}-{scale}x.png"
-    # A non-zero exit is the tool refusing to write a shot it cannot vouch
-    # for - the wrong page, or a library that scanned to nothing - so the
-    # check that it succeeded is most of the coverage here.
+# The shots outlive the fixture they were taken of: the fixture is six encoded
+# tracks, four covers and a stand-in volume, and leaving one of those in /tmp
+# per run is what the developers this harness is documented for would collect.
+evidence = os.environ.get("SCREENSHOT_EVIDENCE_DIR")
+out = Path(evidence) if evidence else Path(tempfile.mkdtemp(prefix="shuffle-shots-"))
+
+with tempfile.TemporaryDirectory(prefix="screenshot-harness-") as workspace:
+    root = Path(workspace) / "demo"
     subprocess.run(
-        [
-            sys.executable, "tools/shoot.py", "--fixture", str(root),
-            "--page", page, "--width", str(width), "--scale", str(scale),
-            "--output", str(target),
-        ],
+        [sys.executable, "tools/demo-library.py", str(root)],
         cwd=repo,
         check=True,
+        stdout=subprocess.DEVNULL,
     )
-    assert png_size(target) == (width * scale, HEIGHT * scale), (
-        f"{target} is {png_size(target)}, not the {width}x{HEIGHT} layout "
-        f"rendered at {scale}x"
-    )
-    assert target.stat().st_size > 10_000, f"{target} holds too little to be a window"
+    for page, width, scale in (("library", 1180, 1), ("playlists", 760, 2)):
+        target = out / f"{page}-{width}-{scale}x.png"
+        # A non-zero exit is the tool refusing to write a shot it cannot vouch
+        # for - the wrong page, a library that scanned to nothing, or a render
+        # that came out at the wrong scale - so the check that it succeeded is
+        # most of the coverage here.
+        subprocess.run(
+            [
+                sys.executable, "tools/shoot.py", "--fixture", str(root),
+                "--page", page, "--width", str(width), "--scale", str(scale),
+                "--output", str(target),
+            ],
+            cwd=repo,
+            check=True,
+        )
+        assert png_size(target) == (width * scale, HEIGHT * scale), (
+            f"{target} is {png_size(target)}, not the {width}x{HEIGHT} layout "
+            f"rendered at {scale}x"
+        )
+        assert target.stat().st_size > 10_000, (
+            f"{target} holds too little to be a window"
+        )
 print(f"screenshot harness ok: {out}")
