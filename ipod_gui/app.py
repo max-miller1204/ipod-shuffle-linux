@@ -48,7 +48,7 @@ class IpodApp(Adw.Application):
     def _navigate(self, _action, parameter):
         window = self._window()
         if window is not None:
-            window._navigate(parameter.get_string())
+            window.navigate(parameter.get_string())
 
     def _search(self, _action, parameter):
         window = self._window()
@@ -60,7 +60,7 @@ class IpodApp(Adw.Application):
     def _queue(self, _action, parameter):
         window = self._window()
         if window is not None:
-            window._queue_paths([parameter.get_string()], show_toast=False)
+            window.queue_paths([parameter.get_string()])
 
     def _refresh(self, _action, _parameter):
         window = self._window()

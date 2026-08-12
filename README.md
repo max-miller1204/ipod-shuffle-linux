@@ -864,6 +864,10 @@ The queue and the grid are also read against each other there, rather than each 
 `tests/gui-window-minimum.py` is the other one, and it measures rather than looks: it fills the window with long names and holds every page and bar to the minimum size the window advertises.
 A window whose contents do not fit the minimum it asked for is not merely cramped - GTK allocates widgets a rectangle smaller than they asked for and then paints them at the size they wanted, so clicks land beside the control under the pointer, hover flickers, and a tooltip can open over the menu it belongs to.
 Nothing in a screenshot says which page is one long album title away from that, so the widths are asserted instead.
+`tests/gui-gio-actions.py` is the third display-backed check, and it is the only one that drives the window the way another program does: it registers the real application, activates each exported action the way `gdbus call` activates it, and reads the answer back off `dump-state`.
+Nothing on the window is replaced, because the actions are the subject and a stand-in under one of them would be the check asserting itself - staging a path really does go out to the tag reader and back on the main loop, so the loop is run until it lands.
+What it pins is the part no unit check can see: that a page name from outside the window is refused rather than half-followed, that the note the search page is showing is reported while it is on screen and not after, and that the counts in the document are the tracks in a music folder this check wrote every file of rather than the album tallies the pills carry.
+
 `tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the Xephyr recipe that brings the window up at exactly 1180x760 on any machine.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
@@ -872,7 +876,7 @@ Nothing in a screenshot says which page is one long album title away from that, 
 What those commands promise is what is on disk afterwards, so it is read back there: a track named relatively stored in an M3U as the absolute path it meant, the artist folder taken with the last preview in it, and a music root kept as it was named rather than with its symlinks resolved.
 Its `search --youtube` runs against the same `yt-dlp` stand-in the suite uses, which is what lets both answers - videos that came back, and YouTube out of reach - be checked without a network.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the headless CLI check, the three main-loop checks, and both real-window checks under xvfb on every push and pull request.
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the headless CLI check, the three main-loop checks, and all three real-window checks under xvfb on every push and pull request.
 
 ## Credits
 

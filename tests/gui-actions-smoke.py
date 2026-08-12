@@ -1785,7 +1785,7 @@ class SearchWindow:
 
     current_view = gui.IpodWindow.current_view
     # The real predicate, for the same reason current_view is real: whether a
-    # name is a page is what _navigate refuses on, and a fake would be the
+    # name is a page is what navigate refuses on, and a fake would be the
     # check answering its own question.
     has_view = gui.IpodWindow.has_view
 
@@ -1829,7 +1829,7 @@ class SearchWindow:
     _cancel_search_timeout = gui.IpodWindow._cancel_search_timeout
     _set_search_note = gui.IpodWindow._set_search_note
     _finish_youtube_search = gui.IpodWindow._finish_youtube_search
-    _navigate = gui.IpodWindow._navigate
+    navigate = gui.IpodWindow.navigate
 
 
 typing = SearchWindow()
@@ -1897,7 +1897,7 @@ assert ungated.painted == 1, "the local half was gated on the remote half"
 navigating = SearchWindow()
 navigating.search_entry.set_text("bohemian")
 navigating._on_search_changed(navigating.search_entry)
-navigating._navigate("playlists")
+navigating.navigate("playlists")
 assert navigating.views.name == "playlists", navigating.shown
 assert navigating.search_entry.get_text() == "", "the field kept a spent query"
 assert navigating.search_query == "" and navigating.search_results == []

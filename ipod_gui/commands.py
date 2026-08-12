@@ -189,13 +189,21 @@ class CommandsMixin:
         The labels as they read rather than the numbers behind them: this bar
         is the only account the window keeps of a running script, and a stage
         that has no count to give still names itself in the title.
+
+        Empty when nothing is running, because the bar is only on screen while
+        something is: it is revealed with the busy state and hidden again
+        afterwards, still holding the last run's words, and before any run at
+        all it holds the placeholder it was built with. A reader asking what
+        the window is showing would otherwise be handed a title from a run
+        that finished, or one no bar has ever displayed.
         """
+        running = self.busy
         return {
-            "active": self.busy,
-            "title": self.sync_title.get_text(),
-            "current": self.sync_current.get_text(),
-            "count": self.sync_count.get_text(),
-            "progress": self.progress.get_fraction(),
+            "active": running,
+            "title": self.sync_title.get_text() if running else "",
+            "current": self.sync_current.get_text() if running else "",
+            "count": self.sync_count.get_text() if running else "",
+            "progress": self.progress.get_fraction() if running else 0.0,
         }
 
     def _set_busy(self, busy, message=""):

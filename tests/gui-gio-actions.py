@@ -322,6 +322,61 @@ check(
     f"with one song staged the dump counts {dump(app)['visibleCounts']}",
 )
 
+# A path that is not music, which the action will take from anyone. The queue
+# may only hold what the sync can read back: a source that is neither a folder,
+# a playlist nor audio stages invisibly - every count and every view drops it -
+# and then cancels each sync from then on while naming no file, so the way out
+# is to find and unqueue something nothing ever showed you.
+COVER = SOURCE / "cover.jpg"
+COVER.write_bytes(b"a picture, not a song")
+app.activate_action("queue", GLib.Variant("s", str(COVER)))
+settle(lambda: str(COVER) in window.pending_sources, seconds=5)
+check(
+    set(window.pending_sources) == {str(SONG)},
+    f"queueing a file that is not music left {sorted(window.pending_sources)} "
+    f"staged",
+)
+
+# ------------------------------------------------------------- the sync bar
+
+# Driven through the window's own busy plumbing rather than by setting the flag
+# behind it, because revealing the bar and going busy are one act and it is the
+# bar that is being read.
+window._set_busy(True, "Copying to the iPod")
+running = dump(app)["sync"]
+check(running["active"] is True, f"a script is running, but sync reads {running}")
+check(
+    running["title"] == "Copying to the iPod",
+    f"the bar is showing {running['title']!r} while that is what it was told",
+)
+
+# And nothing may be staged underneath it. Every control that queues is
+# insensitive while a script runs; an action reaching the same staging from
+# outside the window has to refuse for itself, or a queue committed mid-copy is
+# thrown away by the clear-down when the run finishes.
+LATE = SOURCE / "03 - Late.mp3"
+LATE.write_bytes(b"queued too late")
+app.activate_action("queue", GLib.Variant("s", str(LATE)))
+settle(lambda: str(LATE) in window.pending_sources, seconds=5)
+check(
+    set(window.pending_sources) == {str(SONG)},
+    f"a script was running, but queueing left {sorted(window.pending_sources)} "
+    f"staged",
+)
+
+window._set_busy(False)
+quiet = dump(app)["sync"]
+check(
+    quiet == {
+        "active": False,
+        "title": "",
+        "current": "",
+        "count": "",
+        "progress": 0.0,
+    },
+    f"with the bar off screen and no script running, sync reads {quiet}",
+)
+
 # ------------------------------------------------------------------- refresh
 
 # Waited out first, because the window starts a scan of its own as it opens and

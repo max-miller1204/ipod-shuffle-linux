@@ -635,7 +635,13 @@ class LibraryViewMixin:
         ]
 
     def visible_counts(self):
-        """How many tracks are in each state, the way the pills count them.
+        """How many tracks are in each state.
+
+        Tracks rather than what the filter pills happen to be counting, which
+        is albums or artists whenever the grid is up and only tracks in list
+        mode. The pills count what is under them; a reader asking this is
+        asking about songs, and an answer that changed meaning with the view
+        mode would be one nothing could compare against.
 
         The index's own tally rather than one worked out here, because that one
         is keyed off the state labels: a state added there is counted by this

@@ -533,10 +533,10 @@ class IpodWindow(
         box.append(image)
         box.append(label(title))
         button.set_child(box)
-        button.connect("clicked", lambda _b, n=name: self._navigate(n))
+        button.connect("clicked", lambda _b, n=name: self.navigate(n))
         return button
 
-    def _navigate(self, name):
+    def navigate(self, name):
         """Follow a sidebar row, ending the search that row is leaving.
 
         Leaving the results up behind a field that still holds the query would
