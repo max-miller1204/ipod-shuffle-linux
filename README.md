@@ -660,8 +660,9 @@ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page library \
 The renderer navigates through the exported application action, explicitly allocates the content, and snapshots it with GTK's Cairo renderer.
 It leaves a message and no file rather than a shot it cannot vouch for, including on a display with no room to show the window at the requested width.
 Run `python3 tests/screenshot-harness.py` for the representative local check.
-It automatically starts an isolated Broadway display and session bus when it is not in CI, so no test window appears on the desktop.
-`tools/headless-run.py COMMAND ...` provides the same invisible display for any other GTK check.
+It automatically starts an isolated Xvfb display, so no test window appears on the desktop.
+Install the `xvfb` package if `xvfb-run` is unavailable; the runner refuses instead of falling back to the desktop.
+`tools/headless-run.py COMMAND ...` provides the same private display for any other GTK check.
 
 ## Renaming the device
 

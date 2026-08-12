@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -35,6 +36,13 @@ def arguments():
 
 
 args = arguments()
+if not os.environ.get("SHUFFLE_HEADLESS_TEST"):
+    repo = Path(__file__).resolve().parents[1]
+    raise SystemExit(
+        subprocess.run(
+            [sys.executable, repo / "tools/headless-run.py", sys.executable, __file__, *sys.argv[1:]]
+        ).returncode
+    )
 root = args.fixture.resolve()
 home = root / "home"
 host_home = Path.home()

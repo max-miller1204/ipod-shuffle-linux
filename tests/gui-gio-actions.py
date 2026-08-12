@@ -32,7 +32,7 @@ import time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-if not os.environ.get("SHUFFLE_HEADLESS_TEST") and not os.environ.get("CI"):
+if not os.environ.get("SHUFFLE_HEADLESS_TEST"):
     raise SystemExit(
         subprocess.run(
             [sys.executable, REPO / "tools/headless-run.py", sys.executable, __file__]
