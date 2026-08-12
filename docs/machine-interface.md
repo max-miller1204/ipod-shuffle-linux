@@ -2,6 +2,7 @@
 
 The [README](../README.md) is written for a person reading a terminal.
 The scripts also answer in JSON, they report what they are doing while they do it, and they say what went wrong as a number rather than as English, so that another program can act on any of it without reading prose.
+The application the window is built on answers the same way with no display, and that is the last section here.
 
 ## What is on the device
 
@@ -114,7 +115,57 @@ With `--json` the same reading arrives as a document instead of as lines of pros
 
 The same report closes a real install, in the same words, because a caller that asked what this machine could do and a person watching an install finish have to be told the same thing.
 
+## The application's own model, without a window
+
+```bash
+python3 -m ipod_gui.cli library
+python3 -m ipod_gui.cli device
+python3 -m ipod_gui.cli search 'heart of gold' --youtube
+python3 -m ipod_gui.cli playlists list
+python3 -m ipod_gui.cli cache status
+python3 -m ipod_gui.cli config
+```
+
+The GTK window's model answers on its own, with no display: the same scan, device probe, search, M3U store, preview cache and configuration file the window is built on.
+It enters through the `ipod_gui` package, so it needs PyGObject the way the window does, and nothing else the window needs.
+
+Every run writes one document and nothing else:
+
+| Field | What it holds |
+| --- | --- |
+| `schema` | `1`, on the same rule as the reports above: bumped only when a field changes meaning or leaves |
+| `command` | Which of the six was asked, so a reader that pipes several together can tell them apart |
+| `result` | The answer, shaped by that command |
+
+`library` carries `tracks`, `albums` - the collections, which `--group artist` makes artists instead - `counts` per state, and `complete`.
+`search` carries `local`, `complete`, and with `--youtube` also `youtube` and `reachedYoutube`.
+`device` is one probe of whatever is plugged in: its `candidates`, `mountPoint`, `identity`, `readable`, `trackCount`, `playlists` and `storage`, the same reading the window takes.
+`playlists` answers with the lists themselves, or with what an edit did: `added`, `removed`, or `moved`.
+A track named on the command line is written into the M3U as an absolute path, whatever shape it was typed in, because a playlist is read back against its own folder rather than against whoever wrote it - a relative line would name a file beside the playlist, which is where nothing is.
+`cache` carries the cache `root`, its `sizeBytes`, what a prune or clear `removed`, the `entries` left, and `complete`.
+`config` carries the `file` it wrote, the `musicRoots` now stored - always absolute, since the window reads this same file from a working directory of its own - and the `group` and `view` the library is left showing.
+
+| Code | What it means |
+| --- | --- |
+| `0` | It worked, and stdout is the whole document |
+| `1` | It did not: stderr says why in a sentence, and there is no document |
+| `1`, with a document | It did part of it, and the document says which part: `complete` is false |
+| `2` | The arguments were not usable, so nothing was attempted: argparse prints usage to stderr, and there is no document |
+
+`2` is what a caller meets before any of the above: a missing subcommand, `playlists` with no action after it, a name no subcommand has, or a position that is not a number.
+It comes from the argument parser rather than from the model, which is why it is separate from `1` - nothing was read, nothing was written, and the message is a usage line rather than a sentence about the library.
+
+`complete` is what that third row is, and it is why the field exists.
+A music folder that could not be read through - a root that has gone, a directory that will not open, a scan that ran out of time - leaves a real reading of everything else, and a cached preview that will not be deleted leaves every other one deleted.
+Throwing either away helps nobody, so the document is written, `complete` is false, and the run still leaves `1`, because a caller handed the part and told nothing would take it for the whole.
+It is carried by the three commands that can do part of their work - `library` and `search` for the scan, `cache` for a prune or a clear - so a reader that has the field can trust it and one that does not was never at risk.
+
+Editing a playlist follows the same rule from the other side.
+An edit that found nothing to do is a count of zero and a `0`, while a playlist that has gone since it was listed, a row at a position the file does not have, and a folder that refused the rewrite are each a sentence of their own and a `1` - three different places to go and look, rather than one `false` a caller has to guess at.
+
 ## What went wrong
+
+The scripts say what went wrong as a number. These are theirs; the CLI above has its own three.
 
 | Code | What it means | What a caller can do about it |
 | --- | --- | --- |

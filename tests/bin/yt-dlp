@@ -5,8 +5,16 @@ Records the arguments ipod-fetch.sh built and writes a file where the real
 thing would have written one, so the suite can assert on the flags without
 reaching the network.
 
+It answers a search as well as a download, because the app makes both calls
+and they are different programs: a download writes a file and prints where it
+landed, while a search prints one JSON object per line and downloads nothing.
+Told apart by --dump-json, which only the search passes.
+
 The two options a distribution package may be too old to have are separately
-switchable, because they arrived years apart and the fallbacks differ.
+switchable, because they arrived years apart and the fallbacks differ. So is
+the search failing, which is the one thing a caller cannot tell from an empty
+answer: yt-dlp exits non-zero when it could not reach YouTube and zero with
+nothing printed when the query simply found nothing.
 """
 
 import json
@@ -30,6 +38,35 @@ if "--help" in args:
 
 def value_of(flag, offset=1):
     return args[args.index(flag) + offset] if flag in args else None
+
+
+if "--dump-json" in args:
+    if os.environ.get("FAKE_YTDLP_SEARCH_FAILS") == "1":
+        print("ERROR: unable to reach YouTube", file=sys.stderr)
+        raise SystemExit(1)
+    # The last argument is what the app asked for: "ytsearchN:some words" for
+    # a query, or the link itself when one was pasted.
+    target = args[-1]
+    query = target.split(":", 1)[1] if target.startswith("ytsearch") else target
+    print(
+        json.dumps(
+            {
+                "id": "testvideo",
+                "title": f"Test Track ({query})",
+                "uploader": "Test Artist",
+                "duration": 180,
+                "webpage_url": "https://www.youtube.com/watch?v=testvideo",
+                "thumbnails": [
+                    {
+                        "url": "https://i.ytimg.com/vi/testvideo/hqdefault.jpg",
+                        "width": 480,
+                        "height": 360,
+                    }
+                ],
+            }
+        )
+    )
+    raise SystemExit(0)
 
 
 with open(os.environ["FAKE_YTDLP_RECORD"], "w", encoding="utf-8") as fh:

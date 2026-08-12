@@ -6,9 +6,11 @@ import os
 import sys
 
 
-mount_point = os.environ["FAKE_IPOD_MOUNT"]
+# Several mounts are listed the way the real findmnt lists them, because a
+# machine with an iPod plugged in has other vfat volumes on it too.
+mount_points = os.environ["FAKE_IPOD_MOUNT"].split(os.pathsep)
 if "--json" in sys.argv:
-    print(json.dumps({"filesystems": [{"target": mount_point}]}))
+    print(json.dumps({"filesystems": [{"target": path} for path in mount_points]}))
 elif "--target" in sys.argv:
     print("/dev/sdz")
 else:

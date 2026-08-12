@@ -33,6 +33,7 @@ gi.require_version("Adw", "1")
 # submodule directly gets that pinning through this file either way.
 from . import (  # noqa: E402
     app,
+    cli,
     commands,
     config,
     device,
@@ -83,4 +84,7 @@ __all__ = [
     "commands",
     "window",
     "app",
+    # Last, because nothing imports it: the display-free entry point reads the
+    # same model the window does, so `main` here is still the window's.
+    "cli",
 ]

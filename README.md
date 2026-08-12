@@ -623,6 +623,24 @@ The scripts also answer in JSON, they report what they are doing while they do i
 
 [docs/machine-interface.md](docs/machine-interface.md) is the reference for all of it: what `--list --json` says is on the device, the progress protocol `--progress-json` writes, what `install.sh --check` says is on this machine, and what each exit code means.
 
+The application model itself has a display-free JSON entry point:
+
+```bash
+python3 -m ipod_gui.cli library
+python3 -m ipod_gui.cli device
+python3 -m ipod_gui.cli search 'heart of gold' --youtube
+python3 -m ipod_gui.cli playlists list
+python3 -m ipod_gui.cli cache status
+python3 -m ipod_gui.cli config
+```
+
+It uses the same library index, device probe, search, M3U store, preview cache and configuration as the GTK window.
+Run `python3 -m ipod_gui.cli --help` or a subcommand's `--help` for mutation arguments.
+It needs PyGObject because it enters through the package and its declared imports, but it does not need a display.
+
+Every run writes one `{schema, command, result}` document to stdout, or says what went wrong as a sentence on stderr and leaves `1`.
+[docs/machine-interface.md](docs/machine-interface.md) records what each command's `result` holds, and the one case that is both: a run that did part of what it was asked - a music folder that could not be read through, a cached preview that would not go - writes what it did do, marks it `complete: false`, and leaves non-zero.
+
 ## Renaming the device
 
 The shuffle's name is not stored in any of its databases.
@@ -744,6 +762,7 @@ The GUI is a package, `ipod_gui/`, launched by `ipod-gui.py` and split by what e
 | `commands.py` | The mixin that runs device-changing scripts and reports their progress |
 | `window.py` | The window chrome, shared state, and assembly order for the mixins |
 | `app.py` | The `Adw.Application` the launcher starts |
+| `cli.py` | The same model answered as JSON, for a caller with no display |
 
 `ipod_gui/__init__.py` lists them innermost first, and every module imports only from ones earlier in that list.
 That ordering is what makes a name's home unambiguous, and `tests/harness.py` relies on it.
@@ -844,7 +863,11 @@ Nothing in a screenshot says which page is one long album title away from that, 
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the Xephyr recipe that brings the window up at exactly 1180x760 on any machine.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the three main-loop checks, and both real-window checks under xvfb on every push and pull request.
+`tests/headless-cli.py` covers `python3 -m ipod_gui.cli` the way another program meets it, running the real module against a library, playlist folder and preview cache of its own: it asserts each of the four shapes of run the command promises - a document and nothing else, a sentence on stderr with no document, an answer that is real but partial and still leaves non-zero, and a usage line from the argument parser that reaches none of the model at all.
+What those commands promise is what is on disk afterwards, so it is read back there: a track named relatively stored in an M3U as the absolute path it meant, the artist folder taken with the last preview in it, and a music root kept as it was named rather than with its symlinks resolved.
+Its `search --youtube` runs against the same `yt-dlp` stand-in the suite uses, which is what lets both answers - videos that came back, and YouTube out of reach - be checked without a network.
+
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the headless CLI check, the three main-loop checks, and both real-window checks under xvfb on every push and pull request.
 
 ## Credits
 
