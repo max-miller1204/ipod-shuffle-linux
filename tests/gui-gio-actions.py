@@ -74,9 +74,7 @@ from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 # reads as coverage that is not there.
 Gtk.init_check()
 if Gdk.Display.get_default() is None:
-    raise SystemExit(
-        "no display: run this under `xvfb-run -a`, or on a desktop session"
-    )
+    raise SystemExit("no display: tools/headless-run.py started none to build on")
 
 # Detection is gui-detection-smoke's subject. Here it only has to answer the
 # same way every run: a real probe could find a real iPod and move the mount

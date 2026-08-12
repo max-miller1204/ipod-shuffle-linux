@@ -655,10 +655,11 @@ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page library \
 ```
 
 `--width` is the layout: the window itself is driven to that width, so a shot narrower than the sidebar's breakpoint folds the sidebar away exactly as dragging the window that narrow does.
+`--page` is one of `library`, `playlists` and `settings`, and every shot is 760px high: the height is not an argument, so the page, the width and the scale are all that tell two shots apart.
 `--scale` is the raster density and nothing else, and it is required rather than defaulted so a shot is never quietly taken at the wrong one.
 `--scale 2` is the same layout at twice the pixels, which is what makes a 2x shot comparable to the 1x shot of the same page.
 The renderer navigates through the exported application action, explicitly allocates the content, and snapshots it with GTK's Cairo renderer.
-It leaves a message and no file rather than a shot it cannot vouch for, including on a display with no room to show the window at the requested width.
+It leaves a message and no file rather than a shot it cannot vouch for: a width under the minimum the window advertises is refused rather than quietly widened, and a display with too little room to show the window at the width asked for fails the run rather than shrinking the shot.
 The colour scheme is pinned to the dark one the shots in `docs/` are in rather than followed from the desktop, so a session that prefers light renders the same pixels as one that prefers dark.
 Tags are read in whichever interpreter has `mutagen`, so run `./install.sh` first or point `IPOD_VENV_PYTHON` at an interpreter that has it: with neither, the fixture's four albums read as one `Unknown album` and the check says so rather than rendering it.
 Run `python3 tests/screenshot-harness.py` for the representative local check.
@@ -899,7 +900,7 @@ Reading it there rather than off the runner's environment is the point, because 
 It also takes each of the two servers off `PATH` in turn and gives the wrapped command a file to write, so a runner that reports a refusal after already letting a window open is told apart from one that stopped it.
 
 `tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
-`tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the Xephyr recipe that brings the window up at exactly 1180x760 on any machine.
+`tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the `tools/shoot.py` line that retakes that shot from it.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
 `tests/headless-cli.py` covers `python3 -m ipod_gui.cli` the way another program meets it, running the real module against a library, playlist folder and preview cache of its own: it asserts each of the four shapes of run the command promises - a document and nothing else, a sentence on stderr with no document, an answer that is real but partial and still leaves non-zero, and a usage line from the argument parser that reaches none of the model at all.
