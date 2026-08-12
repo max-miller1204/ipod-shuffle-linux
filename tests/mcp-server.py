@@ -8,9 +8,12 @@ does not. A dry run has to leave the device byte-identical and hand back a
 token, an execute has to be refused when the identity or the token is not the
 one that plan printed, and the plan's own token has to carry the run through.
 
-The server is one process for the whole file, because the session is part of
-what is being checked: a request that cannot be served is one answer, and a
-child that could reach this client's pipe would answer with the next request.
+One server answers the whole file, because the session is part of what is
+being checked: a request that cannot be served is one answer, and a child that
+could reach this client's pipe would answer with the next request. The one
+exception is the short second server driving the read tools that shell out to
+findmnt and yt-dlp, which are answered by this suite's doubles - reached
+through a PATH that the device-changing scripts must not be run under.
 """
 
 import hashlib
@@ -29,6 +32,20 @@ source = root / "New Album"
 source.mkdir()
 (source / "01 - New.mp3").write_text("new song\n")
 backup = root / "backup"
+# A library, a playlist store and a preview cache under this fixture home, so
+# that each read tool has something of its own to find. A read tool checked
+# only for running would pass while answering from somebody else's machine or
+# from nothing at all; what is asserted below is that the document coming back
+# describes these files.
+library_track = home / "Music" / "Album" / "01 - Song.mp3"
+library_track.parent.mkdir(parents=True)
+library_track.write_text("song\n")
+playlist = home / "Music" / "Playlists" / "Road Trip.m3u"
+playlist.parent.mkdir(parents=True)
+playlist.write_text(f"{library_track}\n")
+preview = home / "cache" / "ipod-shuffle-linux" / "previews" / "testvideo" / "preview.m4a"
+preview.parent.mkdir(parents=True)
+preview.write_bytes(b"preview bytes")
 # The database builder is the test double the end-to-end suite uses, named the
 # way lib.sh resolves it, so an approved run finishes without the upstream
 # writer and records what it was asked to build.
@@ -46,11 +63,11 @@ env = dict(
 class Session:
     """A running server, driven one request at a time over its pipes."""
 
-    def __init__(self):
+    def __init__(self, environment=env):
         self.process = subprocess.Popen(
             ["/usr/bin/python3", "tools/mcp-server.py"],
             cwd=repo,
-            env=env,
+            env=environment,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -175,6 +192,76 @@ for operation, field in (("sync", "sources"), ("remove", "targets"), ("wipe", "b
 result = json.loads(session.call("read_library", {})[1])
 assert result["command"] == "library"
 assert result["result"]["complete"] is True
+assert [track["path"] for track in result["result"]["tracks"]] == [str(library_track)], result
+assert result["result"]["counts"]["library"] == 1, result
+
+failed, text = session.call("read_search", {"query": "Song"})
+assert not failed, text
+found = json.loads(text)["result"]
+assert [track["path"] for track in found["local"]] == [str(library_track)], found
+# The flag is not sent, so the command must not have gone looking for YouTube.
+assert "youtube" not in found, found
+
+failed, text = session.call("read_playlists", {})
+assert not failed, text
+stored = json.loads(text)["result"]
+assert [(entry["name"], entry["entries"]) for entry in stored] == [
+    ("Road Trip", [str(library_track)])
+], stored
+
+failed, text = session.call("read_cache", {})
+assert not failed, text
+cache = json.loads(text)["result"]
+assert cache["root"] == str(preview.parents[1]), cache
+assert [entry["path"] for entry in cache["entries"]] == [str(preview)], cache
+assert cache["sizeBytes"] == preview.stat().st_size, cache
+
+# The remaining two answers are not this machine's to give: the device probe
+# shells out to findmnt and the YouTube half of the search to yt-dlp, so both
+# are exercised against the doubles the rest of the suite uses, reached by
+# putting tests/bin first on PATH. A second server rather than the one above,
+# because that PATH would reach every script the device operations below run.
+attached = make_mount("attached")
+(attached / "Favourites.m3u").write_text("iPod_Control/Music/Album/01 - Keep.mp3\n")
+attached_before = device_state(attached)
+doubled = Session(
+    dict(
+        env,
+        PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
+        FAKE_IPOD_MOUNT=str(attached),
+    )
+)
+doubled.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}})
+
+failed, text = doubled.call("read_device", {})
+assert not failed, text
+device = json.loads(text)["result"]
+assert device["candidates"] == [str(attached)], device
+assert device["mountPoint"] == str(attached), device
+assert device["identity"], device
+assert device["readable"] is True, device
+assert device["trackCount"] == 2, device
+assert [(entry["name"], entry["entries"]) for entry in device["playlists"]] == [
+    ("Favourites", ["Album/01 - Keep.mp3"])
+], device
+
+failed, text = doubled.call("read_search", {"query": "Song", "youtube": True})
+assert not failed, text
+found = json.loads(text)["result"]
+assert [track["path"] for track in found["local"]] == [str(library_track)], found
+assert found["reachedYoutube"] is True, found
+assert [video["url"] for video in found["youtube"]] == [
+    "https://www.youtube.com/watch?v=testvideo"
+], found
+doubled.close()
+
+# Every tool above is listed as read-only, and the preview cache is the one
+# thing the CLI behind them can also be told to delete from, so what they
+# answered about is read back rather than taken on the description's word.
+assert library_track.read_text() == "song\n"
+assert playlist.read_text() == f"{library_track}\n"
+assert preview.read_bytes() == b"preview bytes"
+assert device_state(attached) == attached_before, "a read tool changed the device"
 
 # Arguments that do not fit the schema are refused before anything is run, so
 # a string where an array belongs cannot reach a command line one character at
