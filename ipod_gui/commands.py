@@ -183,6 +183,21 @@ class CommandsMixin:
 
     # -------------------------------------------------------- busy plumbing
 
+    def sync_state(self):
+        """What the sync bar is reporting, as the state dump writes it.
+
+        The labels as they read rather than the numbers behind them: this bar
+        is the only account the window keeps of a running script, and a stage
+        that has no count to give still names itself in the title.
+        """
+        return {
+            "active": self.busy,
+            "title": self.sync_title.get_text(),
+            "current": self.sync_current.get_text(),
+            "count": self.sync_count.get_text(),
+            "progress": self.progress.get_fraction(),
+        }
+
     def _set_busy(self, busy, message=""):
         if busy:
             self.probe_generation += 1

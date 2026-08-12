@@ -634,6 +634,16 @@ class LibraryViewMixin:
             track for track in self.device_tracks if id(track) not in matched
         ]
 
+    def visible_counts(self):
+        """How many tracks are in each state, the way the pills count them.
+
+        The index's own tally rather than one worked out here, because that one
+        is keyed off the state labels: a state added there is counted by this
+        without being listed a second time, which is the drift the model's
+        comment already exists to prevent.
+        """
+        return self.library.track_counts()
+
     def _populate_albums(self):
         if not self._library_ready:
             return

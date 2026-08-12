@@ -541,11 +541,25 @@ class Grouping:
 
 
 class VisibleView:
+    """The view stack, as much of it as a check without a display needs.
+
+    It holds the pages as well as the visible one, because the window asks it
+    both questions: what is on screen, and whether a name it has been handed is
+    a page at all. The second is what refuses a navigation from outside the
+    window, so a stand-in that answered yes to everything would let the check
+    pass a name the real stack has no page under.
+    """
+
+    PAGES = ("library", "search", "album", "playlists", "settings")
+
     def __init__(self, name):
         self.name = name
 
     def get_visible_child_name(self):
         return self.name
+
+    def get_child_by_name(self, name):
+        return name if name in self.PAGES else None
 
 
 class RefreshWindow:
@@ -1770,6 +1784,10 @@ class SearchWindow:
     """Enough of the window to drive the search without a display."""
 
     current_view = gui.IpodWindow.current_view
+    # The real predicate, for the same reason current_view is real: whether a
+    # name is a page is what _navigate refuses on, and a fake would be the
+    # check answering its own question.
+    has_view = gui.IpodWindow.has_view
 
     def __init__(self, unavailable=None):
         self.search_entry = SearchEntry()

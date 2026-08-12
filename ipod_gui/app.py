@@ -26,15 +26,21 @@ class IpodApp(Adw.Application):
             ("queue", "s", self._queue),
             ("refresh", None, self._refresh),
         ):
-            action = Gio.SimpleAction.new(name, None if parameter is None else GLib.VariantType.new(parameter))
+            action = Gio.SimpleAction.new(
+                name,
+                None if parameter is None else GLib.VariantType.new(parameter),
+            )
             action.connect("activate", callback)
             self.add_action(action)
+        # Stateful, because a reply is what this one is for: activating it is
+        # how a client asks, and the state it leaves behind is the answer. The
+        # action itself arrives back as the callback's first argument, so it is
+        # added here and not kept.
         state = Gio.SimpleAction.new_stateful(
             "dump-state", None, GLib.Variant("s", "{}")
         )
         state.connect("activate", self._dump_state)
         self.add_action(state)
-        self._state_action = state
 
     def _window(self):
         return self.props.active_window

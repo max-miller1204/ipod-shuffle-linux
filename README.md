@@ -643,7 +643,8 @@ Every run writes one `{schema, command, result}` document to stdout, or says wha
 
 The running GTK application also exports `navigate`, `search`, `queue`, `refresh` and stateful `dump-state` application actions through its existing `org.gtk.Actions` D-Bus interface.
 They drive the single running window without synthetic input.
-Activating `dump-state` refreshes its JSON string state with the current page, visible library counts, staged sources and tracks, playback and sync-bar state, and the inline error currently shown by the active view.
+Activating `dump-state` refreshes its JSON string state with the current page, visible library counts, staged sources and tracks, playback and sync-bar state, and the note the search page is showing in place of results.
+[docs/machine-interface.md](docs/machine-interface.md) records the calls, every field of that document, and the one thing worth knowing before writing a client: the actions return before the work lands, so a dump read straight after one can answer from the moment before it.
 
 ## Renaming the device
 

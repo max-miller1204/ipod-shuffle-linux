@@ -23,7 +23,6 @@ from .shell import (
     youtube_unavailable_reason,
 )
 from .model import LibraryIndex
-from .cli import _track
 from .widgets import ELLIPSIZE_END, label
 from .player import PreviewPlayer, UNPAINTED, preview_unavailable_reason
 from .library_view import LibraryViewMixin
@@ -53,6 +52,11 @@ TITLE_HIDE_WIDTH = 700
 # finished. A rescan of a small library is over in a few dozen milliseconds,
 # and a spinner that brief is a flicker rather than an answer.
 REFRESH_SPINNER_MIN_MS = 600
+
+# The version of the document dump_state writes, on the same rule the headless
+# CLI's own schema follows: bumped only when a field changes meaning or leaves,
+# so a client that reads it can tell a shape it knows from one it does not.
+DUMP_STATE_SCHEMA = 1
 
 
 class IpodWindow(
@@ -538,7 +542,14 @@ class IpodWindow(
         Leaving the results up behind a field that still holds the query would
         make the next keystroke reopen a view the user had just navigated out
         of, and the sidebar would show a destination that is not on screen.
+
+        Checked before the search is cleared rather than after: the page name
+        arrives from outside the window through the navigate action too, and a
+        refused one that had already emptied the field would have undone the
+        user's search on its way to going nowhere.
         """
+        if not self.has_view(name):
+            return
         self._clear_search()
         self.show_view(name)
 
@@ -553,41 +564,38 @@ class IpodWindow(
         """
         return self.views.get_visible_child_name()
 
+    def has_view(self, name):
+        """Whether the stack actually holds a page under this name.
+
+        Read off the stack rather than checked against a list written here, so
+        a page added to the window is one this answers for without being told
+        about twice.
+        """
+        return self.views.get_child_by_name(name) is not None
+
     def dump_state(self):
-        """Return the user-visible state behind the application action."""
-        queued_tracks, queued_changes, queued_bytes = self._pending_accounting()
-        player_track = self.player.track
-        counts = {
-            state: sum(track.state == state for track in self.library.all_tracks())
-            for state in ("ipod", "queued", "library", "preview")
-        }
+        """The window's user-visible state, as the application action's JSON.
+
+        Assembled from what each mixin answers about its own part rather than
+        read off their attributes from here. Reaching into five of them for
+        eleven values would make this one method the place the whole split
+        comes undone - and tools/mixin-contract.py would be right to say so.
+        What each part is showing is that part's to know; the shape they are
+        put into is the interface's, and that is what is left here.
+        """
         return {
-            "schema": 1,
+            "schema": DUMP_STATE_SCHEMA,
             "page": self.current_view(),
-            "visibleCounts": counts,
-            "staged": {
-                "sources": sorted(self.pending_sources),
-                "tracks": [_track(track) for track in queued_tracks],
-                "changes": queued_changes,
-                "bytes": queued_bytes,
-                "deviceIdentity": self.pending_device_identity,
-            },
-            "nowPlaying": {
-                "state": self.player.state,
-                "track": None if player_track is None else _track(player_track),
-                "error": self.player.error or self.preview_unavailable or "",
-            },
-            "sync": {
-                "active": self.busy,
-                "title": self.sync_title.get_text(),
-                "current": self.sync_current.get_text(),
-                "count": self.sync_count.get_text(),
-                "progress": self.progress.get_fraction(),
-            },
-            "inlineError": self.search_note if self.current_view() == "search" else "",
+            "visibleCounts": self.visible_counts(),
+            "staged": self.staged_state(),
+            "nowPlaying": self.now_playing_state(),
+            "sync": self.sync_state(),
+            "inlineError": self.search_inline_error(),
         }
 
     def show_view(self, name):
+        if not self.has_view(name):
+            return
         self.views.set_visible_child_name(name)
         titles = {
             "library": "Your Library",

@@ -31,7 +31,7 @@ from .config import (
     save_music_roots,
 )
 from .device import probe_device
-from .model import LibraryIndex, Track, local_search_matches
+from .model import LibraryIndex, Track, local_search_matches, track_document
 from .playlists import (
     PLAYLIST_GONE,
     TARGET_GONE,
@@ -67,22 +67,6 @@ warnings.filterwarnings(
     message=r".*found in sys\.modules after import of package.*",
     category=RuntimeWarning,
 )
-
-
-def _track(track):
-    return {
-        "path": track.path,
-        "title": track.title,
-        "artist": track.artist,
-        "album": track.album,
-        "genre": track.genre,
-        "duration": track.duration,
-        "trackNumber": track.track_no,
-        "art": track.art,
-        "size": track.size,
-        "state": track.state,
-        "onIpod": track.on_ipod,
-    }
 
 
 def _library():
@@ -296,7 +280,7 @@ def main(argv=None):
         _emit(
             "library",
             {
-                "tracks": [_track(track) for track in index.all_tracks()],
+                "tracks": [track_document(track) for track in index.all_tracks()],
                 "albums": [
                     {
                         "title": collection.title,
@@ -321,7 +305,7 @@ def main(argv=None):
         index, complete = _library()
         result = {
             "local": [
-                _track(track)
+                track_document(track)
                 for track in local_search_matches(index.all_tracks(), args.query)
             ],
             "complete": complete,

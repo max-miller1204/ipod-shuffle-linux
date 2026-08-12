@@ -45,7 +45,7 @@ from .previews import (
     promote_destination,
     prunable_previews,
 )
-from .model import Track
+from .model import Track, track_document
 from .widgets import ELLIPSIZE_END, StorageMeter, label, make_cover, state_dot
 from .player import (
     PLAY_FETCHING,
@@ -642,6 +642,22 @@ class PlaybackViewMixin:
         scale.set_value(fraction)
         self.player.seek(fraction)
         return True
+
+    def now_playing_state(self):
+        """What the bar is showing, as the state dump writes it.
+
+        The player's own reading rather than the labels painted from it, so a
+        reader is told what is playing rather than how this window happens to
+        word it. The two errors fall together the way the bar shows them: a
+        preview that could not start says so, and a machine with nothing to
+        play one on says that instead, since it is why no preview can start.
+        """
+        track = self.player.track
+        return {
+            "state": self.player.state,
+            "track": None if track is None else track_document(track),
+            "error": self.player.error or self.preview_unavailable or "",
+        }
 
     def _update_now_playing(self):
         """Repaint the bar from the player. Cheap enough to run per poll."""

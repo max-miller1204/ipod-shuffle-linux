@@ -31,7 +31,12 @@ from .config import (
 from .text import plural
 from .tags import scan_tracks, walk_following_links
 from .youtube import fetch_command, fetched_sources
-from .model import Track, local_playlist_tracks, read_local_playlist_tracks
+from .model import (
+    Track,
+    local_playlist_tracks,
+    read_local_playlist_tracks,
+    track_document,
+)
 
 
 class QueueMixin:
@@ -83,6 +88,23 @@ class QueueMixin:
 
     def _pending_copy_tracks(self):
         return self._pending_accounting()[0]
+
+    def staged_state(self):
+        """What is staged for the next sync, as the state dump writes it.
+
+        The queue's slice of that document, answered here rather than read off
+        `pending_sources` and the accounting from the window: what is staged is
+        this module's to know, and the same accounting the Sync button counts
+        from is what a reader is told, so the two cannot disagree.
+        """
+        tracks, changes, queued_bytes = self._pending_accounting()
+        return {
+            "sources": sorted(self.pending_sources),
+            "tracks": [track_document(track) for track in tracks],
+            "changes": changes,
+            "bytes": queued_bytes,
+            "deviceIdentity": self.pending_device_identity,
+        }
 
     @staticmethod
     def _source_gone(source):
