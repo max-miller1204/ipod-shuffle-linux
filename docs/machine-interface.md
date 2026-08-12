@@ -35,6 +35,9 @@ A non-interactive clear, removal or wipe is refused even with `--yes` unless the
 This prevents `--yes`, which records a human confirmation in an interactive flow, from becoming authorization merely because an automated caller copied the flag.
 Pass the plan's device identity back as `--expect-device ID` as well.
 Every device-changing script checks it after resolving the mount, and refuses if another iPod has replaced the one the caller inspected.
+That refusal leaves with `1`, the code for a failure whose message is the explanation, and the message names both the identity that was expected and the one that answered.
+`7` is kept for the missing or wrong token, which is the withheld approval a declined prompt reports.
+A volume that will say neither a UUID nor a `SysInfo` of its own has no identity to pin: the plan carries an empty one, and passing an empty `--expect-device` back checks nothing.
 
 ```bash
 plan="$(./ipod-wipe.sh --ipod "$mount" --dry-run)"
