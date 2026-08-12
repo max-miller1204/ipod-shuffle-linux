@@ -641,6 +641,10 @@ It needs PyGObject because it enters through the package and its declared import
 Every run writes one `{schema, command, result}` document to stdout, or says what went wrong as a sentence on stderr and leaves `1`.
 [docs/machine-interface.md](docs/machine-interface.md) records what each command's `result` holds, and the one case that is both: a run that did part of what it was asked - a music folder that could not be read through, a cached preview that would not go - writes what it did do, marks it `complete: false`, and leaves non-zero.
 
+The running GTK application also exports `navigate`, `search`, `queue`, `refresh` and stateful `dump-state` application actions through its existing `org.gtk.Actions` D-Bus interface.
+They drive the single running window without synthetic input.
+Activating `dump-state` refreshes its JSON string state with the current page, visible library counts, staged sources and tracks, playback and sync-bar state, and the inline error currently shown by the active view.
+
 ## Renaming the device
 
 The shuffle's name is not stored in any of its databases.

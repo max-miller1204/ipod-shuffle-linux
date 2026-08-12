@@ -93,6 +93,9 @@ jobs:
       - name: GUI window fits its minimum
         run: xvfb-run -a python3 tests/gui-window-minimum.py
 
+      - name: Gio application actions
+        run: xvfb-run -a python3 tests/gui-gio-actions.py
+
       # The suite's playlist check runs the real upstream builder against the
       # rewritten list a sync produces, which the fake builder cannot vouch
       # for. This is the hardware-validated revision; bump it only after

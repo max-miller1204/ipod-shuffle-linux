@@ -23,6 +23,7 @@ from .shell import (
     youtube_unavailable_reason,
 )
 from .model import LibraryIndex
+from .cli import _track
 from .widgets import ELLIPSIZE_END, label
 from .player import PreviewPlayer, UNPAINTED, preview_unavailable_reason
 from .library_view import LibraryViewMixin
@@ -551,6 +552,40 @@ class IpodWindow(
         holding that answer is the window's own.
         """
         return self.views.get_visible_child_name()
+
+    def dump_state(self):
+        """Return the user-visible state behind the application action."""
+        queued_tracks, queued_changes, queued_bytes = self._pending_accounting()
+        player_track = self.player.track
+        counts = {
+            state: sum(track.state == state for track in self.library.all_tracks())
+            for state in ("ipod", "queued", "library", "preview")
+        }
+        return {
+            "schema": 1,
+            "page": self.current_view(),
+            "visibleCounts": counts,
+            "staged": {
+                "sources": sorted(self.pending_sources),
+                "tracks": [_track(track) for track in queued_tracks],
+                "changes": queued_changes,
+                "bytes": queued_bytes,
+                "deviceIdentity": self.pending_device_identity,
+            },
+            "nowPlaying": {
+                "state": self.player.state,
+                "track": None if player_track is None else _track(player_track),
+                "error": self.player.error or self.preview_unavailable or "",
+            },
+            "sync": {
+                "active": self.busy,
+                "title": self.sync_title.get_text(),
+                "current": self.sync_current.get_text(),
+                "count": self.sync_count.get_text(),
+                "progress": self.progress.get_fraction(),
+            },
+            "inlineError": self.search_note if self.current_view() == "search" else "",
+        }
 
     def show_view(self, name):
         self.views.set_visible_child_name(name)
