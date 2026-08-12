@@ -646,6 +646,17 @@ They drive the single running window without synthetic input.
 Activating `dump-state` refreshes its JSON string state with the current page, visible library counts, staged sources and tracks, playback and sync-bar state, and the note the search page is showing in place of results.
 [docs/machine-interface.md](docs/machine-interface.md) records the calls, every field of that document, and the one thing worth knowing before writing a client: the actions return before the work lands, so a dump read straight after one can answer from the moment before it.
 
+For reproducible visual evidence, build the canonical four-album fixture and render a page without depending on compositor frames:
+
+```bash
+python3 tools/demo-library.py /tmp/shuffle-demo
+python3 tools/shoot.py --fixture /tmp/shuffle-demo --page library \
+  --width 1180 --scale 2 --output /tmp/library-2x.png
+```
+
+`--width` controls layout and `--scale` is required so HiDPI-only defects are visible.
+The renderer navigates through the exported application action, explicitly allocates the content, and snapshots it with GTK's Cairo renderer.
+
 ## Renaming the device
 
 The shuffle's name is not stored in any of its databases.

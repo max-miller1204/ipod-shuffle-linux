@@ -99,6 +99,11 @@ jobs:
       - name: Gio application actions
         run: xvfb-run -a python3 tests/gui-gio-actions.py
 
+      - name: Deterministic screenshots
+        env:
+          SCREENSHOT_EVIDENCE_DIR: ${{ runner.temp }}/screenshots
+        run: xvfb-run -a python3 tests/screenshot-harness.py
+
       # The suite's playlist check runs the real upstream builder against the
       # rewritten list a sync produces, which the fake builder cannot vouch
       # for. This is the hardware-validated revision; bump it only after
@@ -121,11 +126,19 @@ jobs:
       # check depends on, which would silently reduce its coverage.
       - name: End-to-end suite
         run: |
+
           test "$(id -u)" -ne 0 || { echo "must not run as root" >&2; exit 1; }
           tool_dir="${RUNNER_TEMP}/IPod-Shuffle-4g"
           EVIDENCE_DIR="${RUNNER_TEMP}/evidence" \
             IPOD_REAL_DB_TOOL="$tool_dir/ipod-shuffle-4g.py" \
             bash tests/product-e2e.sh
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/screenshots
+          if-no-files-found: warn
 
       - name: Upload evidence
         if: always()

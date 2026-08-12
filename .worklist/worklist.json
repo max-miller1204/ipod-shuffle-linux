@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 166,
+  "revision": 167,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -275,9 +275,10 @@
       "dependsOn": [
         "gio-actions-and-a-state-dump-on-the"
       ],
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-07T21:37:54.443Z",
-      "updatedAt": "2026-08-07T21:37:54.443Z"
+      "updatedAt": "2026-08-12T06:19:27.611Z",
+      "completedAt": "2026-08-12T06:19:27.611Z"
     },
     {
       "id": "an-mcp-server-over-the-headless-cli",
