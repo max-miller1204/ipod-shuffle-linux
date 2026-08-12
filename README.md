@@ -638,6 +638,9 @@ It uses the same library index, device probe, search, M3U store, preview cache a
 Run `python3 -m ipod_gui.cli --help` or a subcommand's `--help` for mutation arguments.
 It needs PyGObject because it enters through the package and its declared imports, but it does not need a display.
 
+Every run writes one `{schema, command, result}` document to stdout, or says what went wrong as a sentence on stderr and leaves `1`.
+[docs/machine-interface.md](docs/machine-interface.md) records what each command's `result` holds, and the one case that is both: a music folder that could not be read through still writes what was read, marks it `complete: false`, and leaves non-zero.
+
 ## Renaming the device
 
 The shuffle's name is not stored in any of its databases.
@@ -759,6 +762,7 @@ The GUI is a package, `ipod_gui/`, launched by `ipod-gui.py` and split by what e
 | `commands.py` | The mixin that runs device-changing scripts and reports their progress |
 | `window.py` | The window chrome, shared state, and assembly order for the mixins |
 | `app.py` | The `Adw.Application` the launcher starts |
+| `cli.py` | The same model answered as JSON, for a caller with no display |
 
 `ipod_gui/__init__.py` lists them innermost first, and every module imports only from ones earlier in that list.
 That ordering is what makes a name's home unambiguous, and `tests/harness.py` relies on it.

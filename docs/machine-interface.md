@@ -114,7 +114,50 @@ With `--json` the same reading arrives as a document instead of as lines of pros
 
 The same report closes a real install, in the same words, because a caller that asked what this machine could do and a person watching an install finish have to be told the same thing.
 
+## The application's own model, without a window
+
+```bash
+python3 -m ipod_gui.cli library
+python3 -m ipod_gui.cli device
+python3 -m ipod_gui.cli search 'heart of gold' --youtube
+python3 -m ipod_gui.cli playlists list
+python3 -m ipod_gui.cli cache status
+python3 -m ipod_gui.cli config
+```
+
+The GTK window's model answers on its own, with no display: the same scan, device probe, search, M3U store, preview cache and configuration file the window is built on.
+It enters through the `ipod_gui` package, so it needs PyGObject the way the window does, and nothing else the window needs.
+
+Every run writes one document and nothing else:
+
+| Field | What it holds |
+| --- | --- |
+| `schema` | `1`, on the same rule as the reports above: bumped only when a field changes meaning or leaves |
+| `command` | Which of the six was asked, so a reader that pipes several together can tell them apart |
+| `result` | The answer, shaped by that command |
+
+`library` carries `tracks`, `albums` - the collections, which `--group artist` makes artists instead - `counts` per state, and `complete`.
+`search` carries `local`, `complete`, and with `--youtube` also `youtube` and `reachedYoutube`.
+`device` is one probe of whatever is plugged in: its `candidates`, `mountPoint`, `identity`, `readable`, `trackCount`, `playlists` and `storage`, the same reading the window takes.
+`playlists` answers with the lists themselves, or with what an edit did: `added`, `removed`, or `moved`.
+`cache` carries the cache `root`, its `sizeBytes`, what a prune or clear `removed`, and the `entries` left.
+`config` carries the `file` it wrote, the `musicRoots` now stored - always absolute, since the window reads this same file from a working directory of its own - and the `group` and `view` the library is left showing.
+
+| Code | What it means |
+| --- | --- |
+| `0` | It worked, and stdout is the whole document |
+| `1` | It did not: stderr says why in a sentence, and there is no document |
+
+`complete` is the one case that is both, and it is why it exists.
+A music folder that could not be read through - a root that has gone, a directory that will not open, a scan that ran out of time - leaves a real reading of everything else, and throwing that away helps nobody.
+So the document is written, `complete` is false, and the run still leaves `1`, because a caller handed a scan that stopped part way through and told nothing would take it for the library.
+
+Editing a playlist follows the same rule from the other side.
+An edit that found nothing to do is a count of zero and a `0`, while a playlist that has gone since it was listed, a row at a position the file does not have, and a folder that refused the rewrite are each a sentence of their own and a `1` - three different places to go and look, rather than one `false` a caller has to guess at.
+
 ## What went wrong
+
+The scripts say what went wrong as a number. These are theirs; the CLI above has its own two.
 
 | Code | What it means | What a caller can do about it |
 | --- | --- | --- |

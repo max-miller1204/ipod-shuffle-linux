@@ -1,13 +1,28 @@
-"""Display-free JSON command surface over the ipod_gui package."""
+"""Display-free JSON command surface over the ipod_gui package.
+
+The window's model without the window: the same scan, device probe, search,
+M3U store, preview cache and configuration file, answered as one document per
+run so another program can act on any of it without reading prose.
+
+A run either writes one `{schema, command, result}` object to stdout, or says
+what went wrong as a sentence on stderr and leaves non-zero. The one case that
+does both is an answer that is real but partial - a music folder that could not
+be read through - which writes its document, marks it, and still leaves
+non-zero rather than passing a truncated library off as the library.
+"""
 
 import argparse
 import json
+import sys
+import warnings
 from pathlib import Path
 
 from .config import (
     CONFIG_FILE,
+    PLAYLIST_LIBRARY,
     PREVIEW_CACHE,
     PREVIEW_CACHE_LIMIT,
+    STATE_LIBRARY,
     library_layout,
     music_roots,
     save_library_layout,
@@ -16,10 +31,16 @@ from .config import (
 from .device import probe_device
 from .model import LibraryIndex, Track, local_search_matches
 from .playlists import (
+    PLAYLIST_GONE,
+    TARGET_GONE,
+    Playlist,
     add_entries,
     create_local_playlist,
     local_playlists,
     move_entry,
+    name_problem,
+    playlist_names_here,
+    read_playlist_entries,
     remove_entry,
 )
 from .previews import preview_cache_entries, prunable_previews
@@ -27,6 +48,19 @@ from .tags import scan_tracks
 from .youtube import search_youtube
 
 SCHEMA = 1
+
+# `python3 -m ipod_gui.cli` imports the package before it runs this module, and
+# the package imports every one of its modules eagerly - it has to, since that
+# is where the GTK versions are pinned - so runpy finds this one already
+# imported and warns before running it. What it warns about is a body of
+# imports, constants and definitions, run twice against nothing that is shared.
+# Left alone, it lands on the stderr of every single run, which is the one
+# place this command has to say what went wrong.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*found in sys\.modules after import of package.*",
+    category=RuntimeWarning,
+)
 
 
 def _track(track):
@@ -46,16 +80,45 @@ def _track(track):
 
 
 def _library():
+    """The index the window builds, and whether it is the whole of it.
+
+    Keyed by path across the roots, the way the window keys its own scan
+    results, because the configured roots may overlap - ~/Music and the
+    ~/Music/youtube that downloads land in is the ordinary case - and a file
+    under both of them is one track rather than two.
+
+    `complete` is scan_tracks' own answer carried out rather than dropped. A
+    scan that timed out, or that met a folder it could not read, returns the
+    records it did get, and a caller handed those without being told is one
+    reading a truncated library as the library.
+    """
     index = LibraryIndex()
-    tracks = []
+    tracks = {}
+    complete = True
     for root in index.roots:
-        records, _complete = scan_tracks(root)
-        tracks.extend(
-            Track(Path(root, record["path"]), record, "library")
-            for record in records
-        )
-    index.tracks = tracks
-    return index
+        records, read_through = scan_tracks(root)
+        complete = complete and read_through
+        for record in records:
+            track = Track(Path(root, record["path"]), record, STATE_LIBRARY)
+            tracks[track.path] = track
+    index.tracks = list(tracks.values())
+    return index, complete
+
+
+def _scan_exit(complete):
+    """0 when every music folder was read through, 1 when one was not.
+
+    The document is written either way, carrying `complete`, because what was
+    read is still worth having. The code is what stops a caller from taking a
+    scan that stopped part way through for the whole library.
+    """
+    if complete:
+        return 0
+    print(
+        "a music folder could not be read through: this answer is partial",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def _device(probe):
@@ -94,6 +157,55 @@ def _playlist(playlist):
         "editable": playlist.editable,
         "entries": list(playlist.entries),
     }
+
+
+def _edited(outcome, playlist):
+    """What an M3U edit counted, or the sentence for why it counted nothing.
+
+    playlists.py tells its refusals apart, and both of the ones that reach here
+    leave non-zero: a playlist deleted underneath the edit and a folder that
+    would not have it rewritten are different places to go and look, and
+    neither performed the edit that was asked for. A count of zero is not one
+    of them - that is an edit that ran and found nothing to do - so it is a
+    result like any other.
+    """
+    if outcome is PLAYLIST_GONE:
+        raise SystemExit(f"playlist is no longer there: {playlist.path}")
+    if outcome is None:
+        raise SystemExit(f"could not rewrite playlist: {playlist.path}")
+    return outcome
+
+
+def _forget_empty_preview_folders(folder, root):
+    """Take the artist folder that the last preview in it left."""
+    folder = Path(folder)
+    root = Path(root)
+    while root in folder.parents:
+        try:
+            folder.rmdir()
+        except OSError:
+            return
+        folder = folder.parent
+
+
+def _remove_previews(paths, root):
+    """Delete cached previews, answering with the ones that actually went.
+
+    An OSError is one preview that is still there - taken by a running window
+    between the listing and the unlink, or sitting in a folder that will not
+    give it up - and not a reason to abandon the ones after it, which is how
+    the window's own prune reads it. Reporting what went rather than what was
+    asked for is what lets the caller tell the two apart.
+    """
+    removed = []
+    for path in paths:
+        try:
+            path.unlink()
+        except OSError:
+            continue
+        removed.append(path)
+        _forget_empty_preview_folders(path.parent, root)
+    return removed
 
 
 def build_parser():
@@ -136,67 +248,137 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.command == "library":
-        index = _library()
+        index, complete = _library()
         collections = index.collections(args.group == "artist")
-        _emit("library", {"tracks": [_track(t) for t in index.all_tracks()], "albums": [{"title": c.title, "artist": c.artist, "state": c.state, "trackCount": len(c.tracks)} for c in collections], "counts": index.track_counts()})
-        return 0
+        _emit(
+            "library",
+            {
+                "tracks": [_track(track) for track in index.all_tracks()],
+                "albums": [
+                    {
+                        "title": collection.title,
+                        "artist": collection.artist,
+                        "state": collection.state,
+                        "trackCount": len(collection.tracks),
+                    }
+                    for collection in collections
+                ],
+                "counts": index.track_counts(),
+                "complete": complete,
+            },
+        )
+        return _scan_exit(complete)
     if args.command == "device":
         _emit("device", _device(probe_device()))
         return 0
     if args.command == "search":
-        index = _library()
+        index, complete = _library()
         result = {
-            "local": [_track(t) for t in local_search_matches(index.all_tracks(), args.query)]
+            "local": [
+                _track(track)
+                for track in local_search_matches(index.all_tracks(), args.query)
+            ],
+            "complete": complete,
         }
         if args.youtube:
             videos, reached = search_youtube(args.query)
             result["youtube"] = [_video(video) for video in videos]
             result["reachedYoutube"] = reached
         _emit("search", result)
-        return 0
+        return _scan_exit(complete)
     if args.command == "playlists":
-        from .config import PLAYLIST_LIBRARY
         root = args.root or PLAYLIST_LIBRARY
-        found = {p.name: p for p in local_playlists(root)}
         if args.playlist_action == "list":
-            result = [_playlist(p) for p in found.values()]
+            result = [_playlist(playlist) for playlist in local_playlists(root)]
         elif args.playlist_action == "create":
+            # The window's own rule for a name, applied to a name typed here
+            # too: both write into the same folder, and a name FAT cannot hold
+            # is one the sync mangles later on a device with no screen.
+            problem = name_problem(args.name, playlist_names_here(root))
+            if problem is not None:
+                raise SystemExit(problem)
             path = create_local_playlist(root, args.name, args.entries)
             if path is None:
                 raise SystemExit(f"could not create playlist: {args.name}")
-            result = _playlist(local_playlists(root)[[p.name for p in local_playlists(root)].index(args.name)])
+            result = _playlist(Playlist(path.stem, path, read_playlist_entries(path)))
         else:
+            found = {playlist.name: playlist for playlist in local_playlists(root)}
             playlist = found.get(args.name)
             if playlist is None:
                 raise SystemExit(f"playlist not found: {args.name}")
             if args.playlist_action == "add":
-                result = {"added": add_entries(playlist.path, args.entries)}
+                added = add_entries(playlist.path, args.entries)
+                result = {"added": _edited(added, playlist)}
             elif args.playlist_action == "remove":
-                result = {"removed": remove_entry(playlist.path, args.entry)}
+                removed = remove_entry(playlist.path, args.entry)
+                result = {"removed": _edited(removed, playlist)}
             else:
-                result = {"moved": move_entry(playlist.path, args.source, args.target) is True}
+                moved = move_entry(playlist.path, args.source, args.target)
+                if moved is False:
+                    raise SystemExit(
+                        f"playlist has no entry at position {args.source}: {args.name}"
+                    )
+                if moved is TARGET_GONE:
+                    raise SystemExit(
+                        f"playlist has no entry at position {args.target}: {args.name}"
+                    )
+                result = {"moved": _edited(moved, playlist) is True}
         _emit("playlists", result)
         return 0
     if args.command == "cache":
         entries = preview_cache_entries(args.root)
         if args.action == "prune":
-            for path in prunable_previews(entries, args.limit):
-                path.unlink()
-            entries = preview_cache_entries(args.root)
+            wanted = prunable_previews(entries, args.limit)
         elif args.action == "clear":
-            for path, _size, _mtime in entries:
-                path.unlink()
-            entries = []
-        _emit("cache", {"root": str(args.root), "sizeBytes": sum(size for _path, size, _mtime in entries), "entries": [{"path": str(path), "size": size, "mtime": mtime} for path, size, mtime in entries]})
+            wanted = [path for path, _size, _mtime in entries]
+        else:
+            wanted = []
+        removed = _remove_previews(wanted, args.root)
+        if wanted:
+            entries = preview_cache_entries(args.root)
+        _emit(
+            "cache",
+            {
+                "root": str(args.root),
+                "sizeBytes": sum(size for _path, size, _mtime in entries),
+                "removed": [str(path) for path in removed],
+                "entries": [
+                    {"path": str(path), "size": size, "mtime": mtime}
+                    for path, size, mtime in entries
+                ],
+            },
+        )
+        if len(removed) != len(wanted):
+            print(
+                f"{len(wanted) - len(removed)} cached previews could not be removed",
+                file=sys.stderr,
+            )
+            return 1
         return 0
-    if args.music_root is not None:
-        save_music_roots(args.music_root)
-    group, view = library_layout()
-    if args.group is not None or args.view is not None:
-        save_library_layout(args.group or group, args.view or view)
-    group, view = library_layout()
-    _emit("config", {"file": str(CONFIG_FILE), "musicRoots": [str(p) for p in music_roots()], "group": group, "view": view})
-    return 0
+    if args.command == "config":
+        if args.music_root is not None:
+            # Absolute before it is stored, because this file is read by the
+            # window as well, and the window is launched from a desktop entry
+            # with a working directory of its own: a relative root saved here
+            # would name a different folder there, or none at all.
+            save_music_roots(
+                [root.expanduser().resolve() for root in args.music_root]
+            )
+        group, view = library_layout()
+        if args.group is not None or args.view is not None:
+            save_library_layout(args.group or group, args.view or view)
+            group, view = library_layout()
+        _emit(
+            "config",
+            {
+                "file": str(CONFIG_FILE),
+                "musicRoots": [str(path) for path in music_roots()],
+                "group": group,
+                "view": view,
+            },
+        )
+        return 0
+    raise SystemExit(f"no handler for command: {args.command}")
 
 
 if __name__ == "__main__":
