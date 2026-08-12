@@ -41,7 +41,7 @@ Do not move device-changing behavior into a mixin.
 
 `ipod_gui/__init__.py` imports modules eagerly after pinning GTK versions.
 Its `__all__` list is ordered innermost first: each module may import only modules earlier in that list.
-Add every package module to both that eager import tuple and `__all__`, in dependency order.
+Add every package module to both that eager import tuple, which is alphabetical, and `__all__`, which is in dependency order.
 A module named in `__all__` but absent from the import tuple still passes the harness's completeness check and then raises `AttributeError` in every harness-based test.
 `tests/harness.py` relies on this order to find defining bindings and replace every imported copy in tests.
 Use the harness facade for test doubles instead of patching one package module directly.
