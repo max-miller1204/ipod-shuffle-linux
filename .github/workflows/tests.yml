@@ -24,12 +24,16 @@ jobs:
       # window: GTK4 has no headless backend, so it needs a display server
       # rather than an environment variable. espeak is a speech engine, without
       # which the database builder writes no spoken playlist names and the
-      # check that the window can read them back skips itself.
+      # check that the window can read them back skips itself. ffmpeg encodes
+      # the demo fixture's tracks and cover art, and tools/demo-library.py
+      # refuses to build anything without it, so the screenshot harness cannot
+      # run on a runner image that does not ship one.
       - name: Install test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck xvfb espeak
+            python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck xvfb espeak \
+            ffmpeg
 
       - name: Shell lint
         run: shellcheck -x ./*.sh tests/product-e2e.sh
@@ -99,6 +103,10 @@ jobs:
       - name: Gio application actions
         run: xvfb-run -a python3 tests/gui-gio-actions.py
 
+      # Builds the canonical fixture and renders it through GSK rather than
+      # grabbing a compositor frame, so the shots are the same pixels on any
+      # machine. Needs a display for the same reason the checks above do: the
+      # window is real, only its rasterisation is not the screen's.
       - name: Deterministic screenshots
         env:
           SCREENSHOT_EVIDENCE_DIR: ${{ runner.temp }}/screenshots
@@ -126,12 +134,12 @@ jobs:
       # check depends on, which would silently reduce its coverage.
       - name: End-to-end suite
         run: |
-
           test "$(id -u)" -ne 0 || { echo "must not run as root" >&2; exit 1; }
           tool_dir="${RUNNER_TEMP}/IPod-Shuffle-4g"
           EVIDENCE_DIR="${RUNNER_TEMP}/evidence" \
             IPOD_REAL_DB_TOOL="$tool_dir/ipod-shuffle-4g.py" \
             bash tests/product-e2e.sh
+
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
