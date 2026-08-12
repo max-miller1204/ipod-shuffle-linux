@@ -115,7 +115,7 @@ It documents:
 - `--dry-run`, `--expect-device`, and `--confirm-token` authorization.
 - NDJSON progress on an explicitly selected file descriptor.
 - `install.sh --check --json` capability reporting.
-- The display-free `python3 -m ipod_gui.cli` library, device, search, playlist, cache, and config commands.
+- The display-free `python3 -m ipod_gui.cli` library, device, search, playlists, cache, and config commands.
 - `navigate`, `search`, `queue`, `refresh`, and stateful `dump-state` Gio actions on the running window.
 - `tools/mcp-server.py`, which exposes read, plan, and execute tools over MCP stdio.
 
