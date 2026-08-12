@@ -1,0 +1,18 @@
+==> iPod: /tmp/covers-sync-3902219/MAX SHUFFLE
+  + 01 - Last Stop.mp3 -> Nightbus/01 - Last Stop.mp3
+  + 01 - Slow Copper.mp3 -> Slow Copper/01 - Slow Copper.mp3
+==> Playlist 'Downloads': 2 track(s)
+==> Copied 2 file(s)
+==> Rebuilding iTunesSD database
+Warning: macOS say not found, voicever won't be generated using it.
+Warning: espeak not found, voicever won't be generated using it.
+Warning: RHVoice not found, Russian voicever won't be generated.
+Writing database. This may take a while...
+Database written successfully:
+Tracks 4
+Albums 3
+Artists 3
+Playlists 2
+==> iPod now holds 4 track(s)
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject

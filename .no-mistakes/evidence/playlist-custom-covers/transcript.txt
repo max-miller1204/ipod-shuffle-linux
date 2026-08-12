@@ -1,0 +1,75 @@
+== a custom cover for a playlist, in the shipped window ==
+iPod the app found for itself: /tmp/covers-demo-3907762/MAX SHUFFLE
+playlists here: ['Downloads', 'Morning Ride']
+playlists on the device: ['Morning Ride']
+
+images to choose from: ['night-drive.png', 'morning-run.webp', 'last-orders.jpg']
+and one file that is not an image: sleeve-notes.txt
+
+-- before anything is chosen --
+Downloads is painted with: '/tmp/covers-demo-3907762/home/.cache/ipod-shuffle-linux/art/3ad2d8c962b20efcfb90bffddc849f233e9868cd.img'
+cover store beside the playlists: no .covers folder
+queued for the next sync: {}
+screenshot: 01-playlist-wears-its-songs-artwork.png
+the ⋯ on Downloads offers: ['DOWNLOADS', 'Choose custom cover…', 'Rename…', 'Delete…']
+screenshot: 02-menu-offers-a-custom-cover.png
+pressed: Choose custom cover…
+the chooser it opened filters on: 'Images'
+the folder it is pointed at holds: ['last-orders.jpg', 'morning-run.webp', 'night-drive.png', 'sleeve-notes.txt']
+screenshot: 03-the-file-chooser-offers-images.png
+
+-- the chooser answered with night-drive.png --
+the window said: 'Playlist cover saved on this computer'
+cover store now holds: ['Downloads.m3u.png']
+Downloads is painted with: '/tmp/covers-demo-3907762/home/Music/Playlists/.covers/Downloads.m3u.png'
+which is the copy in the store: /tmp/covers-demo-3907762/home/Music/Playlists/.covers/Downloads.m3u.png
+the copy matches the file that was chosen: True
+the original is still where it was: True
+queued for the next sync: {}
+rail rows painted with a loaded image: {'Downloads': True, 'Morning Ride': True}
+screenshot: 04-the-chosen-cover-on-the-playlist.png
+
+-- and a WebP for the playlist that is on the iPod --
+the window said: 'Playlist cover saved on this computer'
+cover store now holds: ['Downloads.m3u.png', 'Morning Ride.m3u.webp']
+Morning Ride is painted with: '/tmp/covers-demo-3907762/home/Music/Playlists/.covers/Morning Ride.m3u.webp'
+screenshot: 05-the-shelf-tiles-wear-them-too.png
+
+-- renaming the playlist that is wearing the PNG --
+typed the new name: 'Late Night Drive'
+screenshot: 06-renaming-it.png
+the window said: 'Renamed to Late Night Drive · queued for sync'
+playlist files here: ['.covers', 'Late Night Drive.m3u', 'Morning Ride.m3u']
+cover store now holds: ['Late Night Drive.m3u.png', 'Morning Ride.m3u.webp']
+Late Night Drive is painted with: '/tmp/covers-demo-3907762/home/Music/Playlists/.covers/Late Night Drive.m3u.png'
+screenshot: 07-renamed-and-still-wearing-it.png
+
+the ⋯ now offers: ['LATE NIGHT DRIVE', 'Choose custom cover…', 'Use song artwork', 'Rename…', 'Delete…']
+screenshot: 08-menu-offers-use-song-artwork.png
+pressed: Use song artwork
+the window said: 'Using artwork from the songs in this playlist'
+cover store now holds: ['Morning Ride.m3u.webp']
+Late Night Drive is painted with: '/tmp/covers-demo-3907762/home/.cache/ipod-shuffle-linux/art/3ad2d8c962b20efcfb90bffddc849f233e9868cd.img'
+screenshot: 09-back-to-the-songs-own-artwork.png
+and the ⋯ is back to: ['LATE NIGHT DRIVE', 'Choose custom cover…', 'Rename…', 'Delete…']
+
+-- choosing a text file instead of an image --
+the window said: 'Choose a JPEG, PNG or WebP image'
+cover store now holds: ['Morning Ride.m3u.webp']
+screenshot: 10-a-file-that-is-not-an-image-is-refused.png
+
+-- a JPEG is chosen for it, then the playlist is deleted --
+the window said: 'Playlist cover saved on this computer'
+cover store before the deletion: ['Late Night Drive.m3u.jpg', 'Morning Ride.m3u.webp']
+the confirmation reads: 'Delete this playlist?' / 'Late Night Drive\n\nThe playlist is deleted. The songs it lists stay in your library.'
+screenshot: 11-deleting-it.png
+the window said: 'Late Night Drive deleted'
+playlist files here: ['.covers', 'Morning Ride.m3u']
+cover store now holds: ['Morning Ride.m3u.webp']
+screenshot: 12-deleted-and-the-cover-with-it.png
+
+a new playlist called Late Night Drive is made afterwards
+it is painted with: '/tmp/covers-demo-3907762/home/.cache/ipod-shuffle-linux/art/014ce933f0fb33ebf0ff58b898b6b24ca1da040c.img'
+
+nothing on the iPod's volume root changed: ['Morning Ride.m3u', 'iPod_Control']
+every toast the run produced: ['Playlist cover saved on this computer', 'Playlist cover saved on this computer', 'Renamed to Late Night Drive · queued for sync', 'Using artwork from the songs in this playlist', 'Choose a JPEG, PNG or WebP image', 'Playlist cover saved on this computer', 'Late Night Drive deleted']

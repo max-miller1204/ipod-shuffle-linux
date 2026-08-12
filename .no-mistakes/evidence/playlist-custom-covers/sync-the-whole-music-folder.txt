@@ -1,0 +1,24 @@
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSJ7T28HD8M35MMKHBW3T5X/ipod-sync.sh --ipod /tmp/covers-sync-3902219/MAX SHUFFLE --yes --playlist-voiceover -- /tmp/covers-sync-3902219/home/Music
+[36m==>[0m iPod: /tmp/covers-sync-3902219/MAX SHUFFLE
+  + 01 - Slow Copper.mp3 -> Music/The Fen/Slow Copper/01 - Slow Copper.mp3
+  + 02 - Coastal Road.mp3 -> Music/Ana Petrov/Field Notes/02 - Coastal Road.mp3
+  + 01 - Paper Boats.mp3 -> Music/Ana Petrov/Field Notes/01 - Paper Boats.mp3
+  + 01 - Last Stop.mp3 -> Music/Kova/Nightbus/01 - Last Stop.mp3
+  + 02 - Ridge Line.mp3 -> Music/Elle Marchetti/Warm Ridge/02 - Ridge Line.mp3
+  + 01 - Low Sun.mp3 -> Music/Elle Marchetti/Warm Ridge/01 - Low Sun.mp3
+[36m==>[0m Copied 6 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+Warning: macOS say not found, voicever won't be generated using it.
+Warning: espeak not found, voicever won't be generated using it.
+Warning: RHVoice not found, Russian voicever won't be generated.
+Writing database. This may take a while...
+Database written successfully:
+Tracks 10
+Albums 4
+Artists 4
+Playlists 2
+[36m==>[0m iPod now holds 10 track(s)
+[33mwarning:[0m Skipped 3 unsupported file(s). Convert them first, for example:
+[33mwarning:[0m   ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

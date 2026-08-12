@@ -10,6 +10,12 @@ The file is the playlist. Nothing keeps an index beside it, so a list edited in
 another program, moved, or deleted by hand cannot disagree with a record of
 what it is supposed to hold - the same rule the preview cache follows.
 
+A custom cover is the one thing kept beside it: an image copied into a .covers
+folder under the same library and named after the whole playlist filename. It
+belongs to this computer and never reaches the device, and the file is still
+what says the playlist exists - an image found under a name whose playlist has
+gone is cleared rather than worn by the next list to be called that.
+
 The name is the filename, because that is what ipod-sync.sh turns into the
 playlist's spoken name on the device. So the characters FAT refuses are refused
 here, while the name is being typed, rather than silently mangled two steps
