@@ -97,7 +97,17 @@ def find_ipods():
     candidates = []
     for entry in filesystems:
         target = entry.get("target")
-        if target and Path(target, "iPod_Control").is_dir():
+        if not target:
+            continue
+        try:
+            looks_like_ipod = Path(target, "iPod_Control").is_dir()
+        except OSError:
+            # A vfat mount this user may not look inside - /boot/efi, mounted
+            # for root only, is on most machines - is a volume detection can
+            # say nothing about, so it is not a candidate rather than the end
+            # of the scan.
+            continue
+        if looks_like_ipod:
             candidates.append(target)
     return candidates
 

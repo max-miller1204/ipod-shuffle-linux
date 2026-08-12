@@ -310,6 +310,24 @@ assert mounted["result"]["storage"]["usedBytes"] + mounted["result"]["storage"][
     "freeBytes"
 ] <= mounted["result"]["storage"]["totalBytes"]
 
+# Ordinary machines mount vfat volumes this user may not look inside - /boot/efi
+# is one, and it is mounted for root only on the runner this suite runs on - so
+# detection has to pass over one rather than die on it and take every command
+# that probes the device down with it.
+if os.geteuid() != 0:
+    forbidden = home / "Forbidden Volume"
+    forbidden.mkdir()
+    forbidden.chmod(0o000)
+    beside = run(
+        "device",
+        PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
+        FAKE_IPOD_MOUNT=os.pathsep.join([str(forbidden), str(shuffle)]),
+    )
+    assert beside["result"]["candidates"] == [str(shuffle)]
+    assert beside["result"]["mountPoint"] == str(shuffle)
+    assert beside["result"]["trackCount"] == 2
+    forbidden.chmod(0o700)
+
 # The searcher is asked for, so both answers it can give are checked: results
 # that came back, and a search that could not reach YouTube - which is not the
 # same as one that found nothing, and is the distinction the second field
