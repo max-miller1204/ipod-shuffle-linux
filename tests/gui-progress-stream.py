@@ -48,7 +48,12 @@ class StreamWindow:
 
     def __init__(self, mount_point):
         self.mount_point = mount_point
-        self.device_identity = "uuid:synthetic"
+        # Read from the volume rather than made up, as the real window reads
+        # it: every device command carries the identity on to the script,
+        # which asks the volume the same question itself and refuses a run
+        # whose answer disagrees. A stand-in value would be a window that can
+        # only ever drive a script that was never given the flag.
+        self.device_identity = gui.volume_identity(mount_point)
         self.progress = FakeWidget()
         self.sync_count = FakeWidget()
         self.sync_current = FakeWidget()
@@ -99,9 +104,13 @@ for directory in (
     ipod / "iPod_Control" / "iTunes",
     ipod / "iPod_Control" / "Music",
     ipod / "iPod_Control" / "Speakable",
+    ipod / "iPod_Control" / "Device",
     source,
 ):
     directory.mkdir(parents=True)
+# What a volume with no filesystem UUID calls itself instead, so this reads
+# the same on a machine whose temporary directory has none.
+(ipod / "iPod_Control" / "Device" / "SysInfo").write_bytes(b"device identity\n")
 (source / "01 - Plain.mp3").write_bytes(b"first")
 (source / '02 - Say "hi".mp3').write_bytes(b"second")
 (source / "cover.flac").write_bytes(b"art")

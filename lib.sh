@@ -74,12 +74,29 @@ count_files() {
 # taken from one has no Music either: "nothing there" is the answer, not a
 # failure. find disagrees - it leaves with a non-zero status for a path it
 # could not open - and under pipefail that ends the run where it stands, with
-# nothing printed to say why. Asked separately from count_files, because a
-# directory that vanishes mid-run must still be a failure: that is how a
-# script notices the iPod was unplugged while it was working.
+# nothing printed to say why.
+#
+# Only while the directory above it is still there, though. A path that has
+# gone along with everything around it is a volume that has gone, and the
+# counts these scripts take are what they are about to delete or verify a
+# backup against: answering zero for an unplugged iPod would let a wipe report
+# a backup it never copied and a clear rebuild the device's skeleton on the
+# mount point it was left behind. So the missing directory is an answer, and a
+# missing parent is the failure that count_files makes it - the same failure
+# the way out re-reads as "the iPod stopped answering".
 count_files_present() {
-    [[ -e "$1" ]] || { printf '0\n'; return 0; }
-    count_files "$1"
+    local path="$1" parent
+    if [[ ! -e "$path" ]]; then
+        case "$path" in
+            */*) parent="${path%/*}"; [[ -n "$parent" ]] || parent="/" ;;
+            *)   parent="." ;;
+        esac
+        if [[ -d "$parent" ]]; then
+            printf '0\n'
+            return 0
+        fi
+    fi
+    count_files "$path"
 }
 
 # Whether the firmware could play a file with this name.

@@ -2481,6 +2481,53 @@ grep -Fq 'stopped answering' "$EVIDENCE_DIR/exit-code-device-gone.txt"
 # be held against further down: it has to answer with this same number.
 lib_gone_code="$LAST_EXIT_CODE"
 
+# The same answer when the volume goes away before the first count rather than
+# at the last write. A wipe reads what it is about to delete before it deletes
+# anything, and a device that is no longer there holds no files by every
+# reading a count can take: told that as a number, the run would go on to
+# verify a backup it never copied, recreate the skeleton on the mount point
+# left behind, and call that a wipe. The stand-in lsusb is where the iPod goes
+# because that is what assert_shuffle asks about the hardware, which is the
+# last thing to run while the script still believes the volume is mounted.
+UNPLUG_PATH="$TEST_ROOT/unplugging-bin"
+UNPLUG_IPOD="$TEST_ROOT/unplugged-mid-wipe"
+UNPLUG_BACKUP="$TEST_ROOT/unplugged-mid-wipe-backup"
+mkdir -p "$UNPLUG_PATH" \
+    "$UNPLUG_IPOD/iPod_Control/iTunes" \
+    "$UNPLUG_IPOD/iPod_Control/Music" \
+    "$UNPLUG_IPOD/iPod_Control/Speakable"
+# The mount point reaches the stub through its own environment, so the name
+# below belongs to the stub rather than to this file.
+# shellcheck disable=SC2016
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'rm -rf -- "$UNPLUG_IPOD/iPod_Control"' \
+    'exit 0' \
+    > "$UNPLUG_PATH/lsusb"
+chmod +x "$UNPLUG_PATH/lsusb"
+# Taken while the iPod is still there, so the run below is refused for the
+# device having gone rather than for an authorization it never had. An empty
+# device is what makes that possible: the count the plan was hashed from is
+# the same zero an unplugged one would report.
+unplug_plan="$("$ROOT/ipod-wipe.sh" \
+    --ipod "$UNPLUG_IPOD" \
+    --backup "$UNPLUG_BACKUP" \
+    --yes \
+    --dry-run < /dev/null 2>/dev/null)"
+unplug_token="$(/usr/bin/python3 -c 'import json,sys; print(json.loads(sys.argv[1])["confirmationToken"])' "$unplug_plan")"
+exit_code_is 5 wipe-unplugged-before-count.txt \
+    env PATH="$UNPLUG_PATH:$BASE_PATH" \
+    UNPLUG_IPOD="$UNPLUG_IPOD" \
+    IPOD_DB_TOOL="$ROOT/tests/fake-db-builder.py" \
+    "$ROOT/ipod-wipe.sh" \
+    --ipod "$UNPLUG_IPOD" \
+    --backup "$UNPLUG_BACKUP" \
+    --yes \
+    --confirm-token "$unplug_token"
+grep -Fq 'stopped answering' "$EVIDENCE_DIR/wipe-unplugged-before-count.txt"
+test ! -e "$UNPLUG_IPOD/iPod_Control"
+test ! -e "$UNPLUG_BACKUP"
+
 # The other half of that guard, and the reason it looks at the device rather
 # than at the failure: a builder that fails while the iPod is still sitting
 # there must not be reported as one that was unplugged.
