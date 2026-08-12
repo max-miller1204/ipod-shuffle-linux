@@ -1,0 +1,51 @@
+
+===== RAIL 2: --dry-run prints a plan and changes nothing =====
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+{"action":"remove","device":{"mount":"/tmp/tmp.U9uTcWUZhD/Alex's iPod","identity":"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"},"destructive":true,"arguments":["playlist-mode=0","eject=0","tracks=1","/tmp/tmp.U9uTcWUZhD/Alex's iPod/iPod_Control/Music/Road Trip"],"confirmationToken":"3c2334a799b72093b5e78499365e1ae5657e5ea84c705bf8248adb6f23f14030"}
+device unchanged after dry run: YES
+plan token: 3c2334a799b72093b5e78499365e1ae5657e5ea84c705bf8248adb6f23f14030
+plan device identity: uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc
+
+===== RAIL 4+5: --yes alone is refused non-interactively (no --confirm-token) =====
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+error: Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+exit=7
+
+===== RAIL 3: a token minted for a different plan is refused =====
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+token from the --playlist plan: bc5c2729336def802c64eb5c8de0be4d0beacc01543858019e76808594b3aa0d
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+error: Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+exit=7
+
+===== RAIL 4+6: an --expect-device that is not this volume is refused =====
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+error: Expected device 'some-other-ipod', but 'uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc' is mounted at /tmp/tmp.U9uTcWUZhD/Alex's iPod.
+exit=1
+
+device still unchanged after all three refusals: YES
+
+===== RAIL 8: a refused run still ends its progress stream with a result event =====
+last progress event: {"event": "result", "ok": false, "code": 7, "removed": 0, "playlists": 0}
+
+===== RAIL 7+8: the approved run mutates, prints for humans on stdout, streams NDJSON on fd 3 =====
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+==> iPod: /tmp/tmp.U9uTcWUZhD/Alex's iPod
+==> Removed 1 track(s)
+==> Rebuilding iTunesSD database
+==> iPod now holds 0 track(s)
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject
+exit=0
+
+-- fd 3 (structured, human output above stayed on stdout) --
+{"event": "start", "schema": 1, "script": "remove"}
+{"event": "device", "ipod": "/tmp/tmp.U9uTcWUZhD/Alex's iPod"}
+{"event": "plan", "total": 1}
+{"event": "file", "status": "removed", "name": "Road Trip", "done": 1, "total": 1}
+{"event": "stage", "name": "rebuild", "state": "start"}
+{"event": "stage", "name": "rebuild", "state": "done"}
+{"event": "result", "ok": true, "code": 0, "removed": 1, "playlists": 0, "tracks": 0}
+
+last event is a result: result
+track removed from the device: YES

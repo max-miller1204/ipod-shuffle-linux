@@ -1,0 +1,17 @@
+SKILL.md: 'Each re-executes through tools/headless-run.py, which requires xvfb-run and
+           dbus-run-session ... Never weaken this by falling back to the user's desktop
+           or existing application session.'
+
+$ env PATH=<no xvfb-run> python3 tools/headless-run.py python3 -c 'print("ran")'
+xvfb-run is required for local GUI checks; install the xvfb package. The check was not run on your desktop.
+exit=1
+
+$ env PATH=<xvfb-run but no dbus-run-session> python3 tools/headless-run.py ...
+dbus-run-session is required to isolate the test application
+exit=1
+
+$ python3 tools/headless-run.py python3 -c '<report the display it was given>'
+DISPLAY inside: :99 | the desktop DISPLAY is None
+exit=0
+
+the desktop this ran from: DISPLAY=:1 WAYLAND_DISPLAY=wayland-0

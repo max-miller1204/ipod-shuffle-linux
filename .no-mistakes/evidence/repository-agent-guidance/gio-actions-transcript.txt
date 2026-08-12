@@ -1,0 +1,26 @@
+libEGL warning: DRI3 error: Could not get DRI3 device
+libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+GNOME_KEYRING_CONTROL=/run/user/1000/keyring
+SSH_AUTH_SOCK=/run/user/1000/keyring/ssh
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+display: ':99' (private Xvfb from tools/headless-run.py, not the desktop)
+
+SKILL.md: 'navigate, search, queue, refresh, and stateful dump-state Gio
+           actions on the running window.'
+Driven against the canonical demo fixture, on the real Adw.ApplicationWindow.
+
+$ actions the running application exports
+  dump-state   takes None
+  navigate     takes 's'
+  queue        takes 's'
+  refresh      takes None
+  search       takes 's'
+
+$ dump-state                      page='library' counts={'ipod': 0, 'queued': 0, 'library': 6, 'preview': 0} device=None
+$ navigate playlists              -> dump-state page='playlists'
+$ navigate settings               -> dump-state page='settings'
+$ navigate library                -> dump-state page='library'
+$ search 'Low Sun'                -> dump-state page='search', field='Low Sun'
+$ queue '01 - Last Stop.mp3'      -> queued was 0; the dump read straight after the call says 1; polling dump-state until the tag read landed says 1
+   (this is the skill's 'poll dump-state for the transition' in one line: the first read was already current)
+$ refresh                         -> rescan finished, dump-state counts={'ipod': 2, 'queued': 1, 'library': 3, 'preview': 0}

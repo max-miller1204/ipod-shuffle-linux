@@ -1,0 +1,28 @@
+A fresh headless agent session started in this worktree, with Bash/Read/Grep/Glob
+unavailable so it could only answer from what the repository handed it.
+
+$ claude -p --model sonnet --allowed-tools Skill   (prompt on stdin)
+  "1) what is the product, and what must the GTK app never do? 2) what must a
+   non-interactive caller pass to run a destructive operation? 3) what command
+   builds the canonical demo library fixture? 4) which file is the authoritative
+   contract for machine interfaces? Say where each fact came from."
+
+1. **Product**: `ipod-sync.sh`, `ipod-remove.sh`, `ipod-wipe.sh`, and `ipod-fetch.sh` (plus their shared `lib.sh` helpers) are the product. The GTK app must never reimplement device-changing behavior - it may only plan, authorize, launch, and report a run of these scripts, never grow a second implementation of them.
+*(Source: skill "Product boundary" section)*
+
+2. A non-interactive caller running a destructive operation (remove, clear, wipe) must first get a non-mutating `--dry-run` JSON plan, then pass that plan's `--confirm-token TOKEN` back on the real run. It must also pass `--expect-device ID` with the plan's identity - checked whenever the plan carries a non-empty identity (a volume with no UUID and no `SysInfo` has none to pin). `--yes` alone is not sufficient; it only confirms, it doesn't authorize/bypass the token. The device identity is also rechecked immediately before mutation, and a changed device is refused.
+*(Source: skill "Destructive-operation rails", items 2-6)*
+
+3. `python3 tools/demo-library.py /tmp/shuffle-demo` - it rebuilds the target directory, so only point it at a dedicated disposable path (use `--keep` to add to an existing fixture instead of rebuilding, or `--no-sync` to leave the synthetic device empty).
+*(Source: skill "Canonical demo library" section)*
+
+4. `docs/machine-interface.md` is the authoritative contract for machine interfaces - it covers script JSON reports and exit codes, `--dry-run`/`--expect-device`/`--confirm-token` authorization, NDJSON progress, `install.sh --check --json`, the `python3 -m ipod_gui.cli` commands, the window's Gio actions, and `tools/mcp-server.py`.
+*(Source: skill "Destructive-operation rails" pointer and "Machine interfaces" section)*
+
+----------------------------------------------------------------------
+
+$ claude -p --model sonnet --allowed-tools Skill   (prompt on stdin)
+  "what did this repository CLAUDE.md tell you before you did anything, and what
+   is the name of the repository skill it points you at?"
+
+Before doing anything, this repository's CLAUDE.md told me to read `.claude/skills/ipod-shuffle-linux/SKILL.md` before making any change, and laid out the core architectural rule that the shell scripts are the product while the GTK application only drives them and must not reimplement device-changing behavior, with the skill itself holding the destructive-operation rails, package boundaries, verification commands, and machine-interface pointers I need to follow. The repository skill it points me at is named **ipod-shuffle-linux**.

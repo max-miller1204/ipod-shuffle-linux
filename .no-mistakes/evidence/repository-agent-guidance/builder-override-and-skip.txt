@@ -1,0 +1,18 @@
+SKILL.md: "IPOD_REAL_DB_TOOL selects the upstream database builder ... overriding
+the copy ./install.sh clones into ~/ipod-tools/IPod-Shuffle-4g/. With neither the
+variable nor that copy, the local suite reports that hardware-compatible builder
+coverage was skipped rather than silently claiming it."
+
+$ EVIDENCE_DIR=... bash tests/product-e2e.sh      (this machine has the installed copy)
+  exit 0, 94 PASS lines, no NOTICE on stderr
+  evidence real-builder.txt:
+    Warning: No mutagen found. Database will not contain any album nor artist information.
+    Playlist voiceover requested: True
+    Track voiceover requested: False
+
+$ EVIDENCE_DIR=... IPOD_REAL_DB_TOOL=/tmp/skillcheck/definitely-not-installed/ipod-shuffle-4g.py \
+    bash tests/product-e2e.sh
+  exit 0, 94 PASS lines, and on stderr:
+    44:NOTICE: real-builder playlist check skipped; run ./install.sh to enable
+  evidence real-builder.txt:
+    skipped: real database builder not installed at /tmp/skillcheck/definitely-not-installed/ipod-shuffle-4g.py

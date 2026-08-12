@@ -1,0 +1,16 @@
+Claim under test (.claude/skills/ipod-shuffle-linux/SKILL.md):
+  "A module named in __all__ but absent from the import tuple still passes the
+   harness's completeness check and then raises AttributeError in every
+   harness-based test."
+
+Experiment: in a scratch copy of the repo, drop `cli` from ipod_gui/__init__.py's
+eager import tuple while leaving it in __all__.
+
+$ python3 -c 'import sys; sys.path.insert(0,"tests"); import harness'
+-> harness imported; the completeness check did not fire
+
+$ python3 tests/gui-refresh-spinner.py
+  File "/tmp/skillcheck/importcheck/tests/harness.py", line 53, in _modules
+    return [getattr(ipod_gui, name) for name in ipod_gui.__all__]
+            ^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'ipod_gui' has no attribute 'cli'

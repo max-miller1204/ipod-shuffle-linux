@@ -1,0 +1,50 @@
+SKILL.md line 118 (target commit 66b4e52):
+- The display-free `python3 -m ipod_gui.cli` library, device, search, playlists, cache, and config commands.
+
+Each of the six names the skill lists, run as written, against the
+canonical demo fixture from tools/demo-library.py:
+
+$ python3 -m ipod_gui.cli --help
+usage: python3 -m ipod_gui.cli [-h]
+                               {library,device,search,playlists,cache,config}
+                               ...
+
+positional arguments:
+  {library,device,search,playlists,cache,config}
+
+options:
+  -h, --help            show this help message and exit
+exit=0
+
+$ python3 -m ipod_gui.cli library
+{"schema": 1, "command": "library", "result": {"tracks": [{"path": "/tmp/skillcheck/shuffle-demo/home/Music/Ana Petrov/Field Notes/01 - Paper Boats.mp3", "title": "Paper Boats", "artist": "Ana Petrov", "album": "Field Notes", "genre": "", "duration": 1.0448979591836736, "trackNumber": 1, "art": "/tm
+exit=0
+
+$ python3 -m ipod_gui.cli device
+{"schema": 1, "command": "device", "result": {"candidates": ["/tmp/skillcheck/shuffle-demo/MAX SHUFFLE"], "mountPoint": "/tmp/skillcheck/shuffle-demo/MAX SHUFFLE", "identity": "uuid:/dev/sdz", "readable": true, "trackCount": 2, "playlists": [{"name": "Morning Ride", "entries": ["Warm Ridge/01 - Low 
+exit=0
+
+$ python3 -m ipod_gui.cli search Low Sun
+{"schema": 1, "command": "search", "result": {"local": [{"path": "/tmp/skillcheck/shuffle-demo/home/Music/Elle Marchetti/Warm Ridge/01 - Low Sun.mp3", "title": "Low Sun", "artist": "Elle Marchetti", "album": "Warm Ridge", "genre": "", "duration": 1.0448979591836736, "trackNumber": 1, "art": "/tmp/sk
+exit=0
+
+$ python3 -m ipod_gui.cli playlists list
+{"schema": 1, "command": "playlists", "result": [{"name": "Downloads", "path": "/tmp/skillcheck/shuffle-demo/home/Music/Playlists/Downloads.m3u", "editable": true, "entries": ["/tmp/skillcheck/shuffle-demo/home/Music/Kova/Nightbus/01 - Last Stop.mp3", "/tmp/skillcheck/shuffle-demo/home/Music/The Fen
+exit=0
+
+$ python3 -m ipod_gui.cli cache status
+{"schema": 1, "command": "cache", "result": {"root": "/tmp/skillcheck/shuffle-demo/home/.cache/ipod-shuffle-linux/previews", "sizeBytes": 0, "removed": [], "entries": [], "complete": true}}
+exit=0
+
+$ python3 -m ipod_gui.cli config
+{"schema": 1, "command": "config", "result": {"file": "/tmp/skillcheck/shuffle-demo/home/.config/ipod-shuffle-linux/config.json", "musicRoots": ["/tmp/skillcheck/shuffle-demo/home/Music"], "group": "album", "view": "grid"}}
+exit=0
+
+The name the skill listed before this commit is still not a command:
+
+$ python3 -m ipod_gui.cli playlist list
+usage: python3 -m ipod_gui.cli [-h]
+                               {library,device,search,playlists,cache,config}
+                               ...
+python3 -m ipod_gui.cli: error: argument command: invalid choice: 'playlist' (choose from 'library', 'device', 'search', 'playlists', 'cache', 'config')
+exit=2

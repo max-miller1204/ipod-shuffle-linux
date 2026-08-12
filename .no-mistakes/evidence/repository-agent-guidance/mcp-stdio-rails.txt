@@ -1,0 +1,48 @@
+SKILL.md: 'tools/mcp-server.py, which exposes read, plan, and execute tools over MCP stdio.'
+SKILL.md: 'MCP execute tools must retain the same expected-device and
+           confirmation-token rails as direct script execution.'
+Driven against the synthetic MAX SHUFFLE volume built by tools/demo-library.py.
+
+$ initialize -> ipod-shuffle-linux v1, protocol 2025-06-18
+
+$ tools/list
+  read    read_library, read_device, read_playlists, read_cache, read_search
+  plan    plan_sync, plan_remove, plan_wipe
+  execute execute_sync, execute_remove, execute_wipe
+
+on the device: ['Nightbus/01 - Last Stop.mp3', 'Warm Ridge/01 - Low Sun.mp3', 'Warm Ridge/02 - Ridge Line.mp3']
+
+----- plan_remove (dry run: changes nothing) -----
+{"action":"remove","device":{"mount":"/tmp/skillcheck/shuffle-demo/MAX SHUFFLE","identity":"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"},"destructive":true,"arguments":["playlist-mode=0","eject=0","tracks=1","/tmp/skillcheck/shuffle-demo/MAX SHUFFLE/iPod_Control/Music/Nightbus"],"confirmationToken":"5ea281f133eff799e673
+destructive: True
+device unchanged after the plan: YES
+
+----- execute_remove with a token that is not this plan's -----
+isError: true
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+
+----- execute_remove with an expectedDevice that is not this volume -----
+isError: true
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Expected device 'uuid:some-other-ipod', but 'uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc' is mounted at /tmp/skillcheck/shuffle-demo/MAX SHUFFLE.
+device still unchanged after both refusals: YES
+
+----- execute_remove with this plan's own token and identity -----
+[36m==>[0m iPod: /tmp/skillcheck/shuffle-demo/MAX SHUFFLE
+[36m==>[0m Reusing saved options: --playlist-voiceover
+[36m==>[0m Removed 1 track(s)
+[36m==>[0m Rebuilding iTunesSD database
+Warning: No mutagen found. Database will not contain any album nor artist information.
+Warning: macOS say not found, voicever won't be generated using it.
+Warning: espeak not found, voicever won't be generated using it.
+Warning: RHVoice not found, Russian voicever won't be generated.
+Writing database. This may take a while...
+Database written successfully:
+Tracks 2
+Albums 0
+Artists 0
+Playlists 1
+[36m==>[0m iPod now holds 2 track(s)
+
+on the device now: ['Warm Ridge/01 - Low Sun.mp3', 'Warm Ridge/02 - Ridge Line.mp3']

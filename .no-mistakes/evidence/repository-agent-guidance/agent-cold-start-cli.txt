@@ -1,0 +1,45 @@
+A fresh headless agent session in this worktree, allowed only the Skill tool, so
+it could answer solely from CLAUDE.md and the repository skill it points at.
+
+$ claude -p --model sonnet --allowed-tools Skill    (prompt on stdin)
+  "Answer only from this repository, using the ipod-shuffle-linux skill. List the
+   exact display-free CLI command an agent should run for each of: the library,
+   the device, a search, the playlists, the cache and the config. One command per
+   line, nothing else. Do not run anything."
+
+python3 -m ipod_gui.cli library
+python3 -m ipod_gui.cli device
+python3 -m ipod_gui.cli search 'heart of gold' --youtube
+python3 -m ipod_gui.cli playlists list
+python3 -m ipod_gui.cli cache status
+python3 -m ipod_gui.cli config
+
+Every line it produced, run verbatim against the canonical demo fixture
+(YouTube reached through this suite's yt-dlp double, output cut to 200 cols):
+
+$ python3 -m ipod_gui.cli library
+{"schema": 1, "command": "library", "result": {"tracks": [{"path": "/tmp/skillcheck/shuffle-demo/home/Music/Ana Petrov/Field Notes/01 - Paper Boats.mp3", "title": "Paper Boats", "artist": "Ana Petrov"
+exit=0
+
+$ python3 -m ipod_gui.cli device
+{"schema": 1, "command": "device", "result": {"candidates": ["/tmp/skillcheck/shuffle-demo/MAX SHUFFLE"], "mountPoint": "/tmp/skillcheck/shuffle-demo/MAX SHUFFLE", "identity": "uuid:/dev/sdz", "readab
+exit=0
+
+$ python3 -m ipod_gui.cli search 'heart of gold' --youtube
+{"schema": 1, "command": "search", "result": {"local": [], "complete": true, "youtube": [{"title": "Test Track (heart of gold)", "uploader": "Test Artist", "duration": 180.0, "url": "https://www.youtu
+exit=0
+
+$ python3 -m ipod_gui.cli playlists list
+{"schema": 1, "command": "playlists", "result": [{"name": "Downloads", "path": "/tmp/skillcheck/shuffle-demo/home/Music/Playlists/Downloads.m3u", "editable": true, "entries": ["/tmp/skillcheck/shuffle
+exit=0
+
+$ python3 -m ipod_gui.cli cache status
+{"schema": 1, "command": "cache", "result": {"root": "/tmp/skillcheck/shuffle-demo/home/.cache/ipod-shuffle-linux/previews", "sizeBytes": 0, "removed": [], "entries": [], "complete": true}}
+exit=0
+
+$ python3 -m ipod_gui.cli config
+{"schema": 1, "command": "config", "result": {"file": "/tmp/skillcheck/shuffle-demo/home/.config/ipod-shuffle-linux/config.json", "musicRoots": ["/tmp/skillcheck/shuffle-demo/home/Music"], "group": "a
+exit=0
+
+All six commands the skill handed the agent ran and answered; none is a name
+the CLI does not have.
