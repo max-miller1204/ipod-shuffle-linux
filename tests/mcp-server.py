@@ -100,7 +100,10 @@ class Session:
         return answer["error"]["message"]
 
     def close(self):
-        self.stdin.close()
+        # communicate() flushes this pipe and closes it, and that close is the
+        # end of input the server's read loop stops on. Closing it here first
+        # would leave communicate() flushing a file that is already shut, which
+        # every interpreter before 3.13 raises on, including the 3.12 CI runs.
         trailing, complaints = self.process.communicate(timeout=180)
         assert not trailing, trailing
         assert not complaints, complaints
