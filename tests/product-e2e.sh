@@ -228,6 +228,189 @@ run_approved "$ROOT/ipod-sync.sh" \
     > "$EVIDENCE_DIR/clear-playlist-only-with-token.txt" 2>&1
 test ! -e "$PLAYLIST_ONLY_IPOD/Only List.PLS"
 
+# Everything the handshake refuses, on one device that starts with two tracks.
+# A machine caller has exactly one way through - the plan it was printed,
+# returned unaltered, against the device it was printed for - and the three
+# ways past it that look plausible from outside are a token that was guessed,
+# a token that belonged to another plan, and a token that belonged to the iPod
+# which used to be plugged in here. Each of them is one keystroke away from
+# the deletion the plan described.
+HANDSHAKE_IPOD="$TEST_ROOT/handshake-target"
+mkdir -p \
+    "$HANDSHAKE_IPOD/iPod_Control/iTunes" \
+    "$HANDSHAKE_IPOD/iPod_Control/Music/Album" \
+    "$HANDSHAKE_IPOD/iPod_Control/Speakable/System" \
+    "$HANDSHAKE_IPOD/iPod_Control/Device"
+printf 'spoken battery prompt\n' \
+    > "$HANDSHAKE_IPOD/iPod_Control/Speakable/System/battery.wav"
+printf 'the iPod the caller inspected\n' \
+    > "$HANDSHAKE_IPOD/iPod_Control/Device/SysInfo"
+printf 'keep me\n' > "$HANDSHAKE_IPOD/iPod_Control/Music/Album/01 - Keep.mp3"
+printf 'keep me too\n' \
+    > "$HANDSHAKE_IPOD/iPod_Control/Music/Album/02 - Also Keep.mp3"
+
+# What a refusal is worth is read off the volume rather than out of the
+# sentence it printed: a run that says it refused and deletes anyway is the
+# failure all of this exists to prevent, and it would print the same words.
+device_state() {
+    find "$1" -mindepth 1 -printf '%y %P\n' | sort
+    find "$1" -type f -exec md5sum {} + | sed "s|$1/||" | sort
+}
+device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-before.txt"
+
+handshake_sync_plan="$("$ROOT/ipod-sync.sh" \
+    --ipod "$HANDSHAKE_IPOD" --clear --yes --dry-run "$YES_SOURCE" \
+    < /dev/null 2> "$EVIDENCE_DIR/handshake-plan-sync.stderr.txt")"
+handshake_remove_plan="$("$ROOT/ipod-remove.sh" \
+    --ipod "$HANDSHAKE_IPOD" --yes --dry-run 'Album/01 - Keep.mp3' \
+    < /dev/null 2> "$EVIDENCE_DIR/handshake-plan-remove.stderr.txt")"
+handshake_wipe_plan="$("$ROOT/ipod-wipe.sh" \
+    --ipod "$HANDSHAKE_IPOD" --yes --dry-run \
+    < /dev/null 2> "$EVIDENCE_DIR/handshake-plan-wipe.stderr.txt")"
+printf '%s\n' "$handshake_sync_plan" "$handshake_remove_plan" \
+    "$handshake_wipe_plan" > "$EVIDENCE_DIR/handshake-plans.ndjson"
+
+# Three plans for the same mounted iPod: the same device either way, a
+# separate approval each, and a volume none of them wrote to.
+/usr/bin/python3 -c '
+import json, sys
+plans = [json.loads(line) for line in open(sys.argv[1])]
+mount = sys.argv[2]
+assert [p["action"] for p in plans] == ["sync", "remove", "wipe"], plans
+for plan in plans:
+    assert plan["destructive"] is True, plan
+    assert plan["device"]["mount"] == mount, plan
+    assert plan["device"]["identity"], plan
+    assert plan["confirmationToken"], plan
+assert len({p["device"]["identity"] for p in plans}) == 1, plans
+assert len({p["confirmationToken"] for p in plans}) == 3, plans
+' "$EVIDENCE_DIR/handshake-plans.ndjson" "$HANDSHAKE_IPOD"
+device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-after-plans.txt"
+diff -u "$EVIDENCE_DIR/handshake-device-before.txt" \
+    "$EVIDENCE_DIR/handshake-device-after-plans.txt"
+
+handshake_identity="$(/usr/bin/python3 -c \
+    'import json,sys; print(json.loads(sys.argv[1])["device"]["identity"])' \
+    "$handshake_remove_plan")"
+handshake_remove_token="$(/usr/bin/python3 -c \
+    'import json,sys; print(json.loads(sys.argv[1])["confirmationToken"])' \
+    "$handshake_remove_plan")"
+
+# A token that is not this plan's is not a weaker approval, it is none: a
+# caller that invents one, or that keeps returning the one it was given
+# yesterday, is a caller that never read what it is about to do.
+handshake_wrong=0
+"$ROOT/ipod-remove.sh" \
+    --ipod "$HANDSHAKE_IPOD" \
+    --yes \
+    --confirm-token \
+    0000000000000000000000000000000000000000000000000000000000000000 \
+    'Album/01 - Keep.mp3' < /dev/null \
+    > "$EVIDENCE_DIR/handshake-wrong-token.txt" 2>&1 || handshake_wrong=$?
+test "$handshake_wrong" -eq 7
+grep -Fq 'Non-interactive destructive action refused' \
+    "$EVIDENCE_DIR/handshake-wrong-token.txt"
+
+# The token is this plan's, and the run is not: one names the other track, the
+# other adds an option. Approval that survived either would be approval of the
+# words "delete something" rather than of the deletion the caller read.
+handshake_changed_target=0
+"$ROOT/ipod-remove.sh" \
+    --ipod "$HANDSHAKE_IPOD" \
+    --yes \
+    --confirm-token "$handshake_remove_token" \
+    'Album/02 - Also Keep.mp3' < /dev/null \
+    > "$EVIDENCE_DIR/handshake-changed-target.txt" 2>&1 \
+    || handshake_changed_target=$?
+test "$handshake_changed_target" -eq 7
+grep -Fq 'Non-interactive destructive action refused' \
+    "$EVIDENCE_DIR/handshake-changed-target.txt"
+
+handshake_changed_options=0
+"$ROOT/ipod-remove.sh" \
+    --ipod "$HANDSHAKE_IPOD" \
+    --yes \
+    --eject \
+    --confirm-token "$handshake_remove_token" \
+    'Album/01 - Keep.mp3' < /dev/null \
+    > "$EVIDENCE_DIR/handshake-changed-options.txt" 2>&1 \
+    || handshake_changed_options=$?
+test "$handshake_changed_options" -eq 7
+grep -Fq 'Non-interactive destructive action refused' \
+    "$EVIDENCE_DIR/handshake-changed-options.txt"
+
+device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-after-refusals.txt"
+diff -u "$EVIDENCE_DIR/handshake-device-before.txt" \
+    "$EVIDENCE_DIR/handshake-device-after-refusals.txt"
+
+# The same command with the plan's own token and the plan's own device goes
+# through, which is what makes the three refusals above answers to what was
+# wrong with them rather than a script that refuses everything.
+"$ROOT/ipod-remove.sh" \
+    --ipod "$HANDSHAKE_IPOD" \
+    --yes \
+    --expect-device "$handshake_identity" \
+    --confirm-token "$handshake_remove_token" \
+    'Album/01 - Keep.mp3' < /dev/null \
+    > "$EVIDENCE_DIR/handshake-approved-remove.txt" 2>&1
+test ! -e "$HANDSHAKE_IPOD/iPod_Control/Music/Album/01 - Keep.mp3"
+test -s "$HANDSHAKE_IPOD/iPod_Control/Music/Album/02 - Also Keep.mp3"
+
+# The iPod that was inspected, unplugged and replaced at the same mount point
+# by another one before the run it authorized arrives. A volume formatted
+# without a filesystem UUID answers with the device's own SysInfo instead,
+# which is what a second iPod plugged in here changes; findmnt is answered the
+# way it answers for such a volume, so this reads the same wherever the
+# suite's temporary directory happens to live.
+STALE_PATH="$TEST_ROOT/stale-device-bin"
+mkdir -p "$STALE_PATH"
+printf '%s\n' '#!/usr/bin/env bash' 'printf -- "-\n"' > "$STALE_PATH/findmnt"
+chmod +x "$STALE_PATH/findmnt"
+stale_plan="$(PATH="$STALE_PATH:$BASE_PATH" "$ROOT/ipod-wipe.sh" \
+    --ipod "$HANDSHAKE_IPOD" --yes --dry-run < /dev/null 2>/dev/null)"
+stale_identity="$(/usr/bin/python3 -c \
+    'import json,sys; print(json.loads(sys.argv[1])["device"]["identity"])' \
+    "$stale_plan")"
+stale_token="$(/usr/bin/python3 -c \
+    'import json,sys; print(json.loads(sys.argv[1])["confirmationToken"])' \
+    "$stale_plan")"
+case "$stale_identity" in
+    sysinfo:?*) ;;
+    *) echo "a volume with no UUID did not identify itself by SysInfo" >&2
+       exit 1 ;;
+esac
+printf 'a different iPod\n' \
+    > "$HANDSHAKE_IPOD/iPod_Control/Device/SysInfo"
+device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-swapped.txt"
+
+# Every script that changes the device asks, including a plain sync with no
+# --clear in it: copying an album onto the wrong iPod deletes nothing and is
+# still not what the caller approved.
+for stale_script in ipod-sync.sh ipod-remove.sh ipod-wipe.sh; do
+    case "$stale_script" in
+        ipod-sync.sh)   stale_args=("$YES_SOURCE") ;;
+        ipod-remove.sh) stale_args=(--yes --confirm-token "$stale_token"
+                                    'Album/02 - Also Keep.mp3') ;;
+        ipod-wipe.sh)   stale_args=(--yes --confirm-token "$stale_token") ;;
+    esac
+    stale_refused=0
+    PATH="$STALE_PATH:$BASE_PATH" "$ROOT/$stale_script" \
+        --ipod "$HANDSHAKE_IPOD" \
+        --expect-device "$stale_identity" \
+        "${stale_args[@]}" < /dev/null \
+        > "$EVIDENCE_DIR/handshake-stale-$stale_script.txt" 2>&1 \
+        || stale_refused=$?
+    if (( stale_refused == 0 )); then
+        echo "$stale_script acted on an iPod that had been replaced" >&2
+        exit 1
+    fi
+    grep -Fq "Expected device '$stale_identity'" \
+        "$EVIDENCE_DIR/handshake-stale-$stale_script.txt"
+done
+device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-after-stale.txt"
+diff -u "$EVIDENCE_DIR/handshake-device-swapped.txt" \
+    "$EVIDENCE_DIR/handshake-device-after-stale.txt"
+
 # A plan is the whole of stdout, on a device that has something to say first.
 # Every sync that was given options saves them, and the next run announces the
 # ones it is replaying: printed where the plan goes, that sentence leaves the
@@ -2898,6 +3081,9 @@ printf '%s\n' \
     "PASS: sync copied a symlinked library, through links and out of the tree" \
     "PASS: sync named a broken link, walked a loop once, and matched the GUI's count" \
     "PASS: sync --clear confirmed track and playlist deletion, including playlist-only devices" \
+    "PASS: a dry run of each script printed its plan and left the device byte for byte" \
+    "PASS: a guessed token, another plan's token and a changed plan were each refused" \
+    "PASS: every device-changing script refused an iPod swapped in behind the plan" \
     "PASS: --yes answered the Speakable prompt too, in all three scripts" \
     "PASS: wipe backed up music/database and preserved Speakable plus Device state" \
     "PASS: JSON mount detection retained a mount path containing spaces" \

@@ -1,0 +1,275 @@
+
+======================================================================
+SETUP: a person fills the iPod, which needs no handshake at all
+       (copying music deletes nothing, so nothing here is destructive)
+
+======================================================================
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-sync.sh --ipod /tmp/tmp.bFAVSXA8PH/iPod /tmp/tmp.bFAVSXA8PH/Music/Kite Season
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.bFAVSXA8PH/iPod
+  + 01 - Harbour Light.mp3 -> Kite Season/01 - Harbour Light.mp3
+  + 02 - Slow Ferry.mp3 -> Kite Season/02 - Slow Ferry.mp3
+[36m==>[0m Copied 2 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 2 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+On the device now:
+Kite Season/01 - Harbour Light.mp3
+Kite Season/02 - Slow Ferry.mp3
+
+======================================================================
+1. THE OLD WAY OUT: a script clears the device with --yes and no
+       terminal behind it. --yes records a person's answer; a caller that
+       copied the flag never had one to record.
+
+======================================================================
+
+# 7 - non-interactive --clear with --yes and no token
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-sync.sh --ipod /tmp/tmp.bFAVSXA8PH/iPod --clear --yes /tmp/tmp.bFAVSXA8PH/Music/Harbour Tapes
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+[exit 7]
+
+Still on the device:
+Kite Season/01 - Harbour Light.mp3
+Kite Season/02 - Slow Ferry.mp3
+
+======================================================================
+2. THE PLAN: the same command with --dry-run. Everything a person
+       would have been told goes to stderr; stdout is one JSON document.
+
+======================================================================
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-sync.sh --ipod $IPOD --clear --yes --dry-run $LIB/Harbour\ Tapes  # stdout
+{
+    "action": "sync",
+    "device": {
+        "mount": "/tmp/tmp.bFAVSXA8PH/iPod",
+        "identity": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"
+    },
+    "destructive": true,
+    "arguments": [
+        "clear=1",
+        "eject=0",
+        "rebuild-only=0",
+        "forget-options=0",
+        "existing-tracks=2",
+        "existing-playlists=0",
+        "/tmp/tmp.bFAVSXA8PH/Music/Harbour Tapes"
+    ],
+    "confirmationToken": "3ddb7df0eb8628732f7ff607b70f6b2ed26d12833aa953010fde02ab49b91957"
+}
+
+  # the same run, stderr:
+  [33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+
+$ diff <(md5sum every file, before the plan) <(the same, after it)
+the plan wrote nothing: 5 file(s), byte for byte identical
+
+======================================================================
+3. THE WAYS ROUND IT, AND WHAT EACH ONE GETS
+
+======================================================================
+
+# 7 - a token the caller made up
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-sync.sh --ipod /tmp/tmp.bFAVSXA8PH/iPod --clear --yes --confirm-token 0000000000000000000000000000000000000000000000000000000000000000 /tmp/tmp.bFAVSXA8PH/Music/Harbour Tapes
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+[exit 7]
+
+# 7 - this plan's token, on a run that syncs a different folder
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-sync.sh --ipod /tmp/tmp.bFAVSXA8PH/iPod --clear --yes --confirm-token 3ddb7df0eb8628732f7ff607b70f6b2ed26d12833aa953010fde02ab49b91957 /tmp/tmp.bFAVSXA8PH/Music/Kite Season
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+[exit 7]
+
+# 7 - this plan's token, on a run that also ejects the device
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-sync.sh --ipod /tmp/tmp.bFAVSXA8PH/iPod --clear --yes --eject --confirm-token 3ddb7df0eb8628732f7ff607b70f6b2ed26d12833aa953010fde02ab49b91957 /tmp/tmp.bFAVSXA8PH/Music/Harbour Tapes
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+[exit 7]
+
+# 1 - the iPod that was planned against has been swapped for another
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-sync.sh --ipod /tmp/tmp.bFAVSXA8PH/iPod --clear --yes --expect-device sysinfo:the-other-ipod --confirm-token 3ddb7df0eb8628732f7ff607b70f6b2ed26d12833aa953010fde02ab49b91957 /tmp/tmp.bFAVSXA8PH/Music/Harbour Tapes
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Expected device 'sysinfo:the-other-ipod', but 'uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc' is mounted at /tmp/tmp.bFAVSXA8PH/iPod.
+[exit 1]
+
+After four refusals, still on the device:
+Kite Season/01 - Harbour Light.mp3
+Kite Season/02 - Slow Ferry.mp3
+and byte for byte what it held before the first one
+
+======================================================================
+4. THE PLAN, RETURNED AS IT WAS PRINTED, AGAINST THE DEVICE IT NAMED
+
+======================================================================
+
+# 0 - --expect-device and --confirm-token from the plan above
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-sync.sh --ipod /tmp/tmp.bFAVSXA8PH/iPod --clear --yes --expect-device uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc --confirm-token 3ddb7df0eb8628732f7ff607b70f6b2ed26d12833aa953010fde02ab49b91957 /tmp/tmp.bFAVSXA8PH/Music/Harbour Tapes
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.bFAVSXA8PH/iPod
+[36m==>[0m Delete 2 existing track(s) from the iPod? yes (--yes)
+[36m==>[0m Removed 2 track(s)
+  + 01 - Pier Lights.mp3 -> Harbour Tapes/01 - Pier Lights.mp3
+[36m==>[0m Copied 1 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 1 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+On the device now:
+Harbour Tapes/01 - Pier Lights.mp3
+
+======================================================================
+5. THE SAME HANDSHAKE FOR A REMOVAL, AND THE PATHS IT STILL REFUSES
+
+======================================================================
+
+# 1 - a track path that climbs out of the music folder
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-remove.sh --ipod /tmp/tmp.bFAVSXA8PH/iPod --yes ../../../etc/passwd
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Not a path on this iPod: ../../../etc/passwd
+[exit 1]
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-remove.sh --ipod $IPOD --yes --dry-run 'Harbour Tapes/01 - Pier Lights.mp3'
+{
+    "action": "remove",
+    "device": {
+        "mount": "/tmp/tmp.bFAVSXA8PH/iPod",
+        "identity": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"
+    },
+    "destructive": true,
+    "arguments": [
+        "playlist-mode=0",
+        "eject=0",
+        "tracks=1",
+        "/tmp/tmp.bFAVSXA8PH/iPod/iPod_Control/Music/Harbour Tapes/01 - Pier Lights.mp3"
+    ],
+    "confirmationToken": "337e55be80f9b51a3e3aad1cf1d01dbd8d3bc915c7020e2e5404297eed04d091"
+}
+
+# 0 - the removal that plan describes
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-remove.sh --ipod /tmp/tmp.bFAVSXA8PH/iPod --yes --expect-device uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc --confirm-token 337e55be80f9b51a3e3aad1cf1d01dbd8d3bc915c7020e2e5404297eed04d091 Harbour Tapes/01 - Pier Lights.mp3
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.bFAVSXA8PH/iPod
+[36m==>[0m Removed 1 track(s)
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 0 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+On the device now:
+
+======================================================================
+6. AND FOR A WIPE, WHICH KEEPS THE SPOKEN PROMPTS THE FIRMWARE NEEDS
+
+======================================================================
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-wipe.sh --ipod $IPOD --backup $WORK/backup --yes --dry-run
+{
+    "action": "wipe",
+    "device": {
+        "mount": "/tmp/tmp.bFAVSXA8PH/iPod",
+        "identity": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"
+    },
+    "destructive": true,
+    "arguments": [
+        "backup=/tmp/tmp.bFAVSXA8PH/backup",
+        "tracks=0",
+        "playlists=0",
+        "stale-state=iTunesDB iTunesSD iTunesStats iTunesPState iTunesPrefs iTunesPrefs.plist"
+    ],
+    "confirmationToken": "05aced963f5330e963a3536bd69bdcace5cb48ff4617af3e254113be41e556e3"
+}
+
+# 0 - the wipe that plan describes
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-wipe.sh --ipod /tmp/tmp.bFAVSXA8PH/iPod --backup /tmp/tmp.bFAVSXA8PH/backup --yes --expect-device uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc --confirm-token 05aced963f5330e963a3536bd69bdcace5cb48ff4617af3e254113be41e556e3
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.bFAVSXA8PH/iPod
+[36m==>[0m Tracks currently on device: 0
+[36m==>[0m Backing up to /tmp/tmp.bFAVSXA8PH/backup
+[36m==>[0m Backup verified: 0 track(s) plus databases
+[36m==>[0m Removed 0 track(s)
+[36m==>[0m Cleared stale iTunes state and previous-owner library binding
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m Preserved: 1 Speakable prompt file(s)
+[36m==>[0m Wipe complete. The iPod is empty and ready for ./ipod-sync.sh
+[33mwarning:[0m Unmount before unplugging:  ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+Music on the device now: 0 file(s)
+Spoken prompts preserved: iPod_Control/Speakable/System/battery.wav
+Backed up under backup/:
+  iTunes/iTunesSD
+
+======================================================================
+7. A PERSON AT A TERMINAL, WHICH IS WHAT NONE OF THIS MAY GET IN THE
+       WAY OF: the same --clear, no --yes, no token, answered by hand.
+       The device is filled again first, so there is something to delete.
+
+======================================================================
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-sync.sh --ipod /tmp/tmp.bFAVSXA8PH/iPod /tmp/tmp.bFAVSXA8PH/Music/Kite Season
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.bFAVSXA8PH/iPod
+  + 01 - Harbour Light.mp3 -> Kite Season/01 - Harbour Light.mp3
+  + 02 - Slow Ferry.mp3 -> Kite Season/02 - Slow Ferry.mp3
+[36m==>[0m Copied 2 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 2 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSQY3XF49H6YFZCEB646YK4/ipod-sync.sh --ipod $IPOD --clear $LIB/Harbour\ Tapes   # at a terminal, typing y
+y
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.bFAVSXA8PH/iPod
+Delete 2 existing track(s) from the iPod? [y/N] [36m==>[0m Removed 2 track(s)
+  + 01 - Pier Lights.mp3 -> Harbour Tapes/01 - Pier Lights.mp3
+[36m==>[0m Copied 1 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 1 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject
+
+Script done on 2026-08-11 22:25:56-04:00 [COMMAND_EXIT_CODE="0"]
+[exit 0]
+
+On the device now:
+Harbour Tapes/01 - Pier Lights.mp3
+
+======================================================================
+8. EVERY STATE ABOVE, AND THE CODE IT LEFT WITH
+
+======================================================================
+code   state
+----   -----
+7      non-interactive --clear with --yes and no token
+7      a token the caller made up
+7      this plan's token, on a run that syncs a different folder
+7      this plan's token, on a run that also ejects the device
+1      the iPod that was planned against has been swapped for another
+0      --expect-device and --confirm-token from the plan above
+1      a track path that climbs out of the music folder
+0      the removal that plan describes
+0      the wipe that plan describes
+0      interactive --clear, answered y at the prompt
+
+(end of walkthrough)

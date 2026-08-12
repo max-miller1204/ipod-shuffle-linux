@@ -179,7 +179,6 @@ fi
 
 [[ $# -gt 0 ]] || { usage; leave 1; }
 
-
 # Resolve every argument before deleting anything, so a typo in the last one
 # does not leave the first half of the request already carried out.
 declare -a TARGETS=()

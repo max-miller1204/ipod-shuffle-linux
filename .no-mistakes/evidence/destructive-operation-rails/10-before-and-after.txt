@@ -1,0 +1,48 @@
+======================================================================
+BEFORE (fafb2d7): a clear with --yes, from a script with no terminal
+======================================================================
+
+--- the run
+$ ./ipod-sync.sh --ipod ./iPod-before --clear --yes ./Music/Harbour Tapes
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.Vr9ItJGaJf/iPod-before
+[36m==>[0m Delete 2 existing track(s) from the iPod? yes (--yes)
+[36m==>[0m Removed 2 track(s)
+  + 01 - Pier Lights.mp3 -> Harbour Tapes/01 - Pier Lights.mp3
+[36m==>[0m Copied 1 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 1 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject
+[exit 0]
+music on the device afterwards:
+  Harbour Tapes/01 - Pier Lights.mp3
+
+--- and there was no plan to ask for
+$ ./ipod-sync.sh --ipod ./iPod-before --clear --yes --dry-run ./Music/Harbour Tapes
+[31merror:[0m Unknown option: --dry-run (try --help)
+[exit 1]
+music on the device afterwards:
+  Harbour Tapes/01 - Pier Lights.mp3
+
+======================================================================
+NOW (2101f6c): the same command, on the same device
+======================================================================
+
+--- the run
+$ ./ipod-sync.sh --ipod /tmp/tmp.Vr9ItJGaJf/iPod-now --clear --yes /tmp/tmp.Vr9ItJGaJf/Music/Harbour Tapes
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+[exit 7]
+music on the device afterwards:
+  Kite Season/01 - Harbour Light.mp3
+  Kite Season/02 - Slow Ferry.mp3
+
+--- and the plan it asks the caller to read
+$ ./ipod-sync.sh --ipod /tmp/tmp.Vr9ItJGaJf/iPod-now --clear --yes --dry-run /tmp/tmp.Vr9ItJGaJf/Music/Harbour Tapes
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+{"action":"sync","device":{"mount":"/tmp/tmp.Vr9ItJGaJf/iPod-now","identity":"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"},"destructive":true,"arguments":["clear=1","eject=0","rebuild-only=0","forget-options=0","existing-tracks=2","existing-playlists=0","/tmp/tmp.Vr9ItJGaJf/Music/Harbour Tapes"],"confirmationToken":"6d606b895e557572cf7d1331fc51e36b16f0ad63c66499b5c5db6bebcebc80e5"}
+[exit 0]
+music on the device afterwards:
+  Kite Season/01 - Harbour Light.mp3
+  Kite Season/02 - Slow Ferry.mp3

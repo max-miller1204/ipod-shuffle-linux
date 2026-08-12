@@ -2,10 +2,13 @@
 
 Every device-changing action goes through `_run`, which holds the device write
 lock, re-checks that the iPod under the mount point is still the one the action
-was aimed at, and streams the script's output into the log. Owns the sync bar
-and its details pane, the busy state that makes the window refuse to race
-itself, and the destructive and D-Bus actions: rebuild, wipe, remove, eject and
-mount.
+was aimed at, and streams the script's output into the log. A destructive one
+is planned inside that same lock: the script is asked for its `--dry-run` plan
+and then run with `--expect-device` and that plan's token, so the window's
+check and the script's own refusal are one decision rather than two. Owns the
+sync bar and its details pane, the busy state that makes the window refuse to
+race itself, and the destructive and D-Bus actions: rebuild, wipe, remove,
+eject and mount.
 
 Borrows from the window: `mount_point` and `device_identity` to aim a command,
 `speech_engine_available` to say what a rebuild costs the iPod's spoken names,
@@ -347,7 +350,6 @@ class CommandsMixin:
                 # would mean renumbering a descriptor in the child and there is
                 # no safe moment to do that in a threaded process.
                 progress_read = progress_write = -1
-                
                 reader = None
                 try:
                     if argv[0] in PROGRESS_SCRIPTS:

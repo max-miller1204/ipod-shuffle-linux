@@ -1,0 +1,1 @@
+{"action":"sync","device":{"mount":"/tmp/tmp.bFAVSXA8PH/iPod","identity":"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"},"destructive":true,"arguments":["clear=1","eject=0","rebuild-only=0","forget-options=0","existing-tracks=2","existing-playlists=0","/tmp/tmp.bFAVSXA8PH/Music/Harbour Tapes"],"confirmationToken":"3ddb7df0eb8628732f7ff607b70f6b2ed26d12833aa953010fde02ab49b91957"}
