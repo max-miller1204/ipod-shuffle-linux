@@ -1,0 +1,215 @@
+=== The five read-only tools of tools/mcp-server.py, over MCP stdio ===
+# server:   /usr/bin/python3 /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZTVKVPBYZ5EQJDY5Y7R3HAH/tools/mcp-server.py  (no package installed for it)
+# fixture:  /tmp/mcp-read-6lb3vlym
+#   library track:  /tmp/mcp-read-6lb3vlym/home/Music/Demo Album/01 - Wandering Star.mp3
+#   playlist:       /tmp/mcp-read-6lb3vlym/home/Music/Playlists/Road Trip.m3u  -> the track above
+#   cached preview: /tmp/mcp-read-6lb3vlym/home/cache/ipod-shuffle-linux/previews/testvideo/preview.m4a
+#   attached iPod:  /tmp/mcp-read-6lb3vlym/iPod  (2 tracks, one playlist 'Favourites')
+
+--> {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "read-tools-demo", "version": "1"}}}
+<-- {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}, "serverInfo": {"name": "ipod-shuffle-linux", "version": "1"}}}
+
+# the tool listing, read tools only, with the schema a client generates calls from
+--> {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+<-- read_library: Read library state. Read-only.
+      inputSchema: {"type": "object", "properties": {}, "required": [], "additionalProperties": false}
+<-- read_device: Read device state. Read-only.
+      inputSchema: {"type": "object", "properties": {}, "required": [], "additionalProperties": false}
+<-- read_playlists: Read playlists state. Read-only.
+      inputSchema: {"type": "object", "properties": {}, "required": [], "additionalProperties": false}
+<-- read_cache: Read cache state. Read-only.
+      inputSchema: {"type": "object", "properties": {}, "required": [], "additionalProperties": false}
+<-- read_search: Search the local library and optionally YouTube. Read-only.
+      inputSchema: {"type": "object", "properties": {"query": {"type": "string"}, "youtube": {"type": "boolean"}}, "required": ["query"], "additionalProperties": false}
+
+# fixture fingerprint before any read tool runs: fa7bc489b7153321
+
+# read_library: the library scan, over `python3 -m ipod_gui.cli library`
+--> {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "read_library", "arguments": {}}}
+<-- isError: False
+<-- content[0].text, pretty-printed:
+{
+  "schema": 1,
+  "command": "library",
+  "result": {
+    "tracks": [
+      {
+        "path": "/tmp/mcp-read-6lb3vlym/home/Music/Demo Album/01 - Wandering Star.mp3",
+        "title": "01 - Wandering Star",
+        "artist": "Unknown artist",
+        "album": "Unknown album",
+        "genre": "",
+        "duration": 0.0,
+        "trackNumber": 0,
+        "art": null,
+        "size": 15,
+        "state": "library",
+        "onIpod": false
+      }
+    ],
+    "albums": [
+      {
+        "title": "Unknown album",
+        "artist": "Unknown artist",
+        "state": "library",
+        "trackCount": 1
+      }
+    ],
+    "counts": {
+      "ipod": 0,
+      "queued": 0,
+      "library": 1,
+      "preview": 0
+    },
+    "complete": true
+  }
+}
+
+# read_device: the attached-volume probe, over `... cli device`
+--> {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "read_device", "arguments": {}}}
+<-- isError: False
+<-- content[0].text, pretty-printed:
+{
+  "schema": 1,
+  "command": "device",
+  "result": {
+    "candidates": [
+      "/tmp/mcp-read-6lb3vlym/iPod"
+    ],
+    "mountPoint": "/tmp/mcp-read-6lb3vlym/iPod",
+    "identity": "uuid:/dev/sdz",
+    "readable": true,
+    "trackCount": 2,
+    "playlists": [
+      {
+        "name": "Favourites",
+        "entries": [
+          "Album/01 - Keep.mp3"
+        ],
+        "spoken": false
+      }
+    ],
+    "storage": {
+      "totalBytes": 491001659392,
+      "usedBytes": 122549092352,
+      "freeBytes": 343435800576
+    }
+  }
+}
+
+# read_playlists: the local M3U store, over `... cli playlists list`
+--> {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "read_playlists", "arguments": {}}}
+<-- isError: False
+<-- content[0].text, pretty-printed:
+{
+  "schema": 1,
+  "command": "playlists",
+  "result": [
+    {
+      "name": "Road Trip",
+      "path": "/tmp/mcp-read-6lb3vlym/home/Music/Playlists/Road Trip.m3u",
+      "editable": true,
+      "entries": [
+        "/tmp/mcp-read-6lb3vlym/home/Music/Demo Album/01 - Wandering Star.mp3"
+      ]
+    }
+  ]
+}
+
+# read_cache: the preview cache, over `... cli cache status`
+--> {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "read_cache", "arguments": {}}}
+<-- isError: False
+<-- content[0].text, pretty-printed:
+{
+  "schema": 1,
+  "command": "cache",
+  "result": {
+    "root": "/tmp/mcp-read-6lb3vlym/home/cache/ipod-shuffle-linux/previews",
+    "sizeBytes": 38,
+    "removed": [],
+    "entries": [
+      {
+        "path": "/tmp/mcp-read-6lb3vlym/home/cache/ipod-shuffle-linux/previews/testvideo/preview.m4a",
+        "size": 38,
+        "mtime": 1786536384.4980633
+      }
+    ],
+    "complete": true
+  }
+}
+
+# read_search: local only, over `... cli search Wandering`
+--> {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "read_search", "arguments": {"query": "Wandering"}}}
+<-- isError: False
+<-- content[0].text, pretty-printed:
+{
+  "schema": 1,
+  "command": "search",
+  "result": {
+    "local": [
+      {
+        "path": "/tmp/mcp-read-6lb3vlym/home/Music/Demo Album/01 - Wandering Star.mp3",
+        "title": "01 - Wandering Star",
+        "artist": "Unknown artist",
+        "album": "Unknown album",
+        "genre": "",
+        "duration": 0.0,
+        "trackNumber": 0,
+        "art": null,
+        "size": 15,
+        "state": "library",
+        "onIpod": false
+      }
+    ],
+    "complete": true
+  }
+}
+
+# read_search with youtube=true: the flag is forwarded, over `... cli search Wandering --youtube`
+--> {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "read_search", "arguments": {"query": "Wandering", "youtube": true}}}
+<-- isError: False
+<-- content[0].text, pretty-printed:
+{
+  "schema": 1,
+  "command": "search",
+  "result": {
+    "local": [
+      {
+        "path": "/tmp/mcp-read-6lb3vlym/home/Music/Demo Album/01 - Wandering Star.mp3",
+        "title": "01 - Wandering Star",
+        "artist": "Unknown artist",
+        "album": "Unknown album",
+        "genre": "",
+        "duration": 0.0,
+        "trackNumber": 0,
+        "art": null,
+        "size": 15,
+        "state": "library",
+        "onIpod": false
+      }
+    ],
+    "complete": true,
+    "youtube": [
+      {
+        "title": "Test Track (Wandering)",
+        "uploader": "Test Artist",
+        "duration": 180.0,
+        "url": "https://www.youtube.com/watch?v=testvideo",
+        "video_id": "testvideo",
+        "thumbnail": "https://i.ytimg.com/vi/testvideo/hqdefault.jpg",
+        "playlist_title": "",
+        "playlist_count": 0
+      }
+    ],
+    "reachedYoutube": true
+  }
+}
+
+# fixture fingerprint after all six read calls: fa7bc489b7153321
+# nothing on disk changed: True
+
+# an argument no read tool declares is refused before anything runs
+--> {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "read_search", "arguments": {"query": "x", "confirmationToken": "sneaky"}}}
+<-- {"jsonrpc": "2.0", "id": 9, "error": {"code": -32602, "message": "unknown argument: confirmationToken"}}
+
+# server exit status: 0; stray stdout: ''; stderr: ''

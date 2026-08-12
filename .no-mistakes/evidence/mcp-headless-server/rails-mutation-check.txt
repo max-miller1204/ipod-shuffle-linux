@@ -1,0 +1,27 @@
+=== Does tests/mcp-server.py actually hold the destructive rails, or just pass? ===
+A throwaway copy of the tree is mutated, and the unchanged coverage is rerun against it.
+
+--- baseline: unmutated server, python 3.12 (the CI interpreter) ---
+$ /usr/bin/python3 tests/mcp-server.py
+mcp server ok
+exit 0
+
+--- mutation 1: execute_* stops passing --expect-device and --confirm-token ---
+$ /usr/bin/python3 tests/mcp-server.py
+Traceback (most recent call last):
+  File "/tmp/mcp-mutate/tests/mcp-server.py", line 245, in <module>
+    assert "Expected device" in text, text
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: [33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+-> the coverage fails: an execute that ignores the identity and the token is caught.
+
+--- mutation 2: plan_* stops passing --dry-run (a 'plan' that would really run) ---
+$ /usr/bin/python3 tests/mcp-server.py
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/mcp-mutate/tests/mcp-server.py", line 214, in plan
+    assert not failed, text
+           ^^^^^^^^^^
+AssertionError: [33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+-> the coverage fails: a plan tool that is not a dry run is caught.

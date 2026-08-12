@@ -1,0 +1,62 @@
+=== Mutation coverage for tests/mcp-server.py ===
+A throwaway copy of the tree is mutated and the unchanged test is rerun.
+
+--- baseline: unmutated server ---
+$ /usr/bin/python3 tests/mcp-server.py   (python 3.12, the interpreter CI runs)
+mcp server ok
+exit 0
+$ python3 tests/mcp-server.py            (python 3.14)
+mcp server ok
+exit 0
+
+--- mutation: execute_* stops passing --expect-device and --confirm-token, answering only the prompts written for a person ---
+$ /usr/bin/python3 tests/mcp-server.py
+    assert "Expected device" in text, text
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: [33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+exit 1  -> the test fails, so this mutation is caught.
+
+--- mutation: plan_* stops passing --dry-run (a "plan" that would really run) ---
+$ /usr/bin/python3 tests/mcp-server.py
+    assert not failed, text
+           ^^^^^^^^^^
+AssertionError: [33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token.
+exit 1  -> the test fails, so this mutation is caught.
+
+--- mutation: read_cache is wired to the destructive "cache clear" ---
+$ /usr/bin/python3 tests/mcp-server.py
+  File "/tmp/mcp-mutation-run/tests/mcp-server.py", line 216, in <module>
+    assert [entry["path"] for entry in cache["entries"]] == [str(preview)], cache
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'root': '/tmp/mcp-server-448vtqn9/home/cache/ipod-shuffle-linux/previews', 'sizeBytes': 0, 'removed': ['/tmp/mcp-server-448vtqn9/home/cache/ipod-shuffle-linux/previews/testvideo/preview.m4a'], 'entries': [], 'complete': True}
+exit 1  -> the test fails, so this mutation is caught.
+
+--- mutation: read_device is wired to the library command ---
+$ /usr/bin/python3 tests/mcp-server.py
+  File "/tmp/mcp-mutation-run/tests/mcp-server.py", line 239, in <module>
+    assert device["candidates"] == [str(attached)], device
+           ~~~~~~^^^^^^^^^^^^^^
+KeyError: 'candidates'
+exit 1  -> the test fails, so this mutation is caught.
+
+--- mutation: read_playlists is wired to the library command ---
+$ /usr/bin/python3 tests/mcp-server.py
+  File "/tmp/mcp-mutation-run/tests/mcp-server.py", line 208, in <module>
+    assert [(entry["name"], entry["entries"]) for entry in stored] == [
+             ~~~~~^^^^^^^^
+TypeError: string indices must be integers, not 'str'
+exit 1  -> the test fails, so this mutation is caught.
+
+--- mutation: read_search stops forwarding the youtube flag ---
+$ /usr/bin/python3 tests/mcp-server.py
+  File "/tmp/mcp-mutation-run/tests/mcp-server.py", line 252, in <module>
+    assert found["reachedYoutube"] is True, found
+           ~~~~~^^^^^^^^^^^^^^^^^^
+KeyError: 'reachedYoutube'
+exit 1  -> the test fails, so this mutation is caught.
+
+--- baseline restored ---
+mcp server ok
+exit 0

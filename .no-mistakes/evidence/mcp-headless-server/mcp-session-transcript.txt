@@ -1,0 +1,173 @@
+=== MCP stdio session against tools/mcp-server.py ===
+# fake iPod mount: /tmp/mcp-demo-ob_7ogks/iPod
+
+# handshake
+--> {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "demo-client", "version": "1"}}}
+<-- {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}, "serverInfo": {"name": "ipod-shuffle-linux", "version": "1"}}}
+
+--> {"jsonrpc":"2.0","method":"notifications/initialized"}  (notification, no answer expected)
+
+# tool discovery
+--> {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+<-- [
+  {
+    "name": "read_library",
+    "description": "Read library state. Read-only."
+  },
+  {
+    "name": "read_device",
+    "description": "Read device state. Read-only."
+  },
+  {
+    "name": "read_playlists",
+    "description": "Read playlists state. Read-only."
+  },
+  {
+    "name": "read_cache",
+    "description": "Read cache state. Read-only."
+  },
+  {
+    "name": "read_search",
+    "description": "Search the local library and optionally YouTube. Read-only."
+  },
+  {
+    "name": "plan_sync",
+    "description": "DRY RUN: return the exact device-changing plan and confirmation token; changes nothing."
+  },
+  {
+    "name": "execute_sync",
+    "description": "DESTRUCTIVE: execute only the exact dry-run plan authorized by expectedDevice and confirmationToken."
+  },
+  {
+    "name": "plan_remove",
+    "description": "DRY RUN: return the exact device-changing plan and confirmation token; changes nothing."
+  },
+  {
+    "name": "execute_remove",
+    "description": "DESTRUCTIVE: execute only the exact dry-run plan authorized by expectedDevice and confirmationToken."
+  },
+  {
+    "name": "plan_wipe",
+    "description": "DRY RUN: return the exact device-changing plan and confirmation token; changes nothing."
+  },
+  {
+    "name": "execute_wipe",
+    "description": "DESTRUCTIVE: execute only the exact dry-run plan authorized by expectedDevice and confirmationToken."
+  }
+]
+
+# the three groups a client sees, kept visibly separate:
+#   read    -> read_library, read_device, read_playlists, read_cache, read_search
+#   plan    -> plan_sync, plan_remove, plan_wipe
+#   execute -> execute_sync, execute_remove, execute_wipe
+
+# the schema a client generates an execute call from:
+{
+  "type": "object",
+  "properties": {
+    "ipod": {
+      "type": "string",
+      "description": "Absolute path"
+    },
+    "expectedDevice": {
+      "type": "string"
+    },
+    "confirmationToken": {
+      "type": "string"
+    },
+    "backup": {
+      "type": "string",
+      "description": "Absolute path"
+    }
+  },
+  "required": [
+    "ipod",
+    "expectedDevice",
+    "confirmationToken"
+  ],
+  "additionalProperties": false
+}
+
+# read: library scan over the headless CLI
+--> {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "read_library", "arguments": {}}}
+<-- {"isError": false, "text": "{\"schema\": 1, \"command\": \"library\", \"result\": {\"tracks\": [{\"path\": \"/tmp/mcp-demo-ob_7ogks/home/Music/Demo Album/01 - Demo.mp3\", \"title\": \"01 - Demo\", \"artist\": \"Unknown artist\", \"album\": \"Unknown album\", \"genre\": \"\", \"duration\": 0.0, \"trackNumber\": 0, \"art\": null, \"size\": 10, \"state\": \"library\", \"onIpod\": false}], \"albums\": [{\"title\": \"Unknown album\", \"artist\": \"Unknown artist\", \"state\": \"library\", \"trackCount\": 1}], \"counts\": {\"ipod\": 0, \"queued\": 0, \"library\": 1, \"preview\": 0}, \"complete\": true}}"}
+
+# read: attached device probe
+--> {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "read_device", "arguments": {}}}
+<-- {"isError": false, "text": "{\"schema\": 1, \"command\": \"device\", \"result\": {\"candidates\": [], \"mountPoint\": null, \"identity\": null, \"readable\": true, \"trackCount\": 0, \"playlists\": [], \"storage\": null}}"}
+
+# read: preview cache
+--> {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "read_cache", "arguments": {}}}
+<-- {"isError": false, "text": "{\"schema\": 1, \"command\": \"cache\", \"result\": {\"root\": \"/tmp/mcp-demo-ob_7ogks/home/cache/ipod-shuffle-linux/previews\", \"sizeBytes\": 0, \"removed\": [], \"entries\": [], \"complete\": true}}"}
+
+# read: playlists
+--> {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "read_playlists", "arguments": {}}}
+<-- {"isError": false, "text": "{\"schema\": 1, \"command\": \"playlists\", \"result\": []}"}
+
+# read: local search
+--> {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "read_search", "arguments": {"query": "demo"}}}
+<-- {"isError": false, "text": "{\"schema\": 1, \"command\": \"search\", \"result\": {\"local\": [{\"path\": \"/tmp/mcp-demo-ob_7ogks/home/Music/Demo Album/01 - Demo.mp3\", \"title\": \"01 - Demo\", \"artist\": \"Unknown artist\", \"album\": \"Unknown album\", \"genre\": \"\", \"duration\": 0.0, \"trackNumber\": 0, \"art\": null, \"size\": 10, \"state\": \"library\", \"onIpod\": false}], \"complete\": true}}"}
+
+# device fingerprint before any plan: 4742ffc47459cb81
+# tracks on device: ['Album/01 - Keep.mp3', 'Album/02 - Also Keep.mp3']
+
+# DRY RUN: what a removal would do, plus the confirmation token
+--> {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "plan_remove", "arguments": {"ipod": "/tmp/mcp-demo-ob_7ogks/iPod", "targets": ["Album/01 - Keep.mp3"]}}}
+<-- {"isError": false, "text": "{\"action\":\"remove\",\"device\":{\"mount\":\"/tmp/mcp-demo-ob_7ogks/iPod\",\"identity\":\"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc\"},\"destructive\":true,\"arguments\":[\"playlist-mode=0\",\"eject=0\",\"tracks=1\",\"/tmp/mcp-demo-ob_7ogks/iPod/iPod_Control/Music/Album/01 - Keep.mp3\"],\"confirmationToken\":\"da482115c05e9fa7ecb5df4833cd20cb2afc0c98921c7b5c71b89e72300c2b3e\"}"}
+
+# device fingerprint after the dry run: 4742ffc47459cb81  (unchanged: True)
+
+# EXECUTE with the wrong device identity
+--> {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "execute_remove", "arguments": {"ipod": "/tmp/mcp-demo-ob_7ogks/iPod", "targets": ["Album/01 - Keep.mp3"], "expectedDevice": "sysinfo:some-other-ipod", "confirmationToken": "da482115c05e9fa7ecb5df4833cd20cb2afc0c98921c7b5c71b89e72300c2b3e"}}}
+<-- {"isError": true, "text": "\u001b[33mwarning:\u001b[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.\n\u001b[31merror:\u001b[0m Expected device 'sysinfo:some-other-ipod', but 'uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc' is mounted at /tmp/mcp-demo-ob_7ogks/iPod."}
+
+# device fingerprint: 4742ffc47459cb81  (unchanged: True)
+
+# EXECUTE with the right device but a token no dry run printed
+--> {"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {"name": "execute_remove", "arguments": {"ipod": "/tmp/mcp-demo-ob_7ogks/iPod", "targets": ["Album/01 - Keep.mp3"], "expectedDevice": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc", "confirmationToken": "not-the-token-the-plan-printed"}}}
+<-- {"isError": true, "text": "\u001b[33mwarning:\u001b[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.\n\u001b[31merror:\u001b[0m Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token."}
+
+# device fingerprint: 4742ffc47459cb81  (unchanged: True)
+
+# EXECUTE with no approval at all: refused by the advertised schema, nothing runs
+--> {"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": {"name": "execute_remove", "arguments": {"ipod": "/tmp/mcp-demo-ob_7ogks/iPod", "targets": ["Album/01 - Keep.mp3"]}}}
+<-- {"jsonrpc": "2.0", "id": 11, "error": {"code": -32602, "message": "missing argument: expectedDevice"}}
+
+
+# EXECUTE authorized by that dry run's own identity and token
+--> {"jsonrpc": "2.0", "id": 12, "method": "tools/call", "params": {"name": "execute_remove", "arguments": {"ipod": "/tmp/mcp-demo-ob_7ogks/iPod", "targets": ["Album/01 - Keep.mp3"], "expectedDevice": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc", "confirmationToken": "da482115c05e9fa7ecb5df4833cd20cb2afc0c98921c7b5c71b89e72300c2b3e"}}}
+<-- {"isError": false, "text": "\u001b[36m==>\u001b[0m iPod: /tmp/mcp-demo-ob_7ogks/iPod\n\u001b[36m==>\u001b[0m Removed 1 track(s)\n\u001b[36m==>\u001b[0m Rebuilding iTunesSD database\n\u001b[36m==>\u001b[0m iPod now holds 1 track(s)"}
+
+# device fingerprint: 5a79682a14ec1b64  (changed: True)
+# tracks on device: ['Album/02 - Also Keep.mp3']
+
+# DRY RUN a sync of a new album
+--> {"jsonrpc": "2.0", "id": 13, "method": "tools/call", "params": {"name": "plan_sync", "arguments": {"ipod": "/tmp/mcp-demo-ob_7ogks/iPod", "sources": ["/tmp/mcp-demo-ob_7ogks/New Album"]}}}
+<-- {"isError": false, "text": "{\"action\":\"sync\",\"device\":{\"mount\":\"/tmp/mcp-demo-ob_7ogks/iPod\",\"identity\":\"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc\"},\"destructive\":false,\"arguments\":[\"clear=0\",\"eject=0\",\"rebuild-only=0\",\"forget-options=0\",\"existing-tracks=0\",\"existing-playlists=0\",\"/tmp/mcp-demo-ob_7ogks/New Album\"],\"confirmationToken\":\"409e9e3fa97ed10241083d3ba36a102ebb1c57379644cda2134a88517ada34f8\"}"}
+
+# EXECUTE that sync with its own token
+--> {"jsonrpc": "2.0", "id": 14, "method": "tools/call", "params": {"name": "execute_sync", "arguments": {"ipod": "/tmp/mcp-demo-ob_7ogks/iPod", "sources": ["/tmp/mcp-demo-ob_7ogks/New Album"], "expectedDevice": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc", "confirmationToken": "409e9e3fa97ed10241083d3ba36a102ebb1c57379644cda2134a88517ada34f8"}}}
+<-- {"isError": false, "text": "\u001b[36m==>\u001b[0m iPod: /tmp/mcp-demo-ob_7ogks/iPod\n  + 01 - New.mp3 -> New Album/01 - New.mp3\n\u001b[36m==>\u001b[0m Copied 1 file(s)\n\u001b[36m==>\u001b[0m Rebuilding iTunesSD database\n\u001b[36m==>\u001b[0m iPod now holds 2 track(s)"}
+
+# tracks on device: ['Album/02 - Also Keep.mp3', 'New Album/01 - New.mp3']
+
+# DRY RUN a wipe with a backup
+--> {"jsonrpc": "2.0", "id": 15, "method": "tools/call", "params": {"name": "plan_wipe", "arguments": {"ipod": "/tmp/mcp-demo-ob_7ogks/iPod", "backup": "/tmp/mcp-demo-ob_7ogks/backup"}}}
+<-- {"isError": false, "text": "{\"action\":\"wipe\",\"device\":{\"mount\":\"/tmp/mcp-demo-ob_7ogks/iPod\",\"identity\":\"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc\"},\"destructive\":true,\"arguments\":[\"backup=/tmp/mcp-demo-ob_7ogks/backup\",\"tracks=2\",\"playlists=0\",\"stale-state=iTunesDB iTunesSD iTunesStats iTunesPState iTunesPrefs iTunesPrefs.plist\"],\"confirmationToken\":\"c5dab24d17e19916ee72248d78ce89c6cab3e6f98b09b39cdb9f9b2c1a9e2eef\"}"}
+
+# EXECUTE that wipe
+--> {"jsonrpc": "2.0", "id": 16, "method": "tools/call", "params": {"name": "execute_wipe", "arguments": {"ipod": "/tmp/mcp-demo-ob_7ogks/iPod", "backup": "/tmp/mcp-demo-ob_7ogks/backup", "expectedDevice": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc", "confirmationToken": "c5dab24d17e19916ee72248d78ce89c6cab3e6f98b09b39cdb9f9b2c1a9e2eef"}}}
+<-- {"isError": false, "text": "\u001b[36m==>\u001b[0m iPod: /tmp/mcp-demo-ob_7ogks/iPod\n\u001b[36m==>\u001b[0m Tracks currently on device: 2\n\u001b[36m==>\u001b[0m Backing up to /tmp/mcp-demo-ob_7ogks/backup\n\u001b[36m==>\u001b[0m Backup verified: 2 track(s) plus databases\n\u001b[36m==>\u001b[0m Removed 2 track(s)\n\u001b[36m==>\u001b[0m Cleared stale iTunes state and previous-owner library binding\n\u001b[36m==>\u001b[0m Rebuilding iTunesSD database\n\u001b[36m==>\u001b[0m Preserved: 1 Speakable prompt file(s)\n\u001b[36m==>\u001b[0m Wipe complete. The iPod is empty and ready for ./ipod-sync.sh"}
+
+# tracks on device after the wipe: []
+# backup written to /tmp/mcp-demo-ob_7ogks/backup: ['Music/Album/02 - Also Keep.mp3', 'Music/New Album/01 - New.mp3', 'iTunes/iTunesSD']
+
+# the session is still healthy after refusals and destructive runs
+--> {"jsonrpc": "2.0", "id": 17, "method": "ping"}
+<-- {"jsonrpc": "2.0", "id": 17, "result": {}}
+
+# an unknown tool is a protocol error, not a crash
+--> {"jsonrpc": "2.0", "id": 18, "method": "tools/call", "params": {"name": "execute_everything", "arguments": {}}}
+<-- {"jsonrpc": "2.0", "id": 18, "error": {"code": -32602, "message": "unknown tool: execute_everything"}}
+
+# server exit status: 0; stray stdout: ''; stderr: ''
