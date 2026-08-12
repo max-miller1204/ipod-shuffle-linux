@@ -480,7 +480,6 @@ sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
         fi
         return 0
     fi
-    assert_watched_device
     atomic_replace_lines "$target" "#EXTM3U" "${lines[@]}"
     rm -f -- "$pls_target"
     PLAYLIST_TARGET_SOURCES["$reservation_key"]="$list"
