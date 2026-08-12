@@ -59,6 +59,9 @@ jobs:
           "${RUNNER_TEMP}/tag-venv/bin/pip" install \
             -q --disable-pip-version-check mutagen
 
+      - name: MCP server
+        run: python3 tests/mcp-server.py
+
       - name: Shell lint
         run: shellcheck -x ./*.sh tests/product-e2e.sh
 

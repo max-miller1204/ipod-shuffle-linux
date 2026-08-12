@@ -646,6 +646,11 @@ They drive the single running window without synthetic input.
 Activating `dump-state` refreshes its JSON string state with the current page, visible library counts, staged sources and tracks, playback and sync-bar state, and the note the search page is showing in place of results.
 [docs/machine-interface.md](docs/machine-interface.md) records the calls, every field of that document, and the one thing worth knowing before writing a client: the actions return before the work lands, so a dump read straight after one can answer from the moment before it.
 
+For clients outside this checkout, `python3 tools/mcp-server.py` serves the same machine interfaces over MCP stdio with no additional package dependency.
+Its tool listing keeps `read_*` queries separate from `plan_*` dry runs and `execute_*` device changes.
+An execute tool requires both `expectedDevice` and the `confirmationToken` returned by the corresponding dry run, so an MCP caller cannot bypass the destructive-operation rails.
+Configure an MCP client to launch the server with `/usr/bin/python3` and the absolute path to `tools/mcp-server.py`.
+
 For reproducible visual evidence, build the canonical four-album fixture and render a page without depending on compositor frames:
 
 ```bash
