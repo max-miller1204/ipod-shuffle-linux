@@ -149,18 +149,22 @@ A track named on the command line is written into the M3U as an absolute path, w
 | `0` | It worked, and stdout is the whole document |
 | `1` | It did not: stderr says why in a sentence, and there is no document |
 | `1`, with a document | It did part of it, and the document says which part: `complete` is false |
+| `2` | The arguments were not usable, so nothing was attempted: argparse prints usage to stderr, and there is no document |
+
+`2` is what a caller meets before any of the above: a missing subcommand, `playlists` with no action after it, a name no subcommand has, or a position that is not a number.
+It comes from the argument parser rather than from the model, which is why it is separate from `1` - nothing was read, nothing was written, and the message is a usage line rather than a sentence about the library.
 
 `complete` is what that third row is, and it is why the field exists.
 A music folder that could not be read through - a root that has gone, a directory that will not open, a scan that ran out of time - leaves a real reading of everything else, and a cached preview that will not be deleted leaves every other one deleted.
 Throwing either away helps nobody, so the document is written, `complete` is false, and the run still leaves `1`, because a caller handed the part and told nothing would take it for the whole.
-It is carried by the two commands that can do part of their work - `library` and `search` for the scan, `cache` for a prune or a clear - so a reader that has the field can trust it and one that does not was never at risk.
+It is carried by the three commands that can do part of their work - `library` and `search` for the scan, `cache` for a prune or a clear - so a reader that has the field can trust it and one that does not was never at risk.
 
 Editing a playlist follows the same rule from the other side.
 An edit that found nothing to do is a count of zero and a `0`, while a playlist that has gone since it was listed, a row at a position the file does not have, and a folder that refused the rewrite are each a sentence of their own and a `1` - three different places to go and look, rather than one `false` a caller has to guess at.
 
 ## What went wrong
 
-The scripts say what went wrong as a number. These are theirs; the CLI above has its own two.
+The scripts say what went wrong as a number. These are theirs; the CLI above has its own three.
 
 | Code | What it means | What a caller can do about it |
 | --- | --- | --- |

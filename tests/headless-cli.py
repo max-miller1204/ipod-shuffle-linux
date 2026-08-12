@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Exercise the public display-free CLI through its module entry point.
 
-Three shapes of run are checked, because the CLI promises exactly three: a
-document and nothing else, a sentence on stderr and no document, and the one
-that is both - an answer that is real but partial, which is written and still
-leaves non-zero.
+Four shapes of run are checked, because the CLI promises exactly four: a
+document and nothing else, a sentence on stderr and no document, the one that
+is both - an answer that is real but partial, written and still leaving
+non-zero - and a usage line from the argument parser, which reaches none of
+the model at all.
 """
 
 import json
@@ -17,21 +18,30 @@ repo = Path(__file__).resolve().parents[1]
 home = Path(tempfile.mkdtemp(prefix="headless-cli-home-")).resolve()
 # PYTHONPATH so that the checks below can run the command from somewhere other
 # than the repository, which is what a relative argument needs to mean anything.
-env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home / "config"), XDG_CACHE_HOME=str(home / "cache"), PYTHONPATH=str(repo))
+# The yt-dlp double is the same one product-e2e.sh uses, named the way lib.sh
+# resolves the searcher, so `search --youtube` answers without a network.
+env = dict(
+    os.environ,
+    HOME=str(home),
+    XDG_CONFIG_HOME=str(home / "config"),
+    XDG_CACHE_HOME=str(home / "cache"),
+    PYTHONPATH=str(repo),
+    IPOD_VENV_YT_DLP=str(repo / "tests" / "bin" / "yt-dlp"),
+)
 
 
-def invoke(*args, cwd=None):
+def invoke(*args, cwd=None, **overrides):
     return subprocess.run(
         ["/usr/bin/python3", "-m", "ipod_gui.cli", *args],
         cwd=cwd or repo,
-        env=env,
+        env=dict(env, **overrides),
         capture_output=True,
         text=True,
     )
 
 
-def run(*args, cwd=None):
-    proc = invoke(*args, cwd=cwd)
+def run(*args, cwd=None, **overrides):
+    proc = invoke(*args, cwd=cwd, **overrides)
     assert proc.returncode == 0, proc.stderr or proc.stdout
     assert not proc.stderr, proc.stderr
     document = json.loads(proc.stdout)
@@ -57,6 +67,15 @@ def partial(*args, cwd=None):
     assert document["schema"] == 1
     assert document["result"]["complete"] is False
     return document
+
+
+def unusable(*args):
+    """Arguments the parser refused, so nothing was read or written."""
+    proc = invoke(*args)
+    assert proc.returncode == 2, f"{proc.returncode}: {proc.stderr}"
+    assert proc.stderr.strip(), "a usage error has to print usage"
+    assert not proc.stdout, proc.stdout
+    return proc
 
 
 music = home / "Music"
@@ -221,13 +240,56 @@ assert sorted(track["path"] for track in truncated["result"]["tracks"]) == sorte
 assert partial("search", "Song")["result"]["complete"] is False
 run("config", "--music-root", str(music))
 
+# A music root reached through a symlink stays the name it was given, because
+# the window stores the folder its chooser named and builds every track path
+# from it. Resolved here instead, a track would be one path and the playlist
+# entry naming the same file another, and the window's `track.path in
+# playlist.entries` would never match.
+linked = home / "Linked"
+linked.symlink_to(music)
+assert run("config", "--music-root", str(linked))["result"]["musicRoots"] == [str(linked)]
+through_link = run("library")
+assert sorted(track["path"] for track in through_link["result"]["tracks"]) == sorted(
+    str(linked / "Artist" / name) for name in ("Song.mp3", "Other.mp3", "Third.mp3")
+)
+linked_mix = run(
+    "playlists", "--root", str(playlists), "create", "Linked Mix",
+    str(linked / "Artist" / "Song.mp3"),
+)
+assert linked_mix["result"]["entries"][0] in {
+    track["path"] for track in through_link["result"]["tracks"]
+}
+run("config", "--music-root", str(music))
+
 device = run("device")
 assert set(device["result"]) == {"candidates", "mountPoint", "identity", "readable", "trackCount", "playlists", "storage"}
 
+# The searcher is asked for, so both answers it can give are checked: results
+# that came back, and a search that could not reach YouTube - which is not the
+# same as one that found nothing, and is the distinction the second field
+# exists for.
+found = run("search", "Song", "--youtube")
+assert found["result"]["reachedYoutube"] is True
+assert [video["video_id"] for video in found["result"]["youtube"]] == ["testvideo"]
+assert found["result"]["youtube"][0]["uploader"] == "Test Artist"
+assert found["result"]["youtube"][0]["duration"] == 180.0
+assert found["result"]["youtube"][0]["url"] == "https://www.youtube.com/watch?v=testvideo"
+assert "Song" in found["result"]["youtube"][0]["title"]
+assert [track["path"] for track in found["result"]["local"]] == [str(song)]
+unreachable = run("search", "Song", "--youtube", FAKE_YTDLP_SEARCH_FAILS="1")
+assert unreachable["result"]["reachedYoutube"] is False
+assert unreachable["result"]["youtube"] == []
+assert [track["path"] for track in unreachable["result"]["local"]] == [str(song)]
+
 # Stored absolute, because the window reads this same file from a working
 # directory of its own.
-assert run("config", "--music-root", "Music")["result"]["musicRoots"] == [
-    str((repo / "Music").resolve())
-]
+assert run("config", "--music-root", "Music")["result"]["musicRoots"] == [str(repo / "Music")]
 assert run("config", "--music-root", "~/Music")["result"]["musicRoots"] == [str(music)]
+
+# Arguments the parser will not take reach none of the model, and say so with
+# the code of their own that a caller reading the exit table meets first.
+unusable()
+unusable("playlists")
+unusable("nonesuch")
+unusable("playlists", "--root", str(playlists), "reorder", "Road Trip", "first", "0")
 print("headless cli ok")

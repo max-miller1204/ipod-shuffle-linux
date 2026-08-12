@@ -193,20 +193,24 @@ def _folder(value):
     return Path(value).expanduser()
 
 
-def _entry(value):
-    """One playlist line, in the form this store holds them: an absolute path.
+def _absolute(value):
+    """A path this command writes down, in the form everything else reads.
 
-    A playlist is read back against its own folder rather than against whoever
-    wrote it (model.read_local_playlist_tracks), so a relative path written
-    down as typed names a file beside the M3U, which is not where the caller
-    meant and usually nothing at all - an entry the window and the sync would
-    both silently drop while this command reported it added. Every other
-    writer here already holds that invariant: the window writes a track's own
-    path, and an imported list is resolved on the way in.
+    Absolute, because nothing that reads one afterwards shares the directory
+    it was typed in: a playlist is read back against its own folder
+    (model.read_local_playlist_tracks), so a relative entry names a file
+    beside the M3U rather than the one meant - an entry the window and the
+    sync would both drop while this command reported it added - and a music
+    root lands in a config file the window reads, launched from a desktop
+    entry with a working directory of its own.
 
-    Absolute rather than fully resolved, because the window's paths are its
-    music roots as configured, symlinks and all, and an entry that resolved
-    them would stop naming the same line the window wrote.
+    Absolute rather than fully resolved, and that has to be the same answer
+    for both. The window stores a music root exactly as the folder chooser
+    named it, symlinks and all, and every track path it builds is that root
+    with a relative path on the end. A root or an entry that resolved its
+    symlinks would stop naming the file the other one names, and the tick
+    beside a playlist in a track's menu - which is `track.path in
+    playlist.entries` - would never appear.
     """
     return os.path.abspath(os.path.expanduser(str(value)))
 
@@ -240,7 +244,7 @@ def _remove_entry(playlist, typed):
     again exactly as it was typed rather than reported as a track the playlist
     does not hold.
     """
-    absolute = _entry(typed)
+    absolute = _absolute(typed)
     removed = _edited(remove_entry(playlist.path, absolute), playlist)
     if removed or absolute == str(typed):
         return removed
@@ -342,7 +346,7 @@ def main(argv=None):
             problem = name_problem(args.name, playlist_names_here(root))
             if problem is not None:
                 raise SystemExit(problem)
-            entries = [_entry(entry) for entry in args.entries]
+            entries = [_absolute(entry) for entry in args.entries]
             path = create_local_playlist(root, args.name, entries)
             if path is None:
                 raise SystemExit(f"could not create playlist: {args.name}")
@@ -353,7 +357,7 @@ def main(argv=None):
             if playlist is None:
                 raise SystemExit(f"playlist not found: {args.name}")
             if args.playlist_action == "add":
-                entries = [_entry(entry) for entry in args.entries]
+                entries = [_absolute(entry) for entry in args.entries]
                 result = {"added": _edited(add_entries(playlist.path, entries), playlist)}
             elif args.playlist_action == "remove":
                 result = {"removed": _remove_entry(playlist, args.entry)}
@@ -401,11 +405,7 @@ def main(argv=None):
         )
     if args.command == "config":
         if args.music_root is not None:
-            # Absolute before it is stored, because this file is read by the
-            # window as well, and the window is launched from a desktop entry
-            # with a working directory of its own: a relative root saved here
-            # would name a different folder there, or none at all.
-            save_music_roots([root.resolve() for root in args.music_root])
+            save_music_roots([_absolute(root) for root in args.music_root])
         group, view = library_layout()
         if args.group is not None or args.view is not None:
             save_library_layout(args.group or group, args.view or view)
