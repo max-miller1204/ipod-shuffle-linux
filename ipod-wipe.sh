@@ -148,7 +148,6 @@ if (( ! ASSUME_YES )); then
     confirm "Wipe this iPod?" || die_with "$EXIT_DECLINED" "Aborted."
 fi
 
-assert_watched_device
 progress_stage clear start
 if [[ -d "$MUSIC_DIR" ]]; then
     assert_watched_device
