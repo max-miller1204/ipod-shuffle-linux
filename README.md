@@ -646,6 +646,11 @@ They drive the single running window without synthetic input.
 Activating `dump-state` refreshes its JSON string state with the current page, visible library counts, staged sources and tracks, playback and sync-bar state, and the note the search page is showing in place of results.
 [docs/machine-interface.md](docs/machine-interface.md) records the calls, every field of that document, and the one thing worth knowing before writing a client: the actions return before the work lands, so a dump read straight after one can answer from the moment before it.
 
+For a client that is not this checkout, `python3 tools/mcp-server.py` serves those readings and the device-changing scripts over MCP stdio, importing nothing outside the standard library.
+Its tool listing keeps `read_*` queries separate from `plan_*` dry runs and `execute_*` device changes.
+An execute tool requires both `expectedDevice` and the `confirmationToken` the matching dry run returned, so an MCP caller meets the same rails as any other non-interactive one.
+[docs/machine-interface.md](docs/machine-interface.md) records every tool and its arguments, what a client launches and with which interpreter, and what a script that would still stop to ask something is answered with - nothing, because the only thing on the server's stdin is the client's next request.
+
 For reproducible visual evidence, build the canonical four-album fixture and render a page without depending on compositor frames:
 
 ```bash
@@ -907,7 +912,11 @@ It also takes each of the two servers off `PATH` in turn and gives the wrapped c
 What those commands promise is what is on disk afterwards, so it is read back there: a track named relatively stored in an M3U as the absolute path it meant, the artist folder taken with the last preview in it, and a music root kept as it was named rather than with its symlinks resolved.
 Its `search --youtube` runs against the same `yt-dlp` stand-in the suite uses, which is what lets both answers - videos that came back, and YouTube out of reach - be checked without a network.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the headless CLI check, the three main-loop checks, the isolation check, and all four display-backed checks on every push and pull request, keeping the screenshots the last of them takes as an artefact. The display-backed steps are invoked bare, because each starts its own Xvfb display and session bus through `tools/headless-run.py`.
+`tests/mcp-server.py` covers `tools/mcp-server.py` the way an MCP client meets it, over the protocol on a real session's pipes: the handshake, the listing and the schemas a client generates its calls from, each read tool against a library, playlist store, preview cache and device of its own, and an argument that does not fit an advertised schema refused before anything is run.
+The destructive boundary is read off the volume rather than off the sentence a run printed, because a refusal that deletes anyway prints the same words as one that does not: a dry run has to leave the device byte for byte as it was, an execute has to be refused both with the wrong device identity and with another plan's token, and the plan's own token has to carry the run through.
+A device the scripts would stop to ask a question about is declined with the session still answering afterwards, since a server that let a child reach its client's pipe would take the next request for the answer.
+
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the headless CLI check, the MCP server check, the three main-loop checks, the isolation check, and all four display-backed checks on every push and pull request, keeping the screenshots the last of them takes as an artefact. The display-backed steps are invoked bare, because each starts its own Xvfb display and session bus through `tools/headless-run.py`.
 
 ## Credits
 

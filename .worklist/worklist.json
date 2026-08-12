@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 167,
+  "revision": 168,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -289,9 +289,10 @@
         "rails-for-destructive-operations-run",
         "a-headless-cli-over-the-ipod-gui-package"
       ],
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-07T21:37:54.443Z",
-      "updatedAt": "2026-08-07T21:37:54.443Z"
+      "updatedAt": "2026-08-12T11:26:51.873Z",
+      "completedAt": "2026-08-12T11:26:51.873Z"
     },
     {
       "id": "a-repo-skill-and-claude-md-so-an-agent",

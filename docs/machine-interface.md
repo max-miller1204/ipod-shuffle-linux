@@ -2,7 +2,8 @@
 
 The [README](../README.md) is written for a person reading a terminal.
 The scripts also answer in JSON, they report what they are doing while they do it, and they say what went wrong as a number rather than as English, so that another program can act on any of it without reading prose.
-The application the window is built on answers the same way twice over, and those are the last two sections before the codes: once with no display at all, and once as the window a person already has open, driven where it stands.
+The application the window is built on answers the same way twice over: once with no display at all, and once as the window a person already has open, driven where it stands.
+The last section before the codes is the one server that carries the readings and the device-changing scripts to a client that is not this checkout at all.
 
 ## What is on the device
 
@@ -210,6 +211,36 @@ These actions are fire-and-forget, which is the one thing worth knowing before w
 Activating one hands the window some work and returns immediately: `queue` goes out to a tag read on another thread, and `search` waits on the field's own debounce before anything runs.
 A caller that activates one and reads `dump-state` in the next breath is told the truth about a moment before the work landed.
 Read it again until it says what you are waiting for, rather than once.
+
+## Over MCP, from outside this checkout
+
+```bash
+python3 tools/mcp-server.py
+```
+
+`tools/mcp-server.py` is an MCP server over the readings above and the three device-changing scripts, spoken as JSON-RPC on stdin and stdout, one document per line.
+It answers protocol version `2025-06-18` and the four methods a client needs of it - `initialize`, `ping`, `tools/list` and `tools/call` - reads a notification without answering it, and says `-32601` to anything else rather than falling silent.
+It imports nothing outside the standard library, so a client needs no package installed to reach any of this.
+Launch it by the absolute path to the file, with the interpreter that has the GTK bindings, which is `/usr/bin/python3` on an ordinary install: the read tools below re-enter the `ipod_gui` package with whichever interpreter is running the server, while the scripts are found from the server's own location rather than from the directory a client happened to launch it in.
+
+The listing is where the three kinds of call are kept apart, because the listing is what a client chooses from:
+
+| Tools | Arguments | What they do |
+| --- | --- | --- |
+| `read_library`, `read_device`, `read_playlists`, `read_cache` | none | The `python3 -m ipod_gui.cli` reading of that name |
+| `read_search` | `query`, and `youtube` to look past the local library | That same search |
+| `plan_sync`, `plan_remove`, `plan_wipe` | `ipod`, and the operation's own `sources`, `targets` or `backup` | The `--dry-run` plan above: the token, and nothing touched |
+| `execute_sync`, `execute_remove`, `execute_wipe` | those, and `expectedDevice` and `confirmationToken` besides | The run itself |
+
+Each description says which kind it is in the same words every time - `Read-only`, `DRY RUN`, `DESTRUCTIVE` - since a client reads that beside the name.
+
+The two approvals are required by the execute schemas rather than checked after the fact, so a client cannot generate a call that leaves them out, and they arrive at the script as the `--expect-device` and `--confirm-token` of the section above.
+`--yes` is sent with them and answers only the prompts written for a person, which is why a token from another plan is still refused with it there.
+A script that would stop to ask something else is refused rather than answered: every run this server starts has its stdin closed, because the only thing on the server's own stdin is the client's next request, and a child reading an answer would take it.
+
+Arguments are held to the schema the listing advertises before anything runs, so an argument no tool declares, a missing required one, or a string where an array of paths belongs comes back as `-32602` with nothing attempted.
+What does run comes back as one block of text: the document or the report from stdout, followed on a non-zero exit by the sentence stderr refused with, and `isError` set.
+One request that cannot be served is one answer rather than the end of the session, so a client keeps its server across a refusal.
 
 ## What went wrong
 
