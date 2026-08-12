@@ -15,6 +15,14 @@ HEIGHT = 760
 # track in the fixture, on another thread, and a device probe that shells out.
 SETTLE_SECONDS = 30
 
+# A resize is a round trip to the display server, so each ask is given long
+# enough for one on a loaded machine. Two are enough for every display seen so
+# far - the first lands whatever frame the desktop draws around the surface,
+# the second corrects for it - and the rest are for a desktop that answers a
+# resize with a size of its own that then has to be corrected in turn.
+SIZE_ATTEMPTS = 6
+SIZE_ATTEMPT_SECONDS = 2
+
 
 def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -38,7 +46,16 @@ os.environ.update(
     XDG_CONFIG_HOME=str(home / ".config"),
     XDG_CACHE_HOME=str(home / ".cache"),
     FAKE_IPOD_MOUNT=str(root / "MAX SHUFFLE"),
-    GDK_SCALE=str(args.scale),
+    # Pinned at 1 rather than set from --scale, and pinned rather than left
+    # to the developer's session, because it is the display server's number
+    # and not the shot's. GDK_SCALE divides the logical space a window may
+    # occupy, and the window's breakpoints are conditions on that logical
+    # width: at 2 on an ordinary screen the requested width no longer fits,
+    # GTK hands the window a narrower one, and the shot comes out in a layout
+    # nobody at that width sees. --scale is applied to the render node
+    # instead, where it is the raster density it is asked for and nothing
+    # else, and where the same layout comes out of both scales.
+    GDK_SCALE="1",
 )
 repo = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(repo))
@@ -64,17 +81,16 @@ def pump(rounds=3):
             context.iteration(False)
 
 
-def settle(done, step=lambda: None):
-    """Run `step` and the main loop until `done` answers, or run out of clock.
+def settle(done, budget=SETTLE_SECONDS):
+    """Run the main loop until `done` answers, or run out of clock.
 
     Driven off the clock rather than a count of pumps, so a loaded machine
     gets the whole budget instead of a shorter one as each pump grows slower.
     The sleep is not padding: some of what is waited on here only advances on
     a frame clock tick, which never arrives while this thread never yields.
     """
-    deadline = time.monotonic() + SETTLE_SECONDS
+    deadline = time.monotonic() + budget
     while time.monotonic() < deadline:
-        step()
         pump()
         if done():
             return True
@@ -94,6 +110,18 @@ if application.get_is_remote():
         "this process never gets a window of its own: close the running "
         "window, or run this on a session bus of its own"
     )
+# Registering is what runs the application's startup, so this is the first
+# moment GTK has settings to pin. Both of these are clocks running under the
+# window rather than state it is in, and a shot is one instant of whatever
+# they happened to be showing: the caret in the search entry blinks, and a
+# spinner painted while the frame is being taken freezes at whatever angle it
+# had reached. Neither says anything about the window, and each of them alone
+# is enough to make two runs of one command two different files.
+settings = Gtk.Settings.get_default()
+if settings is None:
+    sys.exit("GTK came up without settings, so the shot cannot be pinned")
+settings.props.gtk_enable_animations = False
+settings.props.gtk_cursor_blink = False
 application.activate()
 pump(20)
 window = application.props.active_window
@@ -105,33 +133,94 @@ minimum_width = window.get_size_request()[0]
 if args.width < minimum_width:
     sys.exit(f"--width must be at least the window's own minimum, {minimum_width}")
 window.set_default_size(args.width, HEIGHT)
-window.allocate(args.width, HEIGHT, -1, None)
 application.activate_action("navigate", app_module.GLib.Variant("s", args.page))
 
+
+def sized():
+    return (window.get_width(), window.get_height()) == (args.width, HEIGHT)
+
+
+# The window driven to the size that was asked for, rather than allocated over
+# the top of whatever it came up as. The window's own width is what its Adw
+# breakpoints are conditions on - the sidebar folds away under one of them -
+# so the requested width has to reach the window itself or the shot is of a
+# layout nobody at that width sees. Allocating the window by hand does not
+# get there: it is one frame's answer, and the next turn of the main loop
+# takes the window back to the size its surface has, which leaves the two
+# fighting each other whenever they fall on opposite sides of a breakpoint.
+#
+# So the size is asked for and then read back, in the window's own terms. The
+# gap between the two is the frame the display server draws around the
+# surface, which is a different number on every desktop and none at all
+# without a compositor, so it is measured here rather than assumed: whatever
+# the window came up short or long is added to the next request until the
+# window itself is the size the shot is of.
+requested = [args.width, HEIGHT]
+answered = None
+for _ in range(SIZE_ATTEMPTS):
+    if settle(sized, budget=SIZE_ATTEMPT_SECONDS):
+        break
+    given = (window.get_width(), window.get_height())
+    if given == answered:
+        # Asking for more room got the same window back, so this display has
+        # no more to give and asking again would only spend the budget.
+        break
+    if not all(given):
+        continue
+    answered = given
+    requested = [
+        requested[0] + args.width - given[0],
+        requested[1] + HEIGHT - given[1],
+    ]
+    window.set_default_size(*requested)
+if not sized():
+    sys.exit(
+        f"the display never gave the window {args.width}x{HEIGHT}: the most "
+        f"it would show was {window.get_width()}x{window.get_height()}, so "
+        "this shot needs a display with more room on it"
+    )
+
+# Settled on what the window has finished doing, not only on what it has
+# finished reading. The device walk sets `_device_snapshot_ready` and then
+# asks for a repaint that is deliberately coalesced, so the two scan flags go
+# quiet an interval before the grid they were read for is redrawn: a shot
+# taken on those two alone is of the library from before the device was
+# merged into it - "On iPod 0" over a device the same window already knows
+# holds a track. The spinner is the other half of the same instant. It is
+# held visible for a minimum so that an instant scan still looks like work,
+# and that minimum outlasts the scan it is reporting.
 if not settle(
-    lambda: not window._library_scan_running and window._device_snapshot_ready
+    lambda: (
+        not window._library_scan_running
+        and window._device_snapshot_ready
+        and window._refresh_timer is None
+        and not window.refresh_spinner.get_spinning()
+    )
 ):
     sys.exit(f"the demo library and device did not settle in {SETTLE_SECONDS}s")
 
 content = window.toasts
-# Allocated until the layout has caught up rather than once, because a width
-# that crosses one of the window's breakpoints is not laid out in a single
-# pass: the breakpoint bin applies the new setters, unmaps its child and asks
-# for another allocation on the next frame. Snapshotting after the one pass
-# captures nothing at all - which is every width from the sidebar's collapse
-# threshold down, including the 760px shot this tool is asked for.
-#
-# Waited on by whether the content came back mapped, and nothing else: what
-# the window passes down to it is the window's business, and on a composited
-# desktop the shadow around the frame makes it not the window's own width.
-if not settle(
-    lambda: content.get_mapped(),
-    step=lambda: window.allocate(args.width, HEIGHT, -1, None),
-):
+# Waited on until the layout has caught up, because a width that crosses one
+# of the window's breakpoints is not laid out in a single pass: the breakpoint
+# bin applies the new setters, unmaps its child and asks for another
+# allocation on the next frame. Snapshotting before that lands captures
+# nothing at all - which is every width from the sidebar's collapse threshold
+# down, including the 760px shot this tool is asked for.
+if not settle(lambda: content.get_mapped()):
     sys.exit(
         f"the window's content never came up mapped at {args.width}x{HEIGHT}: "
         f"it needs at least "
         f"{content.measure(Gtk.Orientation.HORIZONTAL, -1)[0]}px of width"
+    )
+
+# Read back at the last moment as well as waited for above: the layout that
+# settled in between is free to have asked the window for more room, and a
+# window that grew out from under the size it was driven to is showing a
+# different set of breakpoints than the shot is labelled with.
+if not sized():
+    sys.exit(
+        f"the window ended up {window.get_width()}x{window.get_height()} "
+        f"rather than the {args.width}x{HEIGHT} it was given"
     )
 
 # What the window says it is showing, read back before anything is written: a
@@ -149,16 +238,17 @@ if not sum(state["visibleCounts"].values()):
         "shot of an empty window"
     )
 
-# The size the shot is of, forced rather than read back, which is the whole
-# point of allocating instead of asking a window manager for a window: the
-# layout above settles the widget tree, and this pins the box it is measured
-# and painted in to the one that was asked for.
+# The size the shot is of, allocated rather than inherited: the window above
+# is the right size and the content fills it, but what is rendered below is
+# this widget and not the window, so the box it is measured and painted in is
+# pinned here rather than taken on trust from its parent.
 content.allocate(args.width, HEIGHT, -1, None)
 
 snapshot = Gtk.Snapshot.new()
-# The scale is a transform on the render node, not the surface: nothing here
-# goes through a compositor, so GDK_SCALE alone only picks the 2x icon assets
-# and would leave the raster at its logical size.
+# The scale is a transform on the render node, and the only place it is
+# applied: nothing here goes through a compositor, so the density is this
+# tool's to choose rather than the display's, and choosing it here is what
+# keeps it out of the layout the node was built from.
 snapshot.scale(args.scale, args.scale)
 content.do_snapshot(content, snapshot)
 node = snapshot.to_node()

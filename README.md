@@ -654,8 +654,11 @@ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page library \
   --width 1180 --scale 2 --output /tmp/library-2x.png
 ```
 
-`--width` controls layout and `--scale` is required so HiDPI-only defects are visible.
+`--width` is the layout: the window itself is driven to that width, so a shot narrower than the sidebar's breakpoint folds the sidebar away exactly as dragging the window that narrow does.
+`--scale` is the raster density and nothing else, and it is required rather than defaulted so a shot is never quietly taken at the wrong one.
+`--scale 2` is the same layout at twice the pixels, which is what makes a 2x shot comparable to the 1x shot of the same page.
 The renderer navigates through the exported application action, explicitly allocates the content, and snapshots it with GTK's Cairo renderer.
+It leaves a message and no file rather than a shot it cannot vouch for, including on a display with no room to show the window at the requested width.
 
 ## Renaming the device
 

@@ -8,8 +8,24 @@ import sys
 import tempfile
 from pathlib import Path
 
+import gi
+
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import GdkPixbuf  # noqa: E402
+
+REPO = Path(__file__).resolve().parents[1]
 HEIGHT = 760
-SIGNATURE = b"\x89PNG\r\n\x1a\n"
+SIGNATURE = b"\x89PNG\x0d\x0a\x1a\x0a"
+
+# Two renders of one layout at different densities are not the same pixels:
+# glyphs are hinted onto whichever pixel grid they are painted on, so the 2x
+# shot scaled back down lands a fraction of a pixel off the 1x one along every
+# edge. These bound that and nothing more. A shot that took a breakpoint the
+# other one did not - a folded-away sidebar, the whole page shifted sideways -
+# is two orders of magnitude past either: the defect this pins measured 15.1
+# and 11.7% where an agreeing pair measures 0.2 and 0.14%.
+SCALE_MEAN_TOLERANCE = 5.0
+SCALE_GROSS_TOLERANCE = 2.0
 
 
 def png_size(path):
@@ -27,7 +43,76 @@ def png_size(path):
     return struct.unpack(">II", header[16:24])
 
 
-repo = Path(__file__).resolve().parents[1]
+def shoot(root, page, width, scale, target):
+    """Render one shot, and let a refusal to render it fail the check.
+
+    A non-zero exit is the tool refusing to write a shot it cannot vouch for -
+    the wrong page, a library that scanned to nothing, a render that came out
+    at the wrong scale, or a window the display never gave the asked-for width
+    - so checking that it succeeded is the first thing every case here does.
+    """
+    subprocess.run(
+        [
+            sys.executable, "tools/shoot.py", "--fixture", str(root),
+            "--page", page, "--width", str(width), "--scale", str(scale),
+            "--output", str(target),
+        ],
+        cwd=REPO,
+        check=True,
+    )
+    assert png_size(target) == (width * scale, HEIGHT * scale), (
+        f"{target} is {png_size(target)}, not the {width}x{HEIGHT} layout "
+        f"rendered at {scale}x"
+    )
+    assert target.stat().st_size > 10_000, (
+        f"{target} holds too little to be a window"
+    )
+    return target
+
+
+def rows(path, divide=1):
+    """The image's pixels, row by row, optionally scaled down by `divide`.
+
+    Read back through GdkPixbuf rather than off the file, because the rows a
+    PNG holds are filtered and interlaced against each other and say nothing
+    about what the image looks like. The rowstride is dropped here: it is
+    padding at the end of each row that no pixel is stored in.
+    """
+    image = GdkPixbuf.Pixbuf.new_from_file(str(path))
+    if divide != 1:
+        image = image.scale_simple(
+            image.get_width() // divide,
+            image.get_height() // divide,
+            GdkPixbuf.InterpType.BILINEAR,
+        )
+    data = image.get_pixels()
+    stride = image.get_rowstride()
+    line = image.get_width() * image.get_n_channels()
+    return [data[y * stride: y * stride + line] for y in range(image.get_height())]
+
+
+def difference(one, other):
+    """How far apart two images are: mean channel distance, and gross share.
+
+    The mean answers whether they are the same picture painted differently;
+    the share of channels that are nowhere near each other answers whether
+    they are the same picture at all, which a mean over a mostly-flat window
+    dilutes away.
+    """
+    assert len(one) == len(other), "images differ in height"
+    total = 0
+    gross = 0
+    channels = 0
+    for left, right in zip(one, other):
+        assert len(left) == len(right), "images differ in width"
+        channels += len(left)
+        for a, b in zip(left, right):
+            distance = abs(a - b)
+            total += distance
+            gross += distance > 48
+    return total / channels, 100 * gross / channels
+
+
 # The shots outlive the fixture they were taken of: the fixture is six encoded
 # tracks, four covers and a stand-in volume, and leaving one of those in /tmp
 # per run is what the developers this harness is documented for would collect.
@@ -38,30 +123,44 @@ with tempfile.TemporaryDirectory(prefix="screenshot-harness-") as workspace:
     root = Path(workspace) / "demo"
     subprocess.run(
         [sys.executable, "tools/demo-library.py", str(root)],
-        cwd=repo,
+        cwd=REPO,
         check=True,
         stdout=subprocess.DEVNULL,
     )
-    for page, width, scale in (("library", 1180, 1), ("playlists", 760, 2)):
-        target = out / f"{page}-{width}-{scale}x.png"
-        # A non-zero exit is the tool refusing to write a shot it cannot vouch
-        # for - the wrong page, a library that scanned to nothing, or a render
-        # that came out at the wrong scale - so the check that it succeeded is
-        # most of the coverage here.
-        subprocess.run(
-            [
-                sys.executable, "tools/shoot.py", "--fixture", str(root),
-                "--page", page, "--width", str(width), "--scale", str(scale),
-                "--output", str(target),
-            ],
-            cwd=repo,
-            check=True,
-        )
-        assert png_size(target) == (width * scale, HEIGHT * scale), (
-            f"{target} is {png_size(target)}, not the {width}x{HEIGHT} layout "
-            f"rendered at {scale}x"
-        )
-        assert target.stat().st_size > 10_000, (
-            f"{target} holds too little to be a window"
-        )
+
+    library = shoot(root, "library", 1180, 1, out / "library-1180-1x.png")
+    playlists = shoot(root, "playlists", 760, 2, out / "playlists-760-2x.png")
+    # The width the sidebar is shown at, rendered again at the other scale:
+    # the README's own 2x command, and the pair the scale is checked against
+    # below. It has to be a width above the sidebar's collapse threshold,
+    # because a breakpoint both scales take the same way hides the defect.
+    library_2x = shoot(root, "library", 1180, 2, out / "library-1180-2x.png")
+
+    # The harness's headline claim, checked against itself: one command, run
+    # twice, is one file. Anything the window is still doing when the shot is
+    # taken shows up here - a spinner mid-turn, a caret mid-blink, a repaint
+    # still queued behind the scan that asked for it - because none of those
+    # land in the same place twice. The playlist shot is the one used: the
+    # library shot at 1180 shows the sidebar, and the sidebar reports the free
+    # space of the filesystem the fixture is on, which is the host's number
+    # and not the harness's to pin.
+    again = shoot(root, "playlists", 760, 2, Path(workspace) / "playlists-again.png")
+    assert playlists.read_bytes() == again.read_bytes(), (
+        f"{playlists} and {again} are the same shot taken twice and came out "
+        "different: the window was still moving when they were taken"
+    )
+
+    # --scale is the raster density and nothing else. Scaled back down, the 2x
+    # shot has to be the 1x shot: same layout, same breakpoints, same window.
+    # It is checked at 1180 because that is a width the sidebar is shown at,
+    # and a scale that reaches the window instead of the render node collapses
+    # it - a layout no user at that width sees.
+    mean, gross = difference(rows(library), rows(library_2x, divide=2))
+    assert mean < SCALE_MEAN_TOLERANCE and gross < SCALE_GROSS_TOLERANCE, (
+        f"{library_2x} scaled back down is not {library}: mean channel "
+        f"distance {mean:.2f} over {SCALE_MEAN_TOLERANCE}, or {gross:.2f}% of "
+        f"channels grossly apart over {SCALE_GROSS_TOLERANCE}% - --scale "
+        "changed the layout rather than only the density it is rendered at"
+    )
+
 print(f"screenshot harness ok: {out}")
