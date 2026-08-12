@@ -7,9 +7,9 @@ import sys
 import time
 from pathlib import Path
 
-# The window's own screenshot height, and the minimum width it advertises.
+# The height every shot is taken at. The width is the caller's, floored by
+# whatever the window itself asks for once it has been built.
 HEIGHT = 760
-MINIMUM_WIDTH = 660
 
 # The budget the other GUI checks give the same work: a tag read over every
 # track in the fixture, on another thread, and a device probe that shells out.
@@ -27,8 +27,6 @@ def arguments():
 
 
 args = arguments()
-if args.width < MINIMUM_WIDTH:
-    sys.exit(f"--width must be at least the window minimum, {MINIMUM_WIDTH}")
 root = args.fixture.resolve()
 home = root / "home"
 host_home = Path.home()
@@ -101,6 +99,11 @@ pump(20)
 window = application.props.active_window
 if window is None:
     sys.exit("activating the application built no window")
+# Asked of the window rather than kept as a number here, which would be the
+# one copy left behind if the window ever advertises a different minimum.
+minimum_width = window.get_size_request()[0]
+if args.width < minimum_width:
+    sys.exit(f"--width must be at least the window's own minimum, {minimum_width}")
 window.set_default_size(args.width, HEIGHT)
 window.allocate(args.width, HEIGHT, -1, None)
 application.activate_action("navigate", app_module.GLib.Variant("s", args.page))
