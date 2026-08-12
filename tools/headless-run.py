@@ -17,12 +17,27 @@ def main():
             "xvfb-run is required for local GUI checks; install the xvfb package. "
             "The check was not run on your desktop."
         )
+    dbus_run = shutil.which("dbus-run-session")
+    if dbus_run is None:
+        sys.exit("dbus-run-session is required to isolate the test application")
     env = dict(os.environ)
     env["SHUFFLE_HEADLESS_TEST"] = "1"
+    env.update(
+        GTK_USE_PORTAL="0",
+        GIO_USE_VFS="local",
+        NO_AT_BRIDGE="1",
+    )
     env.pop("DISPLAY", None)
     env.pop("WAYLAND_DISPLAY", None)
     return subprocess.run(
-        [xvfb_run, "-a", "--server-args=-screen 0 2400x1800x24", *sys.argv[1:]],
+        [
+            dbus_run,
+            "--",
+            xvfb_run,
+            "-a",
+            "--server-args=-screen 0 2400x1800x24",
+            *sys.argv[1:],
+        ],
         env=env,
     ).returncode
 
