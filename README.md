@@ -623,6 +623,21 @@ The scripts also answer in JSON, they report what they are doing while they do i
 
 [docs/machine-interface.md](docs/machine-interface.md) is the reference for all of it: what `--list --json` says is on the device, the progress protocol `--progress-json` writes, what `install.sh --check` says is on this machine, and what each exit code means.
 
+The application model itself has a display-free JSON entry point:
+
+```bash
+python3 -m ipod_gui.cli library
+python3 -m ipod_gui.cli device
+python3 -m ipod_gui.cli search 'heart of gold' --youtube
+python3 -m ipod_gui.cli playlists list
+python3 -m ipod_gui.cli cache status
+python3 -m ipod_gui.cli config
+```
+
+It uses the same library index, device probe, search, M3U store, preview cache and configuration as the GTK window.
+Run `python3 -m ipod_gui.cli --help` or a subcommand's `--help` for mutation arguments.
+It needs PyGObject because it enters through the package and its declared imports, but it does not need a display.
+
 ## Renaming the device
 
 The shuffle's name is not stored in any of its databases.

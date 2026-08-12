@@ -53,6 +53,8 @@ jobs:
           python3 -m py_compile \
             ipod-gui.py ipod-report.py ipod_gui/*.py tests/*.py tools/*.py
           python3 -c 'import ipod_gui'
+          python3 -m ipod_gui.cli --help
+          python3 tests/headless-cli.py
 
       # Needs a main loop but no display. A scan used to rebuild the whole
       # grid per batch, so a card was replaced under the pointer that was

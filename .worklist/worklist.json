@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 163,
+  "revision": 164,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -249,9 +249,10 @@
         "json-output-and-stable-exit-codes-for",
         "drop-the-sync-options-card-and-the"
       ],
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-07T21:37:54.443Z",
-      "updatedAt": "2026-08-07T21:43:35.619Z"
+      "updatedAt": "2026-08-12T02:52:07.004Z",
+      "completedAt": "2026-08-12T02:52:07.004Z"
     },
     {
       "id": "gio-actions-and-a-state-dump-on-the",
