@@ -646,6 +646,28 @@ They drive the single running window without synthetic input.
 Activating `dump-state` refreshes its JSON string state with the current page, visible library counts, staged sources and tracks, playback and sync-bar state, and the note the search page is showing in place of results.
 [docs/machine-interface.md](docs/machine-interface.md) records the calls, every field of that document, and the one thing worth knowing before writing a client: the actions return before the work lands, so a dump read straight after one can answer from the moment before it.
 
+For reproducible visual evidence, build the canonical four-album fixture and render a page without depending on compositor frames:
+
+```bash
+python3 tools/demo-library.py /tmp/shuffle-demo
+python3 tools/shoot.py --fixture /tmp/shuffle-demo --page library \
+  --width 1180 --scale 2 --output /tmp/library-2x.png
+```
+
+`--width` is the layout: the window itself is driven to that width, so a shot narrower than the sidebar's breakpoint folds the sidebar away exactly as dragging the window that narrow does.
+`--page` is one of `library`, `playlists` and `settings`, and every shot is 760px high: the height is not an argument, so the page, the width and the scale are all that tell two shots apart.
+`--scale` is the raster density and nothing else, and it is required rather than defaulted so a shot is never quietly taken at the wrong one.
+`--scale 2` is the same layout at twice the pixels, which is what makes a 2x shot comparable to the 1x shot of the same page.
+The renderer navigates through the exported application action, explicitly allocates the content, and snapshots it with GTK's Cairo renderer.
+It leaves a message and no file rather than a shot it cannot vouch for: a width under the minimum the window advertises is refused rather than quietly widened, and a display with too little room to show the window at the width asked for fails the run rather than shrinking the shot.
+The colour scheme is pinned to the dark one the shots in `docs/` are in rather than followed from the desktop, so a session that prefers light renders the same pixels as one that prefers dark.
+Tags are read in whichever interpreter has `mutagen`, so run `./install.sh` first or point `IPOD_VENV_PYTHON` at an interpreter that has it: with neither, the fixture's four albums read as one `Unknown album` and the check says so rather than rendering it.
+Run `python3 tests/screenshot-harness.py` for the representative local check.
+It automatically starts an isolated Xvfb display and an isolated session bus, so no test window appears on the desktop and the Shuffle you already have open is left alone.
+GDK is pinned to the X11 backend for the same reason: unsetting `WAYLAND_DISPLAY` is not enough, because a Wayland client given no socket name falls back to the compositor's default one and would land back on your desktop.
+Install the `xvfb` and `dbus` packages if `xvfb-run` or `dbus-run-session` is unavailable; the runner refuses instead of falling back to the desktop.
+`tools/headless-run.py COMMAND ...` provides the same private display and bus for any other GTK check, and every display-backed check in `tests/` routes itself through it.
+
 ## Renaming the device
 
 The shuffle's name is not stored in any of its databases.
@@ -857,7 +879,7 @@ A device read that completes is the one terminal repaint that is queued like the
 The minimum runs from the most recent press rather than the first, because the press most likely to be a second try is the one landing while the last spin is still finishing, and measured from the first start that press would put the spinner out again a few milliseconds later.
 The two scans share the one spinner, so the check drives them together and apart: a device read outliving the library scan has to keep it going, and a scan superseded by a newer one returns without ever finishing and must not leave it turning forever - which is why what it shows is derived from the two scan flags rather than counted up and down around them.
 
-`tests/gui-window-build.py` is the first of the three display-backed checks: it constructs the real window so a missing builder call, bad widget parent, or incomplete view stack cannot pass behind the stand-ins. Run it under a desktop session or with `xvfb-run -a`; it fails instead of skipping when no display is available.
+`tests/gui-window-build.py` is the first of the four display-backed checks: it constructs the real window so a missing builder call, bad widget parent, or incomplete view stack cannot pass behind the stand-ins. Run it directly - like the others, it re-executes itself through `tools/headless-run.py` onto a private display and bus - and it fails instead of skipping when neither can be started.
 It is also where the things that only exist as real widgets are driven: the state pills, which are built from one list and painted by another loop over it, so that a pill filtering what it says it counts is worth asserting; and deleting a song, from the row that offers it through the dialog that says what will be left behind to the file arriving in the wastebasket and leaving the library, the queue and the grid.
 Taking a track back out of the queue with no iPod attached is checked in the same place, because it used to raise: the queue outlives an unplug, and the repaint that followed described a device that was not there.
 The queue and the grid are also read against each other there, rather than each on its own: a folder staged for one sync that no music folder holds was counted in the sidebar and named on the **Sync** button while every pill above the grid read zero of it, which is a disagreement neither count could report alone.
@@ -868,15 +890,24 @@ Nothing in a screenshot says which page is one long album title away from that, 
 Nothing on the window is replaced, because the actions are the subject and a stand-in under one of them would be the check asserting itself - staging a path really does go out to the tag reader and back on the main loop, so the loop is run until it lands.
 What it pins is the part no unit check can see: that a page name from outside the window is refused rather than half-followed, that the note the search page is showing is reported while it is on screen and not after, and that the counts in the document are the tracks in a music folder this check wrote every file of rather than the album tallies the pills carry.
 
+`tests/screenshot-harness.py` is the fourth, and it is the one that looks: it builds the canonical fixture and takes through `tools/shoot.py` the shots CI uploads as artefacts.
+It reads the fixture with the tag reader before rendering any of it, because a machine where no interpreter has `mutagen` still produces a window - the six tracks collapse into a single `Unknown album` tile over **All 1** - and once that is a PNG in an artefact nothing tells it from the canonical shot.
+What it then pins is what makes a shot evidence rather than a picture: one command run twice is one file byte for byte, so nothing still moving in the window - a spinner mid-turn, a caret mid-blink, a repaint queued behind the scan that asked for it - reaches the PNG; the 2x shot scaled back down is the 1x shot to within the fraction of a pixel that hinting a glyph onto a denser grid moves it, so `--scale` changed the raster density and not the layout that would have folded the sidebar away; and the shot is in the dark scheme `tools/shoot.py` pins rather than the one this machine's desktop prefers, which is the whole surface of the image and not a detail of it.
+It writes its shots to a temporary directory it names on the way out, or to `SCREENSHOT_EVIDENCE_DIR` when that is set, which is how CI collects them.
+
+`tests/headless-isolation.py` needs no display itself, and holds `tools/headless-run.py` to the promise the four checks above are run bare on: it starts a child through the runner and reads back which display server that child's GDK actually connected to, the size of the screen it advertises, and the bus it was given.
+Reading it there rather than off the runner's environment is the point, because GDK chooses its own backend - a Wayland client handed no socket name falls back to the compositor's default one, which put every routed check back on the desktop while the private X server it had been given sat unused.
+It also takes each of the two servers off `PATH` in turn and gives the wrapped command a file to write, so a runner that reports a refusal after already letting a window open is told apart from one that stopped it.
+
 `tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
-`tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the Xephyr recipe that brings the window up at exactly 1180x760 on any machine.
+`tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the `tools/shoot.py` line that retakes that shot from it.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
 `tests/headless-cli.py` covers `python3 -m ipod_gui.cli` the way another program meets it, running the real module against a library, playlist folder and preview cache of its own: it asserts each of the four shapes of run the command promises - a document and nothing else, a sentence on stderr with no document, an answer that is real but partial and still leaves non-zero, and a usage line from the argument parser that reaches none of the model at all.
 What those commands promise is what is on disk afterwards, so it is read back there: a track named relatively stored in an M3U as the absolute path it meant, the artist folder taken with the last preview in it, and a music root kept as it was named rather than with its symlinks resolved.
 Its `search --youtube` runs against the same `yt-dlp` stand-in the suite uses, which is what lets both answers - videos that came back, and YouTube out of reach - be checked without a network.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the headless CLI check, the three main-loop checks, and all three real-window checks under xvfb on every push and pull request.
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the headless CLI check, the three main-loop checks, the isolation check, and all four display-backed checks on every push and pull request, keeping the screenshots the last of them takes as an artefact. The display-backed steps are invoked bare, because each starts its own Xvfb display and session bus through `tools/headless-run.py`.
 
 ## Credits
 

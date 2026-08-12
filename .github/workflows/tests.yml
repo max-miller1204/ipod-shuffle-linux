@@ -20,16 +20,44 @@ jobs:
       # PyGObject at module level, so the bindings are needed even though most
       # of them never open a window. They come from the distribution because
       # building PyGObject from pip would need the gobject-introspection and
-      # cairo development headers. xvfb is for the one check that does build a
-      # window: GTK4 has no headless backend, so it needs a display server
-      # rather than an environment variable. espeak is a speech engine, without
-      # which the database builder writes no spoken playlist names and the
-      # check that the window can read them back skips itself.
+      # cairo development headers. xvfb is for the checks that do build a
+      # window: GTK4 has no headless backend, so they need a display server
+      # rather than an environment variable. dbus brings dbus-run-session,
+      # which tools/headless-run.py gives each of those checks its own session
+      # bus with; it refuses to run rather than fall back to whichever bus it
+      # was handed, so an image that stopped shipping one would fail those
+      # checks rather than quietly weaken them. Named as dbus rather than as
+      # the dbus-daemon package holding the binary, because that split is
+      # recent enough that only some releases have it. espeak is a speech
+      # engine, without which the database builder writes no spoken playlist
+      # names and the check that the window can read them back skips itself.
+      # ffmpeg encodes the demo fixture's tracks and cover art, and
+      # tools/demo-library.py refuses to build anything without it, so the
+      # screenshot harness cannot run on a runner image that does not ship one.
+      # python3-venv is for the tag reader below, which is a virtualenv here
+      # for the same reason it is one on a real machine.
       - name: Install test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck xvfb espeak
+            python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck xvfb dbus \
+            espeak ffmpeg python3-venv
+
+      # The window reads tags through whichever interpreter has mutagen, and
+      # nothing on this runner has it: without one the canonical four-album
+      # fixture renders as a single "Unknown album" tile over "All 1", and the
+      # screenshots uploaded below are of a library nobody has. It is a
+      # virtualenv rather than the python3-mutagen package deliberately.
+      # install.sh puts mutagen in one because PyGObject belongs to the system
+      # Python, and the end-to-end suite checks an install that reports
+      # metadata support missing until its own virtualenv has it - which a
+      # system-wide mutagen, visible to every interpreter on the machine,
+      # would make it report the opposite of.
+      - name: Tag reader for the screenshots
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/tag-venv"
+          "${RUNNER_TEMP}/tag-venv/bin/pip" install \
+            -q --disable-pip-version-check mutagen
 
       - name: Shell lint
         run: shellcheck -x ./*.sh tests/product-e2e.sh
@@ -78,12 +106,23 @@ jobs:
       - name: GUI reads a real progress stream
         run: python3 tests/gui-progress-stream.py
 
+      # The isolation the four steps below are invoked bare on the strength of,
+      # checked where it is decided rather than where it is configured: which
+      # display server the process GDK started in actually connected to, and
+      # whether the runner really stops a check when it cannot start one.
+      - name: GUI checks are isolated
+        run: python3 tests/headless-isolation.py
+
       # Where the real window is built and inspected part by part. The GUI
       # checks that run methods unbound against a stand-in would not notice a
       # builder that stopped being called or a widget that never reached the
-      # stack. -a picks a free display number rather than assuming :99 is free.
+      # stack. Invoked bare: this and the three steps below re-execute
+      # themselves through tools/headless-run.py, which starts the display and
+      # the session bus they need, so wrapping them here would only nest a
+      # second server inside the one they start and hide which of the two the
+      # window actually reached. That is also the command a developer runs.
       - name: GUI window builds
-        run: xvfb-run -a python3 tests/gui-window-build.py
+        run: python3 tests/gui-window-build.py
 
       # A window narrower than its own contents does not clip: GTK paints
       # widgets outside the space it allocated them, so clicks stop landing on
@@ -91,13 +130,25 @@ jobs:
       # minimum size the window advertises, which is the only way that gap
       # shows up before somebody drags the window narrow.
       - name: GUI window fits its minimum
-        run: xvfb-run -a python3 tests/gui-window-minimum.py
+        run: python3 tests/gui-window-minimum.py
 
       # The actions another program drives the window through, activated the
       # way a client activates them against a real application and the real
-      # window under it. Needs a display for the same reason the two above do.
+      # window under it. Needs a display for the same reason the two above do,
+      # and a bus of its own besides: it owns an application name, which would
+      # collide with any Shuffle already on the bus it was given.
       - name: Gio application actions
-        run: xvfb-run -a python3 tests/gui-gio-actions.py
+        run: python3 tests/gui-gio-actions.py
+
+      # Builds the canonical fixture and renders it through GSK rather than
+      # grabbing a compositor frame, so the shots are the same pixels on any
+      # machine. Needs a display for the same reason the checks above do: the
+      # window is real, only its rasterisation is not the screen's.
+      - name: Deterministic screenshots
+        env:
+          SCREENSHOT_EVIDENCE_DIR: ${{ runner.temp }}/screenshots
+          IPOD_VENV_PYTHON: ${{ runner.temp }}/tag-venv/bin/python
+        run: python3 tests/screenshot-harness.py
 
       # The suite's playlist check runs the real upstream builder against the
       # rewritten list a sync produces, which the fake builder cannot vouch
@@ -126,6 +177,14 @@ jobs:
           EVIDENCE_DIR="${RUNNER_TEMP}/evidence" \
             IPOD_REAL_DB_TOOL="$tool_dir/ipod-shuffle-4g.py" \
             bash tests/product-e2e.sh
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/screenshots
+          if-no-files-found: warn
 
       - name: Upload evidence
         if: always()

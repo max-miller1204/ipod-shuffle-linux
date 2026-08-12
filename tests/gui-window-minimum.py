@@ -19,15 +19,26 @@ so at any width where the minimum matters the sidebar is not taking space from
 the content. The widths just above that breakpoint are checked separately, at
 the end of check().
 
-Needs a display, like tests/gui-window-build.py, and fails rather than skips
-without one for the same reason.
+Needs a display, like tests/gui-window-build.py, and starts its own the same
+way: run directly, it re-executes itself through tools/headless-run.py onto a
+private Xvfb display and a private session bus, and fails rather than skips or
+falls back to the desktop without them.
 """
 
 import os
+import subprocess
 import sys
 import tempfile
 import traceback
 from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+if not os.environ.get("SHUFFLE_HEADLESS_TEST"):
+    raise SystemExit(
+        subprocess.run(
+            [sys.executable, REPO / "tools/headless-run.py", sys.executable, __file__]
+        ).returncode
+    )
 
 _SANDBOX = tempfile.mkdtemp(prefix="ipod-gui-minimum-")
 os.environ["HOME"] = _SANDBOX
@@ -46,9 +57,7 @@ from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 Gtk.init_check()
 if Gdk.Display.get_default() is None:
-    raise SystemExit(
-        "no display: run this under `xvfb-run -a`, or on a desktop session"
-    )
+    raise SystemExit("no display: tools/headless-run.py started none to build on")
 
 gui.find_ipods = lambda: []
 

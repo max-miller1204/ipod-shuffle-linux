@@ -17,17 +17,30 @@ run until the window has finished instead, which is also what a client of these
 actions has to do - they are fire-and-forget, and dump-state activated straight
 after one can honestly answer from before the work landed.
 
-Needs a display, so CI runs it under xvfb. Hermetic: HOME is a temporary
-directory set before the package is imported, so the scan the window starts at
-startup reads the music folder written below rather than the real one, and the
-counts in the dump are a library this file knows the whole of.
+Needs a display, and starts its own: run directly, it re-executes itself
+through tools/headless-run.py onto a private Xvfb display and a private session
+bus, which is also what keeps the application name it owns off the bus any
+running Shuffle is on. Hermetic: HOME is a temporary directory set before the
+package is imported, so the scan the window starts at startup reads the music
+folder written below rather than the real one, and the counts in the dump are a
+library this file knows the whole of.
 """
 
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+if not os.environ.get("SHUFFLE_HEADLESS_TEST"):
+    raise SystemExit(
+        subprocess.run(
+            [sys.executable, REPO / "tools/headless-run.py", sys.executable, __file__]
+        ).returncode
+    )
 
 _SANDBOX = tempfile.mkdtemp(prefix="ipod-gio-actions-")
 os.environ["HOME"] = _SANDBOX
@@ -61,9 +74,7 @@ from gi.repository import Gdk, GLib, Gtk  # noqa: E402
 # reads as coverage that is not there.
 Gtk.init_check()
 if Gdk.Display.get_default() is None:
-    raise SystemExit(
-        "no display: run this under `xvfb-run -a`, or on a desktop session"
-    )
+    raise SystemExit("no display: tools/headless-run.py started none to build on")
 
 # Detection is gui-detection-smoke's subject. Here it only has to answer the
 # same way every run: a real probe could find a real iPod and move the mount

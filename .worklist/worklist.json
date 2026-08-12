@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 165,
+  "revision": 167,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -275,9 +275,10 @@
       "dependsOn": [
         "gio-actions-and-a-state-dump-on-the"
       ],
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-07T21:37:54.443Z",
-      "updatedAt": "2026-08-07T21:37:54.443Z"
+      "updatedAt": "2026-08-12T06:19:27.611Z",
+      "completedAt": "2026-08-12T06:19:27.611Z"
     },
     {
       "id": "an-mcp-server-over-the-headless-cli",
@@ -343,6 +344,14 @@
       "createdAt": "2026-08-11T05:25:25.499Z",
       "updatedAt": "2026-08-11T07:37:16.466Z",
       "completedAt": "2026-08-11T07:37:16.466Z"
+    },
+    {
+      "id": "make-it-easier-to-add-songs-to-playlist",
+      "title": "Make it easier to add songs to playlist from search",
+      "description": "Currently when im in a playlist and i try to look up a song to add it just goes straight to the queue, and not in my playlist. Also it gets confusing when adding songs to the playlist since there's no indicator if its in a playlist. Maybe add a new catagory next to each song when in the general tab showing the playlist it's in.",
+      "status": "open",
+      "createdAt": "2026-08-12T06:16:42.859Z",
+      "updatedAt": "2026-08-12T06:16:42.859Z"
     }
   ],
   "retiredIds": [
