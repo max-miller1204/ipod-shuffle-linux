@@ -8,7 +8,8 @@ sync launch, and the YouTube download whose result is queued rather than the
 folder it wrote into.
 
 Borrows from the window: `mount_point` and `device_identity`, which the queue
-is only ever valid against, `library` for tracks it already knows,
+is only ever valid against, `busy`, which is what staging from outside the
+window has to refuse on, `library` for tracks it already knows,
 `_sync_options` to say what the sync it launches is asked for, and `_run`,
 `_set_busy`, `_toast`, `_merge_states`, `_populate_device_summary`,
 `_update_device_controls` and `_refresh_current_view`.
@@ -31,7 +32,20 @@ from .config import (
 from .text import plural
 from .tags import scan_tracks, walk_following_links
 from .youtube import fetch_command, fetched_sources
-from .model import Track, local_playlist_tracks, read_local_playlist_tracks
+from .model import (
+    Track,
+    local_playlist_tracks,
+    read_local_playlist_tracks,
+    track_document,
+)
+
+# What a source named outright is allowed to be. Exactly what the sync's own
+# re-read of the queue knows how to open: `_scan_queued_sources` handles a
+# folder, a playlist and an audio file, and answers "could not read" for
+# anything else. A source it cannot read is worse than one that was refused,
+# because it stages silently - the merge drops it from every count and every
+# view - and then cancels each sync from then on without naming the file.
+QUEUEABLE_EXTENSIONS = AUDIO_EXTENSIONS | PLAYLIST_EXTENSIONS
 
 
 class QueueMixin:
@@ -83,6 +97,23 @@ class QueueMixin:
 
     def _pending_copy_tracks(self):
         return self._pending_accounting()[0]
+
+    def staged_state(self):
+        """What is staged for the next sync, as the state dump writes it.
+
+        The queue's slice of that document, answered here rather than read off
+        `pending_sources` and the accounting from the window: what is staged is
+        this module's to know, and the same accounting the Sync button counts
+        from is what a reader is told, so the two cannot disagree.
+        """
+        tracks, changes, queued_bytes = self._pending_accounting()
+        return {
+            "sources": sorted(self.pending_sources),
+            "tracks": [track_document(track) for track in tracks],
+            "changes": changes,
+            "bytes": queued_bytes,
+            "deviceIdentity": self.pending_device_identity,
+        }
 
     @staticmethod
     def _source_gone(source):
@@ -325,13 +356,41 @@ class QueueMixin:
             )
         return added
 
+    def queue_paths(self, paths):
+        """Stage these for the next sync, the way the window's own controls do.
+
+        A verb rather than letting whatever drives this window from outside it
+        reach for the staging underneath, because there is a rule to apply
+        first: nothing may be staged while a script is running. Every control
+        that queues is insensitive then, and the two ways past that are both
+        silent. A queue that commits during a copy is thrown away by the
+        clear-down when the run finishes, and one that arrives during the
+        pre-sync check supersedes the generation that check is waiting for, so
+        the user's own sync is cancelled with nothing said about why.
+
+        Answers how many changes it staged, None when it refused or when the
+        tags are still being read.
+        """
+        if self.busy:
+            return None
+        return self._queue_paths(paths, show_toast=False)
+
     def _queue_paths(self, paths, show_toast=True):
+        """Stage these paths, a folder expanding into the audio it holds.
+
+        A file named outright is held to the same rule as the contents of a
+        folder, one set wider: it has to be something the sync can read back.
+        Without that, a path that is neither - the cover beside an album, a
+        text file - stages as a source nothing will ever copy and every sync
+        from then on is cancelled reading it.
+        """
         sources = {}
         expanded = []
         for path in dict.fromkeys(str(path) for path in paths):
             expanded.extend(self._audio_files(path) if Path(path).is_dir() else [path])
         for path in dict.fromkeys(expanded):
-            if Path(path).is_file():
+            candidate = Path(path)
+            if candidate.is_file() and candidate.suffix.lower() in QUEUEABLE_EXTENSIONS:
                 sources[path] = [self._pending_track(path)]
         return self._queue_sources(sources, show_toast=show_toast)
 

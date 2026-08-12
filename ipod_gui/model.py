@@ -154,6 +154,30 @@ class Track:
         )
 
 
+def track_document(track):
+    """One track in the shape every machine surface of this project writes.
+
+    Here rather than beside whichever caller was written first: the headless
+    CLI and the running window's state dump answer the same readers, and a
+    shape defined in one of them is one the other drifts from. Track's own
+    attribute names are the window's; these are the interface's, so renaming a
+    slot stays a change to this file rather than to what a client parses.
+    """
+    return {
+        "path": track.path,
+        "title": track.title,
+        "artist": track.artist,
+        "album": track.album,
+        "genre": track.genre,
+        "duration": track.duration,
+        "trackNumber": track.track_no,
+        "art": track.art,
+        "size": track.size,
+        "state": track.state,
+        "onIpod": track.on_ipod,
+    }
+
+
 class Album:
     __slots__ = ("title", "artist", "tracks", "art")
 

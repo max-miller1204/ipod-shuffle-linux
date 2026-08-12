@@ -641,6 +641,11 @@ It needs PyGObject because it enters through the package and its declared import
 Every run writes one `{schema, command, result}` document to stdout, or says what went wrong as a sentence on stderr and leaves `1`.
 [docs/machine-interface.md](docs/machine-interface.md) records what each command's `result` holds, and the one case that is both: a run that did part of what it was asked - a music folder that could not be read through, a cached preview that would not go - writes what it did do, marks it `complete: false`, and leaves non-zero.
 
+The running GTK application also exports `navigate`, `search`, `queue`, `refresh` and stateful `dump-state` application actions through its existing `org.gtk.Actions` D-Bus interface.
+They drive the single running window without synthetic input.
+Activating `dump-state` refreshes its JSON string state with the current page, visible library counts, staged sources and tracks, playback and sync-bar state, and the note the search page is showing in place of results.
+[docs/machine-interface.md](docs/machine-interface.md) records the calls, every field of that document, and the one thing worth knowing before writing a client: the actions return before the work lands, so a dump read straight after one can answer from the moment before it.
+
 ## Renaming the device
 
 The shuffle's name is not stored in any of its databases.
@@ -852,13 +857,17 @@ A device read that completes is the one terminal repaint that is queued like the
 The minimum runs from the most recent press rather than the first, because the press most likely to be a second try is the one landing while the last spin is still finishing, and measured from the first start that press would put the spinner out again a few milliseconds later.
 The two scans share the one spinner, so the check drives them together and apart: a device read outliving the library scan has to keep it going, and a scan superseded by a newer one returns without ever finishing and must not leave it turning forever - which is why what it shows is derived from the two scan flags rather than counted up and down around them.
 
-`tests/gui-window-build.py` is the display-backed exception: it constructs the real window so a missing builder call, bad widget parent, or incomplete view stack cannot pass behind the stand-ins. Run it under a desktop session or with `xvfb-run -a`; it fails instead of skipping when no display is available.
+`tests/gui-window-build.py` is the first of the three display-backed checks: it constructs the real window so a missing builder call, bad widget parent, or incomplete view stack cannot pass behind the stand-ins. Run it under a desktop session or with `xvfb-run -a`; it fails instead of skipping when no display is available.
 It is also where the things that only exist as real widgets are driven: the state pills, which are built from one list and painted by another loop over it, so that a pill filtering what it says it counts is worth asserting; and deleting a song, from the row that offers it through the dialog that says what will be left behind to the file arriving in the wastebasket and leaving the library, the queue and the grid.
 Taking a track back out of the queue with no iPod attached is checked in the same place, because it used to raise: the queue outlives an unplug, and the repaint that followed described a device that was not there.
 The queue and the grid are also read against each other there, rather than each on its own: a folder staged for one sync that no music folder holds was counted in the sidebar and named on the **Sync** button while every pill above the grid read zero of it, which is a disagreement neither count could report alone.
-`tests/gui-window-minimum.py` is the other one, and it measures rather than looks: it fills the window with long names and holds every page and bar to the minimum size the window advertises.
+`tests/gui-window-minimum.py` is the second, and it measures rather than looks: it fills the window with long names and holds every page and bar to the minimum size the window advertises.
 A window whose contents do not fit the minimum it asked for is not merely cramped - GTK allocates widgets a rectangle smaller than they asked for and then paints them at the size they wanted, so clicks land beside the control under the pointer, hover flickers, and a tooltip can open over the menu it belongs to.
 Nothing in a screenshot says which page is one long album title away from that, so the widths are asserted instead.
+`tests/gui-gio-actions.py` is the third display-backed check, and it is the only one that drives the window the way another program does: it registers the real application, activates each exported action the way `gdbus call` activates it, and reads the answer back off `dump-state`.
+Nothing on the window is replaced, because the actions are the subject and a stand-in under one of them would be the check asserting itself - staging a path really does go out to the tag reader and back on the main loop, so the loop is run until it lands.
+What it pins is the part no unit check can see: that a page name from outside the window is refused rather than half-followed, that the note the search page is showing is reported while it is on screen and not after, and that the counts in the document are the tracks in a music folder this check wrote every file of rather than the album tallies the pills carry.
+
 `tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the Xephyr recipe that brings the window up at exactly 1180x760 on any machine.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
@@ -867,7 +876,7 @@ Nothing in a screenshot says which page is one long album title away from that, 
 What those commands promise is what is on disk afterwards, so it is read back there: a track named relatively stored in an M3U as the absolute path it meant, the artist folder taken with the last preview in it, and a music root kept as it was named rather than with its symlinks resolved.
 Its `search --youtube` runs against the same `yt-dlp` stand-in the suite uses, which is what lets both answers - videos that came back, and YouTube out of reach - be checked without a network.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the headless CLI check, the three main-loop checks, and both real-window checks under xvfb on every push and pull request.
+`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the headless CLI check, the three main-loop checks, and all three real-window checks under xvfb on every push and pull request.
 
 ## Credits
 

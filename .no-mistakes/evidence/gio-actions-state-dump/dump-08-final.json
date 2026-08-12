@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "page": "settings",
+  "visibleCounts": {
+    "ipod": 303,
+    "queued": 0,
+    "library": 3,
+    "preview": 0
+  },
+  "staged": {
+    "sources": [],
+    "tracks": [],
+    "changes": 0,
+    "bytes": 0,
+    "deviceIdentity": null
+  },
+  "nowPlaying": {
+    "state": "idle",
+    "track": null,
+    "error": ""
+  },
+  "sync": {
+    "active": false,
+    "title": "",
+    "current": "",
+    "count": "",
+    "progress": 0.0
+  },
+  "inlineError": ""
+}

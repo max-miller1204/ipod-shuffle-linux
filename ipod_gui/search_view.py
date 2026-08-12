@@ -553,6 +553,16 @@ class SearchViewMixin:
         self.search_playlist_add.set_tooltip_text(self._youtube_download_tooltip())
         self.search_add_buttons.append(self.search_playlist_add)
 
+    def search_inline_error(self):
+        """The note the search page is showing in place of results.
+
+        Empty unless search is the page on screen: the note outlives the view
+        it belongs to - it is what the next visit to search reopens with - so a
+        reader asking what is being shown now would otherwise be handed a
+        sentence no one can see.
+        """
+        return self.search_note if self.current_view() == "search" else ""
+
     def _set_search_note(self, text):
         self.search_note = text
         self._paint_youtube_section()

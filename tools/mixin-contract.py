@@ -48,7 +48,7 @@ SHARED_STATE = {
     ),
     "busy": (
         "commands", "device_view", "playback_view", "playlist_view",
-        "search_view",
+        "queue", "search_view",
     ),
     "device_tracks": ("commands", "device_view", "library_view", "playlist_view"),
     "discovering_sources": (

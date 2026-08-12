@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 164,
+  "revision": 165,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -262,9 +262,10 @@
       "dependsOn": [
         "a-headless-cli-over-the-ipod-gui-package"
       ],
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-07T21:37:54.443Z",
-      "updatedAt": "2026-08-07T21:37:54.443Z"
+      "updatedAt": "2026-08-12T04:18:04.909Z",
+      "completedAt": "2026-08-12T04:18:04.909Z"
     },
     {
       "id": "a-deterministic-screenshot-harness-for",

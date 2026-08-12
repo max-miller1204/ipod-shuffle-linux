@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "page": "search",
+  "visibleCounts": {
+    "ipod": 2,
+    "queued": 0,
+    "library": 4,
+    "preview": 0
+  },
+  "staged": {
+    "sources": [],
+    "tracks": [],
+    "changes": 0,
+    "bytes": 0,
+    "deviceIdentity": null
+  },
+  "nowPlaying": {
+    "state": "idle",
+    "track": null,
+    "error": ""
+  },
+  "sync": {
+    "active": false,
+    "title": "",
+    "current": "",
+    "count": "",
+    "progress": 0.0
+  },
+  "inlineError": "Type a little more to search YouTube."
+}

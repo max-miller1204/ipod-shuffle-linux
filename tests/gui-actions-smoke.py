@@ -541,11 +541,25 @@ class Grouping:
 
 
 class VisibleView:
+    """The view stack, as much of it as a check without a display needs.
+
+    It holds the pages as well as the visible one, because the window asks it
+    both questions: what is on screen, and whether a name it has been handed is
+    a page at all. The second is what refuses a navigation from outside the
+    window, so a stand-in that answered yes to everything would let the check
+    pass a name the real stack has no page under.
+    """
+
+    PAGES = ("library", "search", "album", "playlists", "settings")
+
     def __init__(self, name):
         self.name = name
 
     def get_visible_child_name(self):
         return self.name
+
+    def get_child_by_name(self, name):
+        return name if name in self.PAGES else None
 
 
 class RefreshWindow:
@@ -1770,6 +1784,10 @@ class SearchWindow:
     """Enough of the window to drive the search without a display."""
 
     current_view = gui.IpodWindow.current_view
+    # The real predicate, for the same reason current_view is real: whether a
+    # name is a page is what navigate refuses on, and a fake would be the
+    # check answering its own question.
+    has_view = gui.IpodWindow.has_view
 
     def __init__(self, unavailable=None):
         self.search_entry = SearchEntry()
@@ -1811,7 +1829,7 @@ class SearchWindow:
     _cancel_search_timeout = gui.IpodWindow._cancel_search_timeout
     _set_search_note = gui.IpodWindow._set_search_note
     _finish_youtube_search = gui.IpodWindow._finish_youtube_search
-    _navigate = gui.IpodWindow._navigate
+    navigate = gui.IpodWindow.navigate
 
 
 typing = SearchWindow()
@@ -1879,7 +1897,7 @@ assert ungated.painted == 1, "the local half was gated on the remote half"
 navigating = SearchWindow()
 navigating.search_entry.set_text("bohemian")
 navigating._on_search_changed(navigating.search_entry)
-navigating._navigate("playlists")
+navigating.navigate("playlists")
 assert navigating.views.name == "playlists", navigating.shown
 assert navigating.search_entry.get_text() == "", "the field kept a spent query"
 assert navigating.search_query == "" and navigating.search_results == []
