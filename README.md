@@ -639,7 +639,7 @@ Run `python3 -m ipod_gui.cli --help` or a subcommand's `--help` for mutation arg
 It needs PyGObject because it enters through the package and its declared imports, but it does not need a display.
 
 Every run writes one `{schema, command, result}` document to stdout, or says what went wrong as a sentence on stderr and leaves `1`.
-[docs/machine-interface.md](docs/machine-interface.md) records what each command's `result` holds, and the one case that is both: a music folder that could not be read through still writes what was read, marks it `complete: false`, and leaves non-zero.
+[docs/machine-interface.md](docs/machine-interface.md) records what each command's `result` holds, and the one case that is both: a run that did part of what it was asked - a music folder that could not be read through, a cached preview that would not go - writes what it did do, marks it `complete: false`, and leaves non-zero.
 
 ## Renaming the device
 

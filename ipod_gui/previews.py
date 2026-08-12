@@ -79,6 +79,28 @@ def prunable_previews(entries, limit, keep=()):
     return dropped
 
 
+def forget_empty_preview_folders(folder, root):
+    """Take the artist folder that the last preview in it left.
+
+    Upwards from where a preview has just gone, and never the cache root
+    itself: that folder is the cache, not something in it. The first folder
+    that will not go stops the walk, because it either still holds something
+    or was never ours to take.
+
+    Here rather than in the window, because the cache is pruned from two
+    places now - the window as it plays, and the display-free command over
+    the same cache - and when an emptied folder goes is one rule.
+    """
+    folder = Path(folder)
+    root = Path(root)
+    while root in folder.parents:
+        try:
+            folder.rmdir()
+        except OSError:
+            return
+        folder = folder.parent
+
+
 def promote_destination(source, cache_root, library_root):
     """Where a previewed file belongs once it is kept.
 

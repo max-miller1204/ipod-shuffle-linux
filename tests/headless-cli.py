@@ -15,21 +15,23 @@ from pathlib import Path
 
 repo = Path(__file__).resolve().parents[1]
 home = Path(tempfile.mkdtemp(prefix="headless-cli-home-")).resolve()
-env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home / "config"), XDG_CACHE_HOME=str(home / "cache"))
+# PYTHONPATH so that the checks below can run the command from somewhere other
+# than the repository, which is what a relative argument needs to mean anything.
+env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home / "config"), XDG_CACHE_HOME=str(home / "cache"), PYTHONPATH=str(repo))
 
 
-def invoke(*args):
+def invoke(*args, cwd=None):
     return subprocess.run(
         ["/usr/bin/python3", "-m", "ipod_gui.cli", *args],
-        cwd=repo,
+        cwd=cwd or repo,
         env=env,
         capture_output=True,
         text=True,
     )
 
 
-def run(*args):
-    proc = invoke(*args)
+def run(*args, cwd=None):
+    proc = invoke(*args, cwd=cwd)
     assert proc.returncode == 0, proc.stderr or proc.stdout
     assert not proc.stderr, proc.stderr
     document = json.loads(proc.stdout)
@@ -37,22 +39,23 @@ def run(*args):
     return document
 
 
-def refused(*args):
+def refused(*args, cwd=None):
     """A run that did nothing: a sentence on stderr, no document, non-zero."""
-    proc = invoke(*args)
+    proc = invoke(*args, cwd=cwd)
     assert proc.returncode != 0, proc.stdout
     assert proc.stderr.strip(), "a refusal has to say what went wrong"
     assert not proc.stdout, proc.stdout
     return proc
 
 
-def partial(*args):
-    """A run that answered, but not for everything it was asked about."""
-    proc = invoke(*args)
+def partial(*args, cwd=None):
+    """A run that did part of what it was asked, and says which part."""
+    proc = invoke(*args, cwd=cwd)
     assert proc.returncode != 0, proc.stdout
     assert proc.stderr.strip(), "a partial answer has to say it is partial"
     document = json.loads(proc.stdout)
     assert document["schema"] == 1
+    assert document["result"]["complete"] is False
     return document
 
 
@@ -103,6 +106,42 @@ refused("playlists", "--root", str(playlists), "reorder", "Nothing Here", "0", "
 refused("playlists", "--root", str(playlists), "create", "AC/DC")
 assert not (playlists / "AC").exists()
 
+# A track named relatively is stored as the absolute path it meant, because a
+# playlist is read back against its own folder: written down as typed, the line
+# would name a file beside the M3U, and the window and the sync would both drop
+# an entry this command reported as added.
+relative = run(
+    "playlists", "--root", str(playlists), "create", "Relative", "Artist/Song.mp3",
+    cwd=music,
+)
+assert relative["result"]["entries"] == [str(song)]
+assert run(
+    "playlists", "--root", str(playlists), "add", "Relative", "Artist/Other.mp3",
+    cwd=music,
+)["result"]["added"] == 1
+assert run(
+    "playlists", "--root", str(playlists), "remove", "Relative", "Artist/Song.mp3",
+    cwd=music,
+)["result"]["removed"] == 1
+assert {
+    playlist["name"]: playlist["entries"]
+    for playlist in run("playlists", "--root", str(playlists), "list")["result"]
+}["Relative"] == [str(other)]
+
+# A list another program wrote may name its tracks relative to itself, and
+# those are still removable as they are written.
+(playlists / "Hand Written.m3u").write_text("#EXTM3U\nArtist/Song.mp3\n", encoding="utf-8")
+assert run(
+    "playlists", "--root", str(playlists), "remove", "Hand Written", "Artist/Song.mp3"
+)["result"]["removed"] == 1
+
+# A `~` reaches this from a caller that passes an argument list rather than a
+# shell command, and nothing else will expand it.
+assert run("playlists", "--root", "~/Playlists", "list")["result"] == run(
+    "playlists", "--root", str(playlists), "list"
+)["result"]
+assert not (repo / "~").exists()
+
 if os.geteuid() != 0:
     locked = run("playlists", "--root", str(playlists), "create", "Locked", str(song))
     Path(locked["result"]["path"]).chmod(0o000)
@@ -123,6 +162,8 @@ os.utime(preview / "New Artist" / "new.mp3", (2, 2))
 status = run("cache", "status", "--root", str(preview))
 assert status["result"]["sizeBytes"] == 8
 assert status["result"]["removed"] == []
+assert status["result"]["complete"] is True
+assert run("cache", "status", "--root", "~/preview")["result"] == status["result"]
 pruned = run("cache", "prune", "--root", str(preview), "--limit", "5")
 assert [Path(entry["path"]).name for entry in pruned["result"]["entries"]] == ["new.mp3"]
 assert pruned["result"]["removed"] == [str(preview / "Old Artist" / "old.mp3")]
@@ -132,8 +173,22 @@ assert not (preview / "Old Artist").exists()
 cleared = run("cache", "clear", "--root", str(preview))
 assert cleared["result"]["entries"] == []
 assert cleared["result"]["removed"] == [str(preview / "New Artist" / "new.mp3")]
+assert cleared["result"]["complete"] is True
 assert not (preview / "New Artist").exists()
 assert preview.is_dir()
+
+# A preview that will not be deleted is the cache's own half-done answer: what
+# did go is still written, marked, and the run leaves non-zero - the same rule
+# a music folder that could not be read through follows.
+if os.geteuid() != 0:
+    stuck = home / "stuck"
+    (stuck / "Artist").mkdir(parents=True)
+    (stuck / "Artist" / "kept.mp3").write_bytes(b"kept")
+    (stuck / "Artist").chmod(0o500)
+    unremovable = partial("cache", "clear", "--root", str(stuck))
+    assert unremovable["result"]["removed"] == []
+    assert [Path(entry["path"]).name for entry in unremovable["result"]["entries"]] == ["kept.mp3"]
+    (stuck / "Artist").chmod(0o700)
 
 library = run("library")
 assert library["result"]["complete"] is True

@@ -40,6 +40,7 @@ from .tags import scan_tracks
 from .youtube import fetch_command
 from .previews import (
     cached_preview_path,
+    forget_empty_preview_folders,
     preview_cache_entries,
     promote_destination,
     prunable_previews,
@@ -545,13 +546,7 @@ class PlaybackViewMixin:
     @staticmethod
     def _forget_empty_preview_folders(folder):
         """Take the artist folder with the last preview that left it."""
-        folder = Path(folder)
-        while PREVIEW_CACHE in folder.parents:
-            try:
-                folder.rmdir()
-            except OSError:
-                return
-            folder = folder.parent
+        forget_empty_preview_folders(folder, PREVIEW_CACHE)
 
     def _promote_preview(self, track):
         """Keep a previewed track: out of the cache, into the library.
