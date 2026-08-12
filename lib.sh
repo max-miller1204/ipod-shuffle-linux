@@ -159,10 +159,17 @@ device_identity() {
 # A machine caller first asks for a plan, then returns the token from that
 # exact plan. The token binds approval to the action, device identity and
 # normalized arguments rather than treating a programmatic --yes as consent.
+#
+# Escaped to ASCII, because a path is bytes and only some of them are text: a
+# folder called "Bjork" spelled in latin-1 reaches python3 as a surrogate that
+# no encoder will write out, and this runs on every device-changing run rather
+# than only on the ones asking to be authorized. The escaping is part of what
+# is hashed, so both sides of the handshake agree on it whatever the argument
+# was, and json.loads gives the same string back.
 operation_token() {
     command -v python3 >/dev/null \
         || die_with "$EXIT_MISSING_DEPENDENCY" "python3 is required but not installed."
-    python3 -c 'import hashlib,json,sys; print(hashlib.sha256(json.dumps(sys.argv[1:],ensure_ascii=False,separators=(",",":")).encode()).hexdigest())' "$@"
+    python3 -c 'import hashlib,json,sys; print(hashlib.sha256(json.dumps(sys.argv[1:],separators=(",",":")).encode()).hexdigest())' "$@"
 }
 
 # The plan a dry run prints, carrying the token computed from that same plan.
@@ -170,10 +177,15 @@ operation_token() {
 # Handed the token rather than hashing a second time, so that the value the
 # caller is told to return and the value the run will compare it against
 # cannot be computed from two different lists of arguments.
+#
+# Written in ASCII for the reason the token is hashed in it, and for one more:
+# stdout is whatever encoding the locale gave this run, so a plan naming a
+# track with an accent in it would be a plan that cannot be printed at all
+# under LC_ALL=C. An escaped document is the same document to a JSON reader.
 emit_operation_plan() {
     local action="$1" mount="$2" identity="$3" destructive="$4" token="$5"
     shift 5
-    python3 -c 'import json,sys; print(json.dumps({"action":sys.argv[1],"device":{"mount":sys.argv[2],"identity":sys.argv[3]},"destructive":sys.argv[4]=="1","arguments":sys.argv[6:],"confirmationToken":sys.argv[5]},ensure_ascii=False,separators=(",",":")))' \
+    python3 -c 'import json,sys; print(json.dumps({"action":sys.argv[1],"device":{"mount":sys.argv[2],"identity":sys.argv[3]},"destructive":sys.argv[4]=="1","arguments":sys.argv[6:],"confirmationToken":sys.argv[5]},separators=(",",":")))' \
         "$action" "$mount" "$identity" "$destructive" "$token" "$@"
 }
 

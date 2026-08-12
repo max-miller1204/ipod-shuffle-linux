@@ -124,6 +124,15 @@ gui.resolve_device = lambda mount, identity, require_block=False: gui.DeviceHand
     mount, identity, "/dev/sdz"
 )
 
+# A window opened from the app grid has no terminal behind it, which is what
+# makes a destructive run below need the token the window fetches for it: the
+# scripts refuse one there is nobody to ask about. Pointed at /dev/null rather
+# than left as whatever ran this file, so the checks read the same from a
+# terminal as they do in CI.
+_devnull = os.open(os.devnull, os.O_RDONLY)
+os.dup2(_devnull, 0)
+os.close(_devnull)
+
 # Every descriptor open now, so one the window opened for the stream and never
 # closed shows up as a leak rather than as a run that happened to work.
 descriptors_before = len(os.listdir("/proc/self/fd"))
@@ -177,6 +186,48 @@ if any("cover.flac" in name for name, _status in window.rows):
     failures.append(f"unplayable files reached the bar: {window.rows}")
 if not any("Skipped 1 unsupported file(s)" in line for line in window.log):
     failures.append("the script's own output never reached the log view")
+
+# The other half of the same seam: a script that deletes something. With no
+# terminal behind it the script refuses a removal that arrives without the
+# token from its own plan, so the window has to ask for that plan and hand the
+# token back - and it has to know a removal when it holds one. The track here
+# is named exactly the flag that would have made this a listing rather than a
+# deletion, because names come off the device and are passed after the `--`
+# that says so; a window reading one as a flag of its own would send a removal
+# it never authorized and leave the user unable to delete that track at all.
+awkward_track = ipod / "iPod_Control" / "Music" / "--list"
+awkward_track.write_bytes(b"third")
+
+removal = StreamWindow(str(ipod))
+started = removal._run(
+    [
+        str(gui.REMOVE_SCRIPT),
+        "--ipod",
+        str(ipod),
+        "--yes",
+        "--",
+        "--list",
+    ],
+    "Removing track",
+    "Track removed",
+)
+if not started:
+    failures.append("the window refused to run the removal at all")
+else:
+    loop = GLib.MainLoop()
+    GLib.timeout_add(50, lambda: loop.quit() if removal.finished.is_set() else True)
+    GLib.timeout_add_seconds(
+        60, lambda: failures.append("the removal never finished") or loop.quit()
+    )
+    loop.run()
+    if removal.code != 0:
+        failures.append(
+            f"the removal exited {removal.code}: {''.join(removal.log)}"
+        )
+    if awkward_track.exists():
+        failures.append("the track named like a flag is still on the device")
+    if ("--list", "Removed") not in removal.rows:
+        failures.append(f"the details pane listed {removal.rows}")
 
 
 # A run that cannot even open its stream still has to report an outcome. The

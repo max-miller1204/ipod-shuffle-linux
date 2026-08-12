@@ -58,13 +58,21 @@ def _script_options(argv, *options):
 
 
 def _is_destructive_script(argv):
+    """Whether this command changes what is on the device.
+
+    Read from the options alone, on the same rule `_script_options` inserts
+    by: everything after `--` is a name the device gave us, and a track called
+    `--list` is a track. Reading one as a flag would leave the window sending
+    a removal it never planned or authorized, which the script then refuses.
+    """
     script = str(argv[0])
     if script == str(WIPE_SCRIPT):
         return True
+    options = argv[: argv.index("--")] if "--" in argv else argv
     if script == str(REMOVE_SCRIPT):
-        return "--list" not in argv and "-l" not in argv
+        return "--list" not in options and "-l" not in options
     return script == str(SYNC_SCRIPT) and (
-        "--clear" in argv or "-c" in argv
+        "--clear" in options or "-c" in options
     )
 
 

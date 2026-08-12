@@ -321,6 +321,39 @@ grep -Fq 'Backup verified: 0 track(s)' "$EVIDENCE_DIR/wipe-no-music-dir.txt"
 test -s "$NO_MUSIC_WIPE_IPOD/iPod_Control/Speakable/System/battery.wav"
 test -d "$NO_MUSIC_WIPE_IPOD/iPod_Control/Music"
 
+# A library from before UTF-8 is still a library. A folder named in latin-1 is
+# a sequence of bytes no decoder claims, and it reaches the plan as an
+# argument like any other: a run that could not write that name out would end
+# an ordinary sync where the copy should have been, and nothing about the
+# names on a person's disk is theirs to change.
+LATIN1_SOURCE="$TEST_ROOT/$(printf 'Bj\xf6rk')"
+LATIN1_IPOD="$TEST_ROOT/latin1-clear-target"
+mkdir -p "$LATIN1_SOURCE" \
+    "$LATIN1_IPOD/iPod_Control/iTunes" \
+    "$LATIN1_IPOD/iPod_Control/Music" \
+    "$LATIN1_IPOD/iPod_Control/Speakable"
+printf 'a song\n' > "$LATIN1_SOURCE/01 - Human Behaviour.mp3"
+latin1_plan="$("$ROOT/ipod-sync.sh" \
+    --ipod "$LATIN1_IPOD" \
+    --clear \
+    --yes \
+    --dry-run \
+    "$LATIN1_SOURCE" < /dev/null \
+    2> "$EVIDENCE_DIR/sync-latin1-plan.stderr.txt")"
+/usr/bin/python3 -c '
+import json, sys
+plan = json.loads(sys.argv[1])
+assert plan["arguments"][-1] == sys.argv[2], plan["arguments"]
+assert plan["confirmationToken"]
+' "$latin1_plan" "$LATIN1_SOURCE"
+run_approved "$ROOT/ipod-sync.sh" \
+    --ipod "$LATIN1_IPOD" \
+    --clear \
+    --yes \
+    "$LATIN1_SOURCE" < /dev/null \
+    > "$EVIDENCE_DIR/sync-latin1-source.txt" 2>&1
+test -s "$LATIN1_IPOD/iPod_Control/Music/$(printf 'Bj\xf6rk')/01 - Human Behaviour.mp3"
+
 # --yes has to answer every prompt, not just the caller's own. assert_shuffle
 # asks its own question from inside lib.sh when a volume has no Speakable
 # directory, and a script that only guarded its local confirm still stopped
@@ -2550,9 +2583,17 @@ if grep -Fq 'stopped answering' "$EVIDENCE_DIR/exit-code-builder-failed.txt"; th
     exit 1
 fi
 
+# Authorized rather than merely willing, because a removal that never came
+# through the handshake is refused before it can find out what is installed.
+# The plan is taken with the builder already missing, which is what a caller
+# on a machine with no toolchain has to be able to do: what it gets back is
+# the run's own answer, "install the tools", rather than a refusal that says
+# nothing about them.
 IPOD_DB_TOOL="$TEST_ROOT/no-such-db-builder.py" \
     exit_code_is 6 exit-code-missing-dependency.txt \
-    "$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" --yes 'Beach Boys/Surfin.mp3'
+    run_approved "$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" --yes 'Beach Boys/Surfin.mp3'
+grep -Fq 'Database tool missing' "$EVIDENCE_DIR/exit-code-missing-dependency.txt"
 test -s "$PLAYLIST_IPOD/iPod_Control/Music/Beach Boys/Surfin.mp3"
 
 # Both prompts, because the one that stopped an unattended run was never the
