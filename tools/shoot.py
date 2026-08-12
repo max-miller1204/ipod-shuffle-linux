@@ -77,7 +77,8 @@ import gi  # noqa: E402
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gsk", "4.0")
 gi.require_version("Graphene", "1.0")
-from gi.repository import Graphene, Gsk, Gtk  # noqa: E402
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Graphene, Gsk, Gtk  # noqa: E402
 
 from ipod_gui import app as app_module  # noqa: E402
 
@@ -130,6 +131,15 @@ if settings is None:
     sys.exit("GTK came up without settings, so the shot cannot be pinned")
 settings.props.gtk_enable_animations = False
 settings.props.gtk_cursor_blink = False
+# The third of them, and the one that decides every pixel rather than a few.
+# Left alone, Adw.StyleManager follows the desktop's colour-scheme
+# preference - read through the settings portal on whatever session bus this
+# process was handed - so one command against one fixture comes out dark for a
+# developer whose desktop prefers dark and light on a runner that has no
+# desktop to ask, which is the whole surface of the shot rather than a caret.
+# Pinned to dark because that is the scheme docs/screenshot.png is in, and
+# this tool is what retakes it.
+Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
 application.activate()
 pump(20)
 window = application.props.active_window

@@ -34,12 +34,30 @@ jobs:
       # ffmpeg encodes the demo fixture's tracks and cover art, and
       # tools/demo-library.py refuses to build anything without it, so the
       # screenshot harness cannot run on a runner image that does not ship one.
+      # python3-venv is for the tag reader below, which is a virtualenv here
+      # for the same reason it is one on a real machine.
       - name: Install test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck xvfb dbus \
-            espeak ffmpeg
+            espeak ffmpeg python3-venv
+
+      # The window reads tags through whichever interpreter has mutagen, and
+      # nothing on this runner has it: without one the canonical four-album
+      # fixture renders as a single "Unknown album" tile over "All 1", and the
+      # screenshots uploaded below are of a library nobody has. It is a
+      # virtualenv rather than the python3-mutagen package deliberately.
+      # install.sh puts mutagen in one because PyGObject belongs to the system
+      # Python, and the end-to-end suite checks an install that reports
+      # metadata support missing until its own virtualenv has it - which a
+      # system-wide mutagen, visible to every interpreter on the machine,
+      # would make it report the opposite of.
+      - name: Tag reader for the screenshots
+        run: |
+          python3 -m venv "${RUNNER_TEMP}/tag-venv"
+          "${RUNNER_TEMP}/tag-venv/bin/pip" install \
+            -q --disable-pip-version-check mutagen
 
       - name: Shell lint
         run: shellcheck -x ./*.sh tests/product-e2e.sh
@@ -129,6 +147,7 @@ jobs:
       - name: Deterministic screenshots
         env:
           SCREENSHOT_EVIDENCE_DIR: ${{ runner.temp }}/screenshots
+          IPOD_VENV_PYTHON: ${{ runner.temp }}/tag-venv/bin/python
         run: python3 tests/screenshot-harness.py
 
       # The suite's playlist check runs the real upstream builder against the

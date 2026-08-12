@@ -24,6 +24,18 @@ if not os.environ.get("SHUFFLE_HEADLESS_TEST"):
 HEIGHT = 760
 SIGNATURE = b"\x89PNG\x0d\x0a\x1a\x0a"
 
+# The four albums tools/demo-library.py builds, which are what the canonical
+# shot is of. Spelled out here rather than imported from the builder, so a
+# fixture that quietly stopped carrying them is a failure rather than an
+# agreement between two halves of the same change.
+ALBUMS = {"Field Notes", "Warm Ridge", "Nightbus", "Slow Copper"}
+
+# The window's two colour schemes, as one number each: the mean of a shot's
+# colour channels. The dark scheme measures 32 of a possible 255 over the
+# canonical library page and the light one 226, so halfway between them tells
+# which scheme a shot came out in and nothing finer.
+DARK_CEILING = 128
+
 # Two renders of one layout at different densities are not the same pixels:
 # glyphs are hinted onto whichever pixel grid they are painted on, so the 2x
 # shot scaled back down lands a fraction of a pixel off the 1x one along every
@@ -98,6 +110,28 @@ def rows(path, divide=1):
     return [data[y * stride: y * stride + line] for y in range(image.get_height())]
 
 
+def brightness(path):
+    """The mean of the image's colour channels, 0 for black and 255 for white.
+
+    Alpha is dropped rather than averaged in: every pixel here is opaque, so
+    including it would pull every shot a quarter of the way towards white and
+    leave the two schemes reading closer together than they are.
+    """
+    image = GdkPixbuf.Pixbuf.new_from_file(str(path))
+    channels = image.get_n_channels()
+    data = image.get_pixels()
+    stride = image.get_rowstride()
+    line = image.get_width() * channels
+    total = 0
+    counted = 0
+    for y in range(image.get_height()):
+        row = data[y * stride: y * stride + line]
+        for start in range(0, len(row), channels):
+            total += sum(row[start:start + 3])
+            counted += 3
+    return total / counted
+
+
 def difference(one, other):
     """How far apart two images are: mean channel distance, and gross share.
 
@@ -135,6 +169,31 @@ with tempfile.TemporaryDirectory(prefix="screenshot-harness-") as workspace:
         stdout=subprocess.DEVNULL,
     )
 
+    # The fixture read the way the window reads it, before any of it is
+    # rendered. Tags are read in whichever interpreter has mutagen, which on a
+    # machine that never ran install.sh is none of them, and a window with no
+    # tags still comes up: the six tracks it knows only the filenames of
+    # collapse into a single "Unknown album" tile over "All 1". That is a shot
+    # of a library nobody has, and once it is a PNG in an artifact nothing
+    # tells it from the canonical one - so the fixture is read here, and a
+    # machine that cannot read it fails rather than publishing it.
+    #
+    # The cache is redirected first because the reader writes the cover art it
+    # extracts there, and this one goes with the fixture rather than into the
+    # cache of whoever ran the check.
+    os.environ["XDG_CACHE_HOME"] = str(Path(workspace) / "cache")
+    sys.path.insert(0, str(REPO))
+    from ipod_gui import tags  # noqa: E402
+
+    records, complete = tags.scan_tracks(root / "home" / "Music")
+    assert complete, f"the tag reader did not read {root} through"
+    albums = {record.get("album") for record in records}
+    assert albums == ALBUMS, (
+        f"the fixture under {root} reads as {sorted(map(str, albums))}, not "
+        f"the {sorted(ALBUMS)} the canonical shot is of: no interpreter here "
+        "has mutagen, so point IPOD_VENV_PYTHON at one that does"
+    )
+
     library = shoot(root, "library", 1180, 1, out / "library-1180-1x.png")
     playlists = shoot(root, "playlists", 760, 2, out / "playlists-760-2x.png")
     # The width the sidebar is shown at, rendered again at the other scale:
@@ -142,6 +201,23 @@ with tempfile.TemporaryDirectory(prefix="screenshot-harness-") as workspace:
     # below. It has to be a width above the sidebar's collapse threshold,
     # because a breakpoint both scales take the same way hides the defect.
     library_2x = shoot(root, "library", 1180, 2, out / "library-1180-2x.png")
+
+    # The scheme the shot came out in, which the tool pins rather than
+    # inherits. Adw.StyleManager follows the desktop's colour-scheme
+    # preference, read over whatever session bus the process was handed, so
+    # unpinned this one command is dark for a developer whose desktop prefers
+    # dark and light on a runner with no desktop to ask - the same window in
+    # two entirely different pictures, one of them not the scheme
+    # docs/screenshot.png and the artifacts beside it are in. Measured over
+    # the whole image rather than at a sampled pixel, because what changes
+    # between the two is every surface in the window at once.
+    lit = brightness(library)
+    assert lit < DARK_CEILING, (
+        f"{library} averages {lit:.0f} of 255 across its colour channels, so "
+        "it came out in the light scheme: the shot is following this "
+        "machine's colour-scheme preference rather than the dark scheme "
+        "tools/shoot.py pins"
+    )
 
     # The harness's headline claim, checked against itself: one command, run
     # twice, is one file. Anything the window is still doing when the shot is

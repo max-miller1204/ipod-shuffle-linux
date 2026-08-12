@@ -659,6 +659,8 @@ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page library \
 `--scale 2` is the same layout at twice the pixels, which is what makes a 2x shot comparable to the 1x shot of the same page.
 The renderer navigates through the exported application action, explicitly allocates the content, and snapshots it with GTK's Cairo renderer.
 It leaves a message and no file rather than a shot it cannot vouch for, including on a display with no room to show the window at the requested width.
+The colour scheme is pinned to the dark one the shots in `docs/` are in rather than followed from the desktop, so a session that prefers light renders the same pixels as one that prefers dark.
+Tags are read in whichever interpreter has `mutagen`, so run `./install.sh` first or point `IPOD_VENV_PYTHON` at an interpreter that has it: with neither, the fixture's four albums read as one `Unknown album` and the check says so rather than rendering it.
 Run `python3 tests/screenshot-harness.py` for the representative local check.
 It automatically starts an isolated Xvfb display and an isolated session bus, so no test window appears on the desktop and the Shuffle you already have open is left alone.
 GDK is pinned to the X11 backend for the same reason: unsetting `WAYLAND_DISPLAY` is not enough, because a Wayland client given no socket name falls back to the compositor's default one and would land back on your desktop.
