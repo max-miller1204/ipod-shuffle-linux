@@ -22,7 +22,8 @@ Preserve all of these rules when changing a device operation:
 1. Resolve and validate the target iPod before mutation.
 2. Produce a non-mutating `--dry-run` JSON plan first for automated use.
 3. Bind the plan's `confirmationToken` to its action, normalized arguments, mount, and device identity.
-4. Require non-interactive callers to return both `--confirm-token TOKEN` and `--expect-device ID`.
+4. Refuse a non-interactive destructive run whose caller did not return the plan's `--confirm-token TOKEN`.
+   Have that caller pass the plan's identity back as `--expect-device ID` as well, which is checked whenever the plan carries a non-empty identity; a volume that reports neither a UUID nor a `SysInfo` has none to pin.
 5. Treat `--yes` as confirmation, not as authorization that bypasses the plan token.
 6. Recheck device identity immediately before mutation and refuse a changed device.
 7. Keep human-readable output on stdout and stderr while structured progress uses its explicitly opened descriptor.
@@ -40,7 +41,8 @@ Do not move device-changing behavior into a mixin.
 
 `ipod_gui/__init__.py` imports modules eagerly after pinning GTK versions.
 Its `__all__` list is ordered innermost first: each module may import only modules earlier in that list.
-Add every package module to `__all__` in dependency order.
+Add every package module to both that eager import tuple and `__all__`, in dependency order.
+A module named in `__all__` but absent from the import tuple still passes the harness's completeness check and then raises `AttributeError` in every harness-based test.
 `tests/harness.py` relies on this order to find defining bindings and replace every imported copy in tests.
 Use the harness facade for test doubles instead of patching one package module directly.
 
@@ -56,8 +58,8 @@ EVIDENCE_DIR=/tmp/ipod-shuffle-evidence \
 ```
 
 `EVIDENCE_DIR` preserves diagnostics that otherwise live in a temporary directory.
-`IPOD_REAL_DB_TOOL` selects the upstream database builder used to prove rewritten playlist entries resolve.
-Without it, the local suite reports that hardware-compatible builder coverage was skipped rather than silently claiming it.
+`IPOD_REAL_DB_TOOL` selects the upstream database builder used to prove rewritten playlist entries resolve, overriding the copy `./install.sh` clones into `~/ipod-tools/IPod-Shuffle-4g/`.
+With neither the variable nor that copy, the local suite reports that hardware-compatible builder coverage was skipped rather than silently claiming it.
 
 Run shell and architecture checks with:
 
