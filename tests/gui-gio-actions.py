@@ -25,9 +25,19 @@ counts in the dump are a library this file knows the whole of.
 
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[1]
+if not os.environ.get("SHUFFLE_HEADLESS_TEST") and not os.environ.get("CI"):
+    raise SystemExit(
+        subprocess.run(
+            [sys.executable, REPO / "tools/headless-run.py", sys.executable, __file__]
+        ).returncode
+    )
 
 _SANDBOX = tempfile.mkdtemp(prefix="ipod-gio-actions-")
 os.environ["HOME"] = _SANDBOX

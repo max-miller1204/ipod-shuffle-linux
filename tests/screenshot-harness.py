@@ -14,6 +14,13 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import GdkPixbuf  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
+
+if not os.environ.get("SHUFFLE_HEADLESS_TEST") and not os.environ.get("CI"):
+    raise SystemExit(
+        subprocess.run(
+            [sys.executable, REPO / "tools/headless-run.py", sys.executable, __file__]
+        ).returncode
+    )
 HEIGHT = 760
 SIGNATURE = b"\x89PNG\x0d\x0a\x1a\x0a"
 
