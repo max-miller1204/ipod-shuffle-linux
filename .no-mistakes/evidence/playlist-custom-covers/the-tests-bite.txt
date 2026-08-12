@@ -1,0 +1,16 @@
+$ python3 tests/gui-playlists.py, once per broken behaviour
+
+unbroken code: exit 0 - playlists ok: 9 left in the store
+
+deleting a playlist no longer clears its cover:
+  exit 1 - caught: AssertionError: deleting a playlist left its custom cover
+
+covers matched on the playlist's stem rather than its whole filename:
+  exit 1 - caught: AssertionError
+
+renaming a playlist leaves its cover under the old name:
+  exit 1 - caught: AssertionError
+
+an unsupported image is answered as a folder that refused the write:
+  exit 1 - caught: AssertionError
+

@@ -1,0 +1,30 @@
+# What happens to artwork that is already inside a song
+
+The app's own artwork - the cover cache, fetched thumbnails, and a custom
+playlist cover - is never handed to the sync, which the device inventory beside
+this file shows. This is the other half of the same question: a song a user
+already owns, carrying its own ID3 picture frame, copied to the device by the
+shipped ipod-sync.sh.
+
+One tagged MP3 with an embedded cover, a stand-in shuffle volume, and the real
+sync between them.
+
+$ ffmpeg ... -disposition:v attached_pic song.mp3     # a track carrying a cover
+$ ipod-sync.sh --ipod /tmp/embedded-art/SHUFFLE --yes -- /tmp/embedded-art/library
+==> iPod now holds 1 track(s)
+
+$ find SHUFFLE -type f
+  iPod_Control/Device/SysInfo
+  iPod_Control/iTunes/iTunesSD
+  iPod_Control/Music/library/song.mp3
+  iPod_Control/Speakable/System/battery.wav
+
+$ python3 - <<'PY'   # mutagen, over both copies
+  in the library: 1 embedded picture frame(s), 935 bytes of image, file 18215 bytes
+  on the iPod : 1 embedded picture frame(s), 935 bytes of image, file 18215 bytes
+  the device's copy is byte for byte the library's file: True
+
+So the sync copies a song exactly as it found it, tags and all: art a user's own
+file already carries travels inside that file. Nothing here re-encodes or
+rewrites a track, and no separate image file is written to the device. What the
+change under test adds - the custom playlist cover - stays on this computer.

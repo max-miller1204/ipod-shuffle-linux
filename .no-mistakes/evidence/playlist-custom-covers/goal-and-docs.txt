@@ -1,0 +1,39 @@
+$ bun x stepstone@latest project show images-in-songs-playlists
+images-in-songs-playlists: Images in songs + playlists
+status: done
+created: 2026-08-09T18:21:18.319Z
+updated: 2026-08-11T23:23:50.870Z
+completed: 2026-08-11T23:23:50.870Z
+description:
+Are the images in the playlists and songs getting added to the shuffle? Shouldn't all the covers be local to the computer? Also can we add an option to add custom playlist covers.
+
+$ git diff cac1333..9797baf -- README.md
+diff --git a/README.md b/README.md
+index 27df9b9..997da9f 100644
+--- a/README.md
++++ b/README.md
+@@ -158,6 +158,8 @@ Editing with no iPod attached is fine - **Send to iPod** stages it whenever one
+ Because the device stores playlist names only as spoken audio, every sync asks for them; without a speech engine installed to generate the recordings the playlist stays on this computer, and the page says so.
+ The dot beside a playlist means what it means beside a track: on the iPod, or here and waiting to be.
+ A playlist wears the first cover the songs in it carry, so a list made out of records you have artwork for looks like those records rather than like a coloured tile.
++Its `⋯` menu can instead copy a custom JPEG, PNG or WebP cover into `~/Music/Playlists/.covers`; **Use song artwork** removes that copy and restores the automatic choice.
++The copy follows the playlist when you rename it and goes when you delete it, and a later playlist that reuses the name starts from its own songs' artwork rather than inheriting the old image.
+ 
+ **Rename…**, under the `⋯` on a playlist's own page beside **Delete…**, is one change here and two on a device already holding the playlist, since the name is what the iPod says out loud: the old name comes off the device as you accept it, and the new one goes on at the next sync, which the confirmation says before it happens.
+ That second half needs a speech engine like any other playlist reaching the device, so without one a rename that has a new name to stage is refused rather than confirmed - it would take the playlist off the iPod with nothing able to put it back, **Send to iPod** included.
+@@ -274,11 +276,12 @@ A thumbnail that cannot be fetched leaves that placeholder in place rather than
+ Thumbnails are cached under the video's id, which is also in the name of every file `ipod-fetch.sh` writes.
+ A previewed track therefore keeps the artwork its search fetched, and so does the copy that keeping it moves into `~/Music/youtube`, without ever downloading the image again.
+ 
+-An album has its tracks' art, and a playlist is a list of paths with no artwork of its own, so it borrows the first cover the tracks it names carry - out of your library for a playlist made here, and out of what was read off the device for one that exists only there.
+-Only a list with nothing in it carrying a cover falls back to the placeholder its name generates, which is the same placeholder every time that list is drawn.
++An album has its tracks' art, and a playlist normally borrows the first cover the tracks it names carry - out of your library for a playlist made here, and out of what was read off the device for one that exists only there.
++A playlist made here can override that choice with a custom JPEG, PNG or WebP image copied into `~/Music/Playlists/.covers`.
++Only a list with neither a custom image nor a song carrying a cover falls back to the placeholder its name generates, which is the same placeholder every time that list is drawn.
+ 
+ None of it reaches the iPod.
+-`ipod-fetch.sh` still passes `--no-embed-thumbnail`, because cover art is pure waste on a 2GB device with no screen; artwork exists only in the cache on this computer.
++The custom playlist image remains on this computer, the playlist M3U contains only track paths, and `ipod-fetch.sh` still passes `--no-embed-thumbnail` because cover art is pure waste on a 2GB device with no screen.
+ Thumbnails are 16:9 and covers are square, so they are centre-cropped to fill, which is what happens to any embedded cover that is not square either.
+ 
+ The interface follows the system light and dark preference, and folds its sidebar away below 940px - the width beneath which there is no longer room for the sidebar and the content side by side, rather than a matter of taste.

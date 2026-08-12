@@ -20,7 +20,8 @@ three modules the deletion has to be undone in:
 
 The playlist shelf at the top of the library page is the playlist view's,
 built and filled there - and repainted from here when a scan finishes, because
-a playlist's cover is the first one its own tracks carry.
+a playlist with no custom cover of its own wears the first one its tracks
+carry.
 """
 
 import threading
@@ -398,8 +399,8 @@ class LibraryViewMixin:
         if self.mount_point:
             self._populate_device_summary()
         self._refresh_current_view()
-        # A playlist's cover is the first one its tracks carry, so the scan
-        # that reads that artwork is what the tiles have been waiting for.
+        # A playlist with no custom cover wears the first one its tracks carry,
+        # so the scan that reads that artwork is what those tiles waited for.
         # Here rather than in the coalesced repaint: painting the rail
         # re-reads the playlist folder, which is disk work no batch is worth.
         self._populate_playlist_rail()

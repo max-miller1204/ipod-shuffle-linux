@@ -21,6 +21,9 @@ from pathlib import Path
 
 from harness import gui
 
+# After the harness, which is what pins the GTK versions this resolves against.
+from gi.repository import Gio  # noqa: E402
+
 
 PLAYLISTS = Path(tempfile.mkdtemp(prefix="playlists-"))
 MUSIC = Path(tempfile.mkdtemp(prefix="music-"))
@@ -90,7 +93,122 @@ assert gui.create_local_playlist(PLAYLISTS, "Stocked", [first]) is None, (
     "a playlist that was already there was overwritten"
 )
 assert gui.read_playlist_entries(stocked) == [str(first), str(second)]
+custom_image = MUSIC / "stocked-cover.png"
+custom_image.write_bytes(b"local playlist artwork")
+saved_cover = gui.set_playlist_cover(stocked, custom_image)
+assert saved_cover == PLAYLISTS / ".covers" / "Stocked.m3u.png", saved_cover
+assert saved_cover.read_bytes() == custom_image.read_bytes()
+assert gui.playlist_custom_cover(stocked) == saved_cover
+renamed_stocked = gui.rename_local_playlist(stocked, "Renamed Stocked")
+assert renamed_stocked == PLAYLISTS / "Renamed Stocked.m3u", renamed_stocked
+renamed_cover = gui.playlist_custom_cover(renamed_stocked)
+assert renamed_cover == PLAYLISTS / ".covers" / "Renamed Stocked.m3u.png"
+assert renamed_cover.read_bytes() == custom_image.read_bytes()
+stocked = renamed_stocked
 assert gui.delete_local_playlist(stocked)
+assert not renamed_cover.exists(), "deleting a playlist left its custom cover"
+
+# ------------------------------------------------------- the cover store
+#
+# In a folder of its own, because what is being read is which playlist a
+# stored image belongs to, and that only means anything with more than one
+# playlist in the folder to confuse it with.
+COVERS = Path(tempfile.mkdtemp(prefix="covers-"))
+mix = gui.create_local_playlist(COVERS, "Mix", [first])
+# The name that a cover matched on anything less than the whole filename would
+# be taken for: "Mix.m3u.old" is a name FAT and this app both accept, and the
+# image it owns is stored as "Mix.m3u.old.m3u.jpg", which begins with every
+# character "Mix.m3u." does.
+older = gui.create_local_playlist(COVERS, "Mix.m3u.old", [second])
+mix_image = MUSIC / "mix-cover.png"
+mix_image.write_bytes(b"the cover for Mix")
+older_image = MUSIC / "older-cover.jpg"
+older_image.write_bytes(b"the cover for the older list")
+assert gui.set_playlist_cover(older, older_image) == (
+    COVERS / ".covers" / "Mix.m3u.old.m3u.jpg"
+)
+assert gui.playlist_custom_cover(mix) is None, "a playlist wore another's cover"
+assert gui.set_playlist_cover(mix, mix_image) == COVERS / ".covers" / "Mix.m3u.png"
+assert gui.playlist_custom_cover(mix).read_bytes() == mix_image.read_bytes()
+older_cover = gui.playlist_custom_cover(older)
+assert older_cover.read_bytes() == older_image.read_bytes(), (
+    "storing one playlist's cover overwrote another's"
+)
+# Deleting one takes its own image and leaves the other's where it is.
+assert gui.delete_local_playlist(mix)
+assert gui.playlist_custom_cover(mix) is None
+assert older_cover.is_file(), "deleting a playlist took another list's cover"
+
+# A playlist has one cover, so a second in another format replaces the first
+# rather than waiting behind it as a fallback.
+assert gui.set_playlist_cover(older, mix_image) == (
+    COVERS / ".covers" / "Mix.m3u.old.m3u.png"
+)
+assert not older_cover.exists(), "a playlist kept a cover in a second format"
+assert gui.playlist_custom_cover(older) == COVERS / ".covers" / "Mix.m3u.old.m3u.png"
+assert not list((COVERS / ".covers").glob("*.part")), "a half-copied image was left"
+
+# Landing on the name it already has is the one rename that clears nothing:
+# the cover slot it would be told to empty is the one its own image is in.
+unmoved = gui.rename_local_playlist(older, "Mix.m3u.old")
+assert unmoved == older, unmoved
+assert gui.playlist_custom_cover(older) == COVERS / ".covers" / "Mix.m3u.old.m3u.png"
+# A playlist that has gone is renamed to nothing at all, its own name included:
+# there is no file to move and nothing for the window to select afterwards.
+assert gui.rename_local_playlist(COVERS / "No Such.m3u", "No Such") is None
+assert gui.rename_local_playlist(COVERS / "No Such.m3u", "Something Else") is None
+assert not (COVERS / "Something Else.m3u").exists()
+
+# A playlist deleted by hand while the app was not running is deleted, and the
+# store has to catch up with that rather than reporting the deletion and
+# keeping the image.
+stray = gui.create_local_playlist(COVERS, "Stray", [first])
+gui.set_playlist_cover(stray, mix_image)
+stray_cover = gui.playlist_custom_cover(stray)
+stray.unlink()
+assert gui.delete_local_playlist(stray), "a playlist already gone was not deleted"
+assert not stray_cover.exists(), "a playlist gone from the folder kept its cover"
+
+# And an image that outlived its playlist some other way is not inherited by
+# the next list to be called that, however that list arrives.
+stray_cover.parent.mkdir(parents=True, exist_ok=True)
+stray_cover.write_bytes(b"left behind by a playlist that has gone")
+again = gui.create_local_playlist(COVERS, "Stray", [second])
+assert gui.playlist_custom_cover(again) is None, "a new playlist wore a stray cover"
+ghost_cover = COVERS / ".covers" / "Ghost.m3u.png"
+ghost_cover.write_bytes(b"left behind by a playlist that has gone")
+ghost = gui.rename_local_playlist(gui.create_local_playlist(COVERS, "Plain"), "Ghost")
+assert ghost == COVERS / "Ghost.m3u", ghost
+assert gui.playlist_custom_cover(ghost) is None, "a rename landed on a stray cover"
+
+# The ways storing a cover fails are told apart, because only one of them is
+# answered by choosing a different image: a playlist that has gone is a
+# repaint, a folder that refused the write is a folder to go and look at.
+kept = gui.create_local_playlist(COVERS, "Kept", [first])
+notes = MUSIC / "sleeve-notes.txt"
+notes.write_bytes(b"words about the record rather than a picture of it")
+assert gui.set_playlist_cover(COVERS / "No Such.m3u", mix_image) is gui.PLAYLIST_GONE
+assert gui.set_playlist_cover(kept, notes) is gui.IMAGE_UNSUPPORTED
+assert gui.set_playlist_cover(kept, MUSIC / "vanished.png") is gui.IMAGE_GONE
+assert gui.playlist_custom_cover(kept) is None, "a refused image was stored anyway"
+blocked_root = Path(tempfile.mkdtemp(prefix="blocked-"))
+blocked = gui.create_local_playlist(blocked_root, "Blocked", [first])
+(blocked_root / ".covers").write_bytes(b"a file where the store wants a folder")
+assert gui.set_playlist_cover(blocked, mix_image) is None
+assert gui.playlist_custom_cover(blocked) is None
+# Falsy like every other refusal in the store, so the obvious way to call this
+# cannot read one of them as a cover that was saved.
+assert not gui.IMAGE_GONE and not gui.IMAGE_UNSUPPORTED
+
+# None of which is a playlist: the store is a dotted folder beside them, so
+# neither the listing the rail is painted from nor the one a new name is
+# checked against sees it.
+assert [playlist.name for playlist in gui.local_playlists(COVERS)] == [
+    "Ghost", "Kept", "Mix.m3u.old", "Stray"
+]
+assert sorted(gui.playlist_names_here(COVERS)) == [
+    "Ghost", "Kept", "Mix.m3u.old", "Stray"
+]
 
 assert gui.add_entries(created, [first, second]) == 2
 assert gui.read_playlist_entries(created) == [str(first), str(second)]
@@ -557,6 +675,9 @@ class FakeWindow:
     _playlist_tracks = gui.IpodWindow._playlist_tracks
     _playlist_art = gui.IpodWindow._playlist_art
     _playlist_covers = gui.IpodWindow._playlist_covers
+    _playlist_cover_chosen = gui.IpodWindow._playlist_cover_chosen
+    _set_playlist_cover = gui.IpodWindow._set_playlist_cover
+    on_remove_playlist_cover = gui.IpodWindow.on_remove_playlist_cover
     _device_only_track = gui.IpodWindow._device_only_track
     _add_tracks_to_playlist = gui.IpodWindow._add_tracks_to_playlist
     _remove_track_from_playlist = gui.IpodWindow._remove_track_from_playlist
@@ -1214,10 +1335,9 @@ assert named(
     [gui.Playlist(n, None, []) for n in ("A", "B", "C", "D", "E")]
 ) == "A, B, C and 2 more"
 
-# A playlist is a list of paths and has no artwork of its own, so a tile or a
-# rail row shows the first cover the songs in it carry. Resolved through the
-# same lookup a row is, because the artwork has to be the artwork of the track
-# the list actually names.
+# Without a custom cover, a playlist tile or rail row shows the first artwork
+# its songs carry. It uses the same lookup as a row, so the image belongs to
+# the track the list actually names.
 covers = FakeWindow()
 plain = gui.Track(first, {"title": "Lithium"}, gui.STATE_LIBRARY)
 illustrated = gui.Track(
@@ -1238,6 +1358,62 @@ assert covers._playlist_art(covers._local_playlist("Illustrated")) == (
 # draws from the name; answering with some other list's artwork would be worse
 # than answering with none.
 assert covers._playlist_art(covers._local_playlist("Plain")) is None
+custom = MUSIC / "custom-playlist.jpg"
+custom.write_bytes(b"custom artwork")
+staged_before_cover = {
+    source: set(paths) for source, paths in covers.pending_sources.items()
+}
+commands_before_cover = list(covers.commands)
+assert covers._set_playlist_cover("Illustrated", custom)
+stored_custom = gui.playlist_custom_cover(PLAYLISTS / "Illustrated.m3u")
+assert stored_custom.read_bytes() == custom.read_bytes()
+assert covers._playlist_art(covers._local_playlist("Illustrated")) == str(
+    stored_custom
+)
+# A playlist cover is UI-only. Choosing one repaints the playlist but stages
+# no source and runs no device command.
+assert covers.pending_sources == staged_before_cover, covers.pending_sources
+assert covers.commands == commands_before_cover, covers.commands
+assert covers.on_remove_playlist_cover("Illustrated")
+assert gui.playlist_custom_cover(PLAYLISTS / "Illustrated.m3u") is None
+assert covers._playlist_art(covers._local_playlist("Illustrated")) == (
+    "/art/doolittle.png"
+)
+
+# Every way of not storing one is a different sentence, because they send the
+# user to different places. A file the store cannot hold asks for another
+# image; a playlist something else deleted is the repaint every other edit
+# answers with; and a store that refused the write names the folder, which no
+# amount of choosing images can fix.
+sleeve_notes = MUSIC / "notes-about-the-record.txt"
+sleeve_notes.write_bytes(b"words rather than a picture")
+assert not covers._set_playlist_cover("Illustrated", sleeve_notes)
+assert covers.toasts[-1] == "Choose a JPEG, PNG or WebP image", covers.toasts
+assert not covers._set_playlist_cover("Deleted Elsewhere", custom)
+assert covers.toasts[-1] == "There is no playlist called Deleted Elsewhere", (
+    covers.toasts
+)
+blocker = PLAYLISTS / ".covers"
+assert not blocker.exists(), "removing the last cover left an empty store folder"
+blocker.write_bytes(b"a file where the store wants a folder")
+assert not covers._set_playlist_cover("Illustrated", custom)
+assert covers.toasts[-1].startswith("Could not save the cover into "), covers.toasts
+blocker.unlink()
+
+# An image on a share the desktop has mounted over the network has no path on
+# this computer to copy from. The press says so rather than doing nothing.
+assert not covers._playlist_cover_chosen(
+    "Illustrated", Gio.File.new_for_uri("sftp://example.invalid/cover.png")
+)
+assert covers.toasts[-1] == "That location is not a local file", covers.toasts
+assert covers._playlist_cover_chosen(
+    "Illustrated", Gio.File.new_for_path(str(custom))
+)
+assert covers.toasts[-1] == "Playlist cover saved on this computer", covers.toasts
+assert covers.on_remove_playlist_cover("Illustrated")
+assert covers._playlist_art(covers._local_playlist("Illustrated")) == (
+    "/art/doolittle.png"
+)
 # A device playlist names files on the iPod, so its cover comes out of what
 # the device walk read rather than out of the library.
 on_device_art = gui.Track(

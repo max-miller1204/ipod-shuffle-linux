@@ -1,0 +1,53 @@
+== what reaches the iPod when a covered playlist is synced ==
+iPod the app found for itself: /tmp/covers-sync-3902219/MAX SHUFFLE
+files on the volume before anything: 9
+
+-- the cover, chosen in the window --
+the window said: 'Playlist cover saved on this computer'
+cover store on this computer: ['Downloads.m3u.png']
+staged for the next sync before choosing it: {}
+staged for the next sync after choosing it:  {}
+
+-- pressed Send to iPod, then Sync --
+the window said: 'Downloads · queued for sync'
+queued sources, which is exactly what the sync is given:
+  /tmp/covers-sync-3902219/home/Music/Playlists/Downloads.m3u
+the Sync button reads: 'Sync 3 changes'
+the window said: 'Sync complete'
+screenshot: 13-synced-with-the-cover-still-here.png
+
+the script's own output is in sync-log-from-the-window.txt
+-- what the iPod is holding afterwards --
+  Downloads.m3u
+  Morning Ride.m3u
+  iPod_Control/.sync-options
+  iPod_Control/Device/SysInfo
+  iPod_Control/Music/Nightbus/01 - Last Stop.mp3
+  iPod_Control/Music/Slow Copper/01 - Slow Copper.mp3
+  iPod_Control/Music/Warm Ridge/01 - Low Sun.mp3
+  iPod_Control/Music/Warm Ridge/02 - Ridge Line.mp3
+  iPod_Control/Speakable/Playlists/701bbf53ef350cc2.wav
+  iPod_Control/Speakable/Playlists/841c7a9ae1b8fbde.wav
+  iPod_Control/Speakable/Playlists/f33b082a1701e524.wav
+  iPod_Control/Speakable/System/battery.wav
+  iPod_Control/Speakable/Tracks/037d23b2ebb40ccb.wav
+  iPod_Control/Speakable/Tracks/11337344613c8009.wav
+  iPod_Control/Speakable/Tracks/173231d1cdf14745.wav
+  iPod_Control/Speakable/Tracks/2b31a356d6f4e26f.wav
+  iPod_Control/iTunes/iTunesSD
+image files on the device, by suffix: []
+files on the device matching the chosen image byte for byte: []
+the cover is still on this computer: ['Downloads.m3u.png']
+the playlist the device got, Downloads.m3u:
+  #EXTM3U
+  iPod_Control/Music/Nightbus/01 - Last Stop.mp3
+  iPod_Control/Music/Slow Copper/01 - Slow Copper.mp3
+
+-- ipod-sync.sh, run against the whole music folder --
+which is the folder the cover store lives in: /tmp/covers-sync-3902219/home/Music/Playlists/.covers
+$ /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZSJ7T28HD8M35MMKHBW3T5X/ipod-sync.sh --ipod /tmp/covers-sync-3902219/MAX SHUFFLE --yes --playlist-voiceover -- /tmp/covers-sync-3902219/home/Music
+exit code: 0
+files on the device now: 19
+image files on the device, by suffix: []
+files matching the chosen image byte for byte: []
+the cover store is untouched on this computer: ['Downloads.m3u.png']

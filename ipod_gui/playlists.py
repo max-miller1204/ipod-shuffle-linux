@@ -10,6 +10,12 @@ The file is the playlist. Nothing keeps an index beside it, so a list edited in
 another program, moved, or deleted by hand cannot disagree with a record of
 what it is supposed to hold - the same rule the preview cache follows.
 
+A custom cover is the one thing kept beside it: an image copied into a .covers
+folder under the same library and named after the whole playlist filename. It
+belongs to this computer and never reaches the device, and the file is still
+what says the playlist exists - an image found under a name whose playlist has
+gone is cleared rather than worn by the next list to be called that.
+
 The name is the filename, because that is what ipod-sync.sh turns into the
 playlist's spoken name on the device. So the characters FAT refuses are refused
 here, while the name is being typed, rather than silently mangled two steps
@@ -17,6 +23,8 @@ later by the sync and read out as something else.
 """
 
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 from .model import read_local_playlist_tracks
@@ -35,7 +43,7 @@ FAT_FORBIDDEN = set('\\/:*?"<>|') | {chr(code) for code in range(32)} | {"\x7f"}
 
 
 class _Gone:
-    """A named answer for something an edit looked for and did not find.
+    """A named answer for one particular way of not getting what was asked for.
 
     False rather than a truthy value of its own, because every other way to
     fail in this module is falsy - `move_entry` returns False for a stale
@@ -43,10 +51,11 @@ class _Gone:
     obvious `if move_entry(...)` reads one of these as the failure it is
     instead of toasting a reorder over a playlist it never rewrote.
 
-    Two of them rather than one, because a playlist that is not there and a
-    row that is not there are two different sentences over two different
-    repaints. They are told apart by identity, the way None is, so a caller
-    that only knows about one of them cannot mistake it for the other.
+    One each rather than one shared answer, because a playlist that is not
+    there, a row that is not there and an image that cannot be stored are
+    different sentences over different repaints. They are told apart by
+    identity, the way None is, so a caller that only knows about one of them
+    cannot mistake it for the other.
     """
 
     __slots__ = ("_name",)
@@ -328,44 +337,199 @@ def create_local_playlist(root, name, entries=()):
     copying a list off the device gives. One writer for both, because the two
     differ in nothing else: a name that is taken is refused either way, rather
     than overwriting a playlist that is sitting there.
+
+    It starts with no custom cover even when the store holds one under this
+    name. That image belonged to a playlist that has gone - deleted by hand
+    while the app was not running is all it takes - and reusing a name does
+    not make this the same list.
     """
     path = local_playlist_file(root, name)
     if path.exists():
         return None
-    return path if write_playlist_entries(path, entries) else None
+    if not write_playlist_entries(path, entries):
+        return None
+    remove_playlist_cover(path)
+    return path
+
+
+PLAYLIST_COVER_SUFFIXES = (".jpg", ".jpeg", ".png", ".webp")
+PLAYLIST_COVERS_FOLDER = ".covers"
+
+
+# The image a cover was to be copied from has gone since it was chosen, and an
+# image in a format the store cannot hold. Told apart because only the second
+# is answered by choosing a different kind of file, and neither is the folder
+# refusing the write, which is a folder to go and look at.
+IMAGE_GONE = _Gone("IMAGE_GONE")
+IMAGE_UNSUPPORTED = _Gone("IMAGE_UNSUPPORTED")
+
+
+def _cover_slots(playlist):
+    """Every filename a cover for this playlist file could be stored under.
+
+    A cover is named after the complete playlist filename, so ``Mix.m3u`` owns
+    ``.covers/Mix.m3u.png`` and the three other suffixes and nothing else. The
+    whole name rather than a prefix of it, because a prefix is not exclusive:
+    "Mix.m3u.old" is a name a user may type, and the cover it owns is
+    ``Mix.m3u.old.m3u.png``, which begins with everything "Mix" would match on.
+    """
+    folder = playlist.parent / PLAYLIST_COVERS_FOLDER
+    return [folder / f"{playlist.name}{suffix}" for suffix in PLAYLIST_COVER_SUFFIXES]
+
+
+def playlist_custom_cover(path):
+    """The image chosen for this local playlist, or None.
+
+    Covers live beside the playlist library, not in the M3U and not among the
+    tracks handed to the sync script. Naming them after the complete playlist
+    filename keeps a cover for ``Mix.m3u`` apart from an unrelated ``Mix.jpg``.
+
+    Four names asked about rather than the folder listed, because the rail
+    asks this for every playlist on it every time it repaints.
+    """
+    for cover in _cover_slots(Path(path)):
+        try:
+            if cover.is_file():
+                return cover
+        except OSError:
+            return None
+    return None
+
+
+def remove_playlist_cover(path):
+    """Remove a playlist's custom image, leaving song artwork as the fallback.
+
+    Every name a cover of this playlist could have rather than only the one
+    being shown, so a store holding two formats of it is left holding neither.
+    Also what keeps a name safe to reuse: a cover outliving the playlist it was
+    named after would be worn by the next list to be called the same thing.
+    """
+    playlist = Path(path)
+    removed = True
+    for cover in _cover_slots(playlist):
+        try:
+            cover.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            removed = False
+    try:
+        (playlist.parent / PLAYLIST_COVERS_FOLDER).rmdir()
+    except OSError:
+        pass
+    return removed
+
+
+def set_playlist_cover(path, image):
+    """Copy an image into the local cover store and return its new path.
+
+    The four ways this fails are four different sentences, and only one of
+    them is about the file that was chosen: PLAYLIST_GONE for a playlist that
+    is no longer there, IMAGE_UNSUPPORTED for a file the store cannot hold,
+    IMAGE_GONE for an image that went between being chosen and being copied,
+    and None for a folder that refused the write. Told apart here rather than
+    collapsed into one, because a read-only playlist folder answered as "pick
+    another image" leaves the user choosing files against a refusal that
+    cannot change.
+
+    Copied through a temporary file in the destination folder and renamed over
+    what was there, so a copy that fails halfway leaves the playlist wearing
+    the cover it had rather than half an image.
+    """
+    playlist = Path(path)
+    source = Path(image)
+    suffix = source.suffix.lower()
+    if not playlist.is_file():
+        return PLAYLIST_GONE
+    if suffix not in PLAYLIST_COVER_SUFFIXES:
+        return IMAGE_UNSUPPORTED
+    if not source.is_file():
+        return IMAGE_GONE
+
+    folder = playlist.parent / PLAYLIST_COVERS_FOLDER
+    destination = folder / f"{playlist.name}{suffix}"
+    if source == destination:
+        return destination
+    staging = None
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        descriptor, staging = tempfile.mkstemp(dir=folder, suffix=".part")
+        os.close(descriptor)
+        shutil.copyfile(source, staging)
+        os.replace(staging, destination)
+    except OSError:
+        if staging is not None:
+            try:
+                Path(staging).unlink()
+            except OSError:
+                pass
+        return None
+
+    # A playlist has one cover, so a cover it had in another format is not a
+    # second one to fall back to: it is the image this one replaces.
+    for other in _cover_slots(playlist):
+        if other != destination:
+            try:
+                other.unlink()
+            except OSError:
+                pass
+    return destination
 
 
 def delete_local_playlist(path):
-    """Delete a playlist's file. True when it is gone afterwards.
+    """Delete a playlist and its computer-only custom cover.
 
-    Given the file rather than the name it is listed under, because a name does
-    not name a file: a Gym.M3U dropped into the folder by another program is
-    read as "Gym", and rebuilding "Gym.m3u" from that would report deleting a
-    playlist that is still sitting there.
+    True once the playlist is gone, which includes finding it already gone: a
+    list deleted in another program is deleted, and this window is painted
+    from an older reading of the folder. The cover is cleared on that path
+    too, or the deletion would leave behind an image with nothing to belong
+    to for the next playlist of that name to inherit.
     """
+    playlist = Path(path)
     try:
-        Path(path).unlink()
+        playlist.unlink()
     except FileNotFoundError:
-        return True
+        pass
     except OSError:
         return False
+    remove_playlist_cover(playlist)
     return True
 
 
 def rename_local_playlist(path, new_name):
-    """Move a playlist to a new name, returning its file or None.
+    """Move a playlist and its computer-only custom cover to a new name.
 
-    Refuses to land on an existing playlist, so a rename can never silently
-    swallow the list that was already called that. The new file is written with
-    the suffix this app owns, whatever the old one happened to be spelled.
+    The cover moves first and is moved back if the playlist itself will not
+    move, so a rename that fails leaves both files where they were. Whatever
+    the new name's cover slots held is cleared either way: the name was free,
+    so anything stored under it belonged to a playlist that has gone, and a
+    renamed list must not arrive wearing it.
+
+    Landing on the name it already has moves nothing and clears nothing - the
+    slot the cover is in is its own. It is still answered against the folder
+    rather than waved through, because a playlist that has gone has not been
+    renamed to anything, its own name included.
     """
     source = Path(path)
     destination = local_playlist_file(source.parent, new_name)
-    if destination.exists() and destination != source:
+    if destination == source:
+        return destination if source.is_file() else None
+    if destination.exists():
         return None
+    cover = playlist_custom_cover(source)
+    renamed_cover = None
+    remove_playlist_cover(destination)
     try:
+        if cover is not None:
+            renamed_cover = cover.with_name(f"{destination.name}{cover.suffix}")
+            os.replace(cover, renamed_cover)
         os.replace(source, destination)
     except OSError:
+        if cover is not None and renamed_cover is not None:
+            try:
+                os.replace(renamed_cover, cover)
+            except OSError:
+                pass
         return None
     return destination
 
@@ -396,6 +560,10 @@ def import_playlist_file(root, source, taken=()):
     name moves to the next free number instead. The write is still refused
     outright if the file appears between that listing and the write, because a
     playlist that is already there is never overwritten.
+
+    It arrives with no cover for the reason create_local_playlist does: the
+    name it lands on is free, so anything the store holds under it belonged to
+    a playlist that has gone.
     """
     source = Path(source)
     tracks, complete = read_local_playlist_tracks(source)
@@ -409,6 +577,7 @@ def import_playlist_file(root, source, taken=()):
         return None, 0, f"There is already a playlist called {path.stem}"
     if not write_playlist_entries(path, tracks):
         return None, 0, f"Could not write into {path.parent}"
+    remove_playlist_cover(path)
     return path, len(tracks), None
 
 
