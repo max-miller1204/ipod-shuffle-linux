@@ -19,8 +19,8 @@ after one can honestly answer from before the work landed.
 
 Needs a display, so CI runs it under xvfb. Hermetic: HOME is a temporary
 directory set before the package is imported, so the scan the window starts at
-startup reads this fixture's music folder rather than the real one, and the
-counts in the dump are the fixture's own.
+startup reads the music folder written below rather than the real one, and the
+counts in the dump are a library this file knows the whole of.
 """
 
 import json
@@ -34,7 +34,18 @@ os.environ["HOME"] = _SANDBOX
 os.environ["XDG_CACHE_HOME"] = str(Path(_SANDBOX, "cache"))
 os.environ["XDG_CONFIG_HOME"] = str(Path(_SANDBOX, "config"))
 os.environ["XDG_DATA_HOME"] = str(Path(_SANDBOX, ".local/share"))
-Path(_SANDBOX, "Music").mkdir(parents=True, exist_ok=True)
+
+# The music folder the window scans at startup, written before the package is
+# imported so the roots it reads are these. Two files rather than none, because
+# the counts in the dump are one of the things being checked and a library of
+# nothing agrees with every possible way of counting it.
+MUSIC = Path(_SANDBOX, "Music")
+MUSIC.mkdir(parents=True, exist_ok=True)
+LIBRARY_SONGS = []
+for _stem in ("01 - Kept", "02 - Held"):
+    _song = MUSIC / f"{_stem}.mp3"
+    _song.write_bytes(b"a song in the library")
+    LIBRARY_SONGS.append(_song)
 
 from harness import gui  # noqa: E402
 
@@ -122,6 +133,28 @@ if window is None:
 # the window's own startup rather than testing the action.
 if not settle(lambda: window.probe_answered):
     raise SystemExit("the window's first device probe never landed")
+if not settle(lambda: not window._library_scan_running):
+    raise SystemExit("the window's first library scan never finished")
+
+# What the dump says about a library this file wrote every file of. Asserted as
+# the numbers themselves rather than against the window's own tally, which
+# would be the check asking the implementation to agree with itself. The
+# distinction it pins is the one worth pinning: these are tracks, and the pills
+# the library page draws count collections whenever the grid is up, so an
+# implementation that answered with `counts()` would be reporting one album
+# here where a machine client asked how many songs there are.
+QUIET_LIBRARY = {"ipod": 0, "queued": 0, "library": len(LIBRARY_SONGS), "preview": 0}
+state = dump(app)
+check(
+    set(state["visibleCounts"]) == set(gui.STATE_LABELS),
+    f"the counts are keyed {sorted(state['visibleCounts'])} rather than by the "
+    f"states the pills are labelled with, {sorted(gui.STATE_LABELS)}",
+)
+check(
+    state["visibleCounts"] == QUIET_LIBRARY,
+    f"over {len(LIBRARY_SONGS)} files in the music folder and nothing staged, "
+    f"the dump counts {state['visibleCounts']}",
+)
 
 # The exported surface as a client meets it: the names, and the argument each
 # one takes. A client passes a string blind over D-Bus, so an action that
@@ -203,12 +236,13 @@ check(
 # in place of results without a network round trip, and the same sentence every
 # run. It arrives on the field's own debounce rather than with the action.
 settle(lambda: window.search_note)
-check(bool(window.search_note), "the search page put no note up for 'a'")
+note = window.search_note
+check(bool(note), "the search page put no note up for 'a'")
 state = dump(app)
 check(
-    state["inlineError"] == window.search_note,
+    state["inlineError"] == note,
     f"the dump reports {state['inlineError']!r} as the inline error while the "
-    f"search page is showing {window.search_note!r}",
+    f"search page is showing {note!r}",
 )
 
 # The other half of the refusal: a name that goes nowhere must not end the
@@ -225,12 +259,23 @@ check(
     "navigating to a page that does not exist emptied the search field",
 )
 
-# And away from search the field goes quiet, so the note is not reported as
-# something the window is showing when nothing is showing it.
-app.activate_action("navigate", GLib.Variant("s", "playlists"))
+# And a page that outlives the note it left behind. Following a sidebar row
+# would prove nothing here, because that ends the search on its way out and
+# empties the note first; the shape this field is gated for is the one the
+# window reaches from a result's own ⋯ menu, where creating a playlist runs
+# _select_playlist and shows the playlists page with the search untouched. So
+# the page is changed the way that path changes it, and the note stays set
+# behind it while nothing on screen is showing it.
+window.show_view("playlists")
+check(
+    window.search_note == note,
+    f"leaving the search page this way was supposed to leave the note alone, "
+    f"but it now reads {window.search_note!r}",
+)
 check(
     dump(app)["inlineError"] == "",
-    "the dump still reports a search note with the search page closed",
+    f"the dump reports {note!r} as an inline error while the playlists page is "
+    f"up and nothing is showing it",
 )
 
 # --------------------------------------------------------------------- queue
@@ -268,6 +313,15 @@ check(
     f"the queue is staged against {staged['deviceIdentity']!r}",
 )
 
+# And the counts moved with it. The staged song is outside every music root, so
+# it is a track the queue is the only holder of: it joins the tally as queued
+# without leaving the library count, which is what makes this a reading of the
+# merge rather than of the scan.
+check(
+    dump(app)["visibleCounts"] == {**QUIET_LIBRARY, "queued": 1},
+    f"with one song staged the dump counts {dump(app)['visibleCounts']}",
+)
+
 # ------------------------------------------------------------------- refresh
 
 # Waited out first, because the window starts a scan of its own as it opens and
@@ -294,16 +348,6 @@ check(
         "inlineError",
     },
     f"the document's fields are {sorted(state)}",
-)
-check(
-    set(state["visibleCounts"]) == set(gui.STATE_LABELS),
-    f"the counts are keyed {sorted(state['visibleCounts'])} rather than by the "
-    f"states the pills are labelled with, {sorted(gui.STATE_LABELS)}",
-)
-check(
-    state["visibleCounts"] == window.library.track_counts(),
-    f"the counts say {state['visibleCounts']} over a library the window "
-    f"counts as {window.library.track_counts()}",
 )
 check(
     state["nowPlaying"]["track"] is None
