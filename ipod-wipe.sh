@@ -148,22 +148,28 @@ if (( ! ASSUME_YES )); then
     confirm "Wipe this iPod?" || die_with "$EXIT_DECLINED" "Aborted."
 fi
 
+assert_watched_device
 progress_stage clear start
 if [[ -d "$MUSIC_DIR" ]]; then
+    assert_watched_device
     rm -rf "${MUSIC_DIR:?}"/*
     info "Removed $track_count track(s)"
 fi
+assert_watched_device
 mkdir -p "$MUSIC_DIR"
 
 if (( ${#ROOT_PLAYLISTS[@]} > 0 )); then
+    assert_watched_device
     rm -f -- "${ROOT_PLAYLISTS[@]}"
     playlist_count=${#ROOT_PLAYLISTS[@]}
     info "Removed ${#ROOT_PLAYLISTS[@]} playlist(s)"
 fi
 
 for f in "${STALE_STATE[@]}"; do
+    assert_watched_device
     rm -f "$ITUNES_DIR/$f"
 done
+assert_watched_device
 rm -f "$(sync_options_file "$IPOD")"
 info "Cleared stale iTunes state and previous-owner library binding"
 WIPED=1

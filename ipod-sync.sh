@@ -221,6 +221,7 @@ prepare_operation sync "$IPOD" "$DEVICE_WATCH_IDENTITY" "$CLEAR" \
     "$@"
 info "iPod: $IPOD"
 
+assert_watched_device
 mkdir -p "$MUSIC_DIR"
 
 if (( CLEAR )); then
@@ -238,6 +239,7 @@ if (( CLEAR )); then
         fi
         confirm "$clear_prompt" || die_with "$EXIT_DECLINED" "Aborted."
     fi
+    assert_watched_device
     if (( existing > 0 )); then
         rm -rf "${MUSIC_DIR:?}"/*
         info "Removed $existing track(s)"
@@ -297,6 +299,7 @@ copy_track() {
         warn "Destination already holds a different track; copying this one as ${COPY_TARGET#"$MUSIC_DIR"/}."
     fi
 
+    assert_watched_device
     mkdir -p "$(dirname "$COPY_TARGET")"
     cp "$source" "$COPY_TARGET"
     copied=$((copied + 1))
@@ -461,6 +464,7 @@ sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
         warn "  ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3"
     fi
     if (( added == 0 )); then
+        assert_watched_device
         for existing_target in "$target" "$pls_target"; do
             if [[ -f "$existing_target" ]]; then
                 rm -f -- "$existing_target"
@@ -476,6 +480,7 @@ sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
         fi
         return 0
     fi
+    assert_watched_device
     atomic_replace_lines "$target" "#EXTM3U" "${lines[@]}"
     rm -f -- "$pls_target"
     PLAYLIST_TARGET_SOURCES["$reservation_key"]="$list"
@@ -625,6 +630,7 @@ fi
 rebuild_database "$IPOD" "${DB_ARGS[@]+"${DB_ARGS[@]}"}"
 
 if (( ${#DB_ARGS[@]} > 0 )); then
+    assert_watched_device
     options_tmp="$(mktemp "${OPTIONS_FILE}.tmp.XXXXXX")" \
         || die "Could not create a temporary options file on the iPod."
     trap 'rm -f -- "${options_tmp:-}"' EXIT
@@ -635,6 +641,7 @@ if (( ${#DB_ARGS[@]} > 0 )); then
     options_tmp=""
     trap - EXIT
 else
+    assert_watched_device
     rm -f -- "$OPTIONS_FILE" \
         || die "Could not clear playlist and voiceover options from the iPod."
 fi

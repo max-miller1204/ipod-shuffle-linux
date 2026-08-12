@@ -411,6 +411,9 @@ device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-after-stale.txt
 diff -u "$EVIDENCE_DIR/handshake-device-swapped.txt" \
     "$EVIDENCE_DIR/handshake-device-after-stale.txt"
 
+/usr/bin/python3 "$ROOT/tests/operation-authorization-pty.py" \
+    "$ROOT" "$EVIDENCE_DIR"
+
 # A plan is the whole of stdout, on a device that has something to say first.
 # Every sync that was given options saves them, and the next run announces the
 # ones it is replaying: printed where the plan goes, that sentence leaves the
@@ -3084,6 +3087,7 @@ printf '%s\n' \
     "PASS: a dry run of each script printed its plan and left the device byte for byte" \
     "PASS: a guessed token, another plan's token and a changed plan were each refused" \
     "PASS: every device-changing script refused an iPod swapped in behind the plan" \
+    "PASS: terminal confirmation rejected a swapped iPod and --yes still required a plan token" \
     "PASS: --yes answered the Speakable prompt too, in all three scripts" \
     "PASS: wipe backed up music/database and preserved Speakable plus Device state" \
     "PASS: JSON mount detection retained a mount path containing spaces" \
