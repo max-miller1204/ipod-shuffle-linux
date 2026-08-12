@@ -1,0 +1,1 @@
+{"action":"remove","device":{"mount":"/tmp/tmp.bFAVSXA8PH/iPod","identity":"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"},"destructive":true,"arguments":["playlist-mode=0","eject=0","tracks=1","/tmp/tmp.bFAVSXA8PH/iPod/iPod_Control/Music/Harbour Tapes/01 - Pier Lights.mp3"],"confirmationToken":"337e55be80f9b51a3e3aad1cf1d01dbd8d3bc915c7020e2e5404297eed04d091"}

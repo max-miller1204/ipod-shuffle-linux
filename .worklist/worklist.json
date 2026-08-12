@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 162,
+  "revision": 163,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -235,9 +235,10 @@
       "dependsOn": [
         "json-output-and-stable-exit-codes-for"
       ],
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-07T21:37:54.443Z",
-      "updatedAt": "2026-08-07T21:37:54.443Z"
+      "updatedAt": "2026-08-12T01:02:49.197Z",
+      "completedAt": "2026-08-12T01:02:49.197Z"
     },
     {
       "id": "a-headless-cli-over-the-ipod-gui-package",

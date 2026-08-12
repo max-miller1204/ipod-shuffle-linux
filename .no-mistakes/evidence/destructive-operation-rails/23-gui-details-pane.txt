@@ -1,0 +1,14 @@
+What the window's Details pane held after the removal, which is
+ipod-remove.sh's own output read back off the app's log view:
+
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+==> iPod: /tmp/rails-shots-fary1q1v/iPod
+==> Removed 1 track(s)
+==> Rebuilding iTunesSD database
+==> iPod now holds 2 track(s)
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject
+
+Still in the iPod's music folder afterwards:
+  Kite Season/01 - Harbour Light.mp3
+  Kite Season/03 - Pier Lights.mp3

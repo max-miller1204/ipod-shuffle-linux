@@ -21,6 +21,9 @@ readonly STALE_STATE=(
 IPOD=""
 BACKUP_DIR=""
 PROGRESS_TARGET=""
+DRY_RUN=0
+EXPECT_DEVICE=""
+CONFIRM_TOKEN=""
 
 # Declared before anything can fail, because the result event is written from
 # wherever the run ends rather than from where the device is counted. WIPED is
@@ -42,6 +45,11 @@ Options:
   -i, --ipod PATH     iPod mount point (default: autodetect)
   -b, --backup DIR    Copy existing music and databases to DIR first
   -y, --yes           Answer yes to every prompt
+      --dry-run       Print the exact operation plan as JSON and change nothing
+      --expect-device ID
+                      Refuse unless the mounted iPod has this identity
+      --confirm-token TOKEN
+                      Approve the exact non-interactive plan from --dry-run
       --progress-json[=FD]
                       Report progress as one JSON object per line on
                       descriptor FD (default 3), which the caller opens. The
@@ -61,6 +69,9 @@ while [[ $# -gt 0 ]]; do
         -i|--ipod)   IPOD="$2"; shift 2 ;;
         -b|--backup) BACKUP_DIR="$2"; shift 2 ;;
         -y|--yes)    ASSUME_YES=1; shift ;;
+        --dry-run)    DRY_RUN=1; shift ;;
+        --expect-device) EXPECT_DEVICE="$2"; shift 2 ;;
+        --confirm-token) CONFIRM_TOKEN="$2"; shift 2 ;;
         --progress-json|--progress-json=*) progress_flag "$1"; shift ;;
         -h|--help)   usage; exit 0 ;;
         *)           die "Unknown option: $1 (try --help)" ;;
@@ -99,7 +110,13 @@ ITUNES_DIR="$IPOD/iPod_Control/iTunes"
 # the only record of which songs made up that playlist.
 mapfile -d '' -t ROOT_PLAYLISTS < <(root_playlist_files "$IPOD")
 
-track_count="$(count_files "$MUSIC_DIR" 2>/dev/null)"
+track_count="$(count_files_present "$MUSIC_DIR")"
+prepare_operation wipe "$IPOD" "$DEVICE_WATCH_IDENTITY" 1 \
+    "$EXPECT_DEVICE" "$CONFIRM_TOKEN" "$DRY_RUN" \
+    "backup=$BACKUP_DIR" \
+    "tracks=$track_count" \
+    "playlists=${#ROOT_PLAYLISTS[@]}" \
+    "stale-state=${STALE_STATE[*]}"
 info "iPod: $IPOD"
 info "Tracks currently on device: $track_count"
 
@@ -117,7 +134,7 @@ if [[ -n "$BACKUP_DIR" ]]; then
     # Verify before anything irreversible happens. The iTunesDB copy matters as
     # much as the audio: iPod filenames are scrambled four-character codes, and
     # that database is what maps them back to real artist and title metadata.
-    backed_up="$(count_files "$BACKUP_DIR/Music" 2>/dev/null)"
+    backed_up="$(count_files_present "$BACKUP_DIR/Music")"
     (( backed_up == track_count )) \
         || die "Backup verification failed: $backed_up of $track_count files copied."
     info "Backup verified: $backed_up track(s) plus databases"
@@ -154,7 +171,7 @@ progress_stage clear 'done'
 
 rebuild_database "$IPOD"
 
-info "Preserved: $(count_files "$IPOD/iPod_Control/Speakable" 2>/dev/null) Speakable prompt file(s)"
+info "Preserved: $(count_files_present "$IPOD/iPod_Control/Speakable") Speakable prompt file(s)"
 info "Wipe complete. The iPod is empty and ready for ./ipod-sync.sh"
 
 warn "Unmount before unplugging:  ./ipod-sync.sh --rebuild-only --eject"

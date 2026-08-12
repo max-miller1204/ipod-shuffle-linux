@@ -36,6 +36,22 @@ export IPOD_DB_TOOL="$ROOT/tests/fake-db-builder.py"
 export IPOD_VENV_PYTHON="/usr/bin/python3"
 export FAKE_DB_RECORD="$DB_RECORD"
 
+run_approved() {
+    local script="$1" plan identity token arg
+    local -a plan_args=()
+    shift
+    for arg in "$@"; do
+        case "$arg" in
+            --progress-json|--progress-json=*) ;;
+            *) plan_args+=("$arg") ;;
+        esac
+    done
+    plan="$("$script" --dry-run "${plan_args[@]}")"
+    identity="$(/usr/bin/python3 -c 'import json,sys; print(json.loads(sys.argv[1])["device"]["identity"])' "$plan")"
+    token="$(/usr/bin/python3 -c 'import json,sys; print(json.loads(sys.argv[1])["confirmationToken"])' "$plan")"
+    "$script" --expect-device "$identity" --confirm-token "$token" "$@"
+}
+
 "$ROOT/ipod-sync.sh" \
     --ipod "$IPOD" \
     --dir-playlists \
@@ -137,13 +153,8 @@ diff -u <(printf '%s\n' \
     --playlist-voiceover) \
     "$EFFECTIVE_OPTIONS_IPOD/iPod_Control/.sync-options"
 
-# --clear is the one destructive thing sync does, so it asks first, and with no
-# terminal attached that question answers itself as no. Without --yes the only
-# way to drive it from a script was to pipe a "y" into stdin.
-#
-# stdin is closed deliberately in both halves: a regression that reinstated the
-# prompt would then abort or hang here rather than quietly reading a stray
-# newline and looking like it passed.
+# --clear is destructive. A closed stdin refuses it even when --yes is passed,
+# until the caller returns the token from the exact dry-run plan.
 # On a throwaway device, because --clear deletes what later checks still expect
 # to find on the shared one.
 YES_SOURCE="$TEST_ROOT/yes-source"
@@ -159,21 +170,35 @@ printf '%s\n' '#EXTM3U' > "$YES_IPOD/Existing.M3U"
 if "$ROOT/ipod-sync.sh" \
     --ipod "$YES_IPOD" \
     --clear \
-    "$YES_SOURCE" < /dev/null > "$EVIDENCE_DIR/clear-without-yes.txt" 2>&1; then
-    echo "--clear cleared the iPod without anyone confirming it" >&2
+    --yes \
+    "$YES_SOURCE" < /dev/null > "$EVIDENCE_DIR/clear-without-token.txt" 2>&1; then
+    echo "--clear accepted --yes as machine authorization" >&2
     exit 1
 fi
-grep -Fq 'Aborted.' "$EVIDENCE_DIR/clear-without-yes.txt"
+grep -Fq 'Non-interactive destructive action refused' \
+    "$EVIDENCE_DIR/clear-without-token.txt"
 test -s "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
 test -f "$YES_IPOD/Existing.M3U"
 
-"$ROOT/ipod-sync.sh" \
+clear_plan="$("$ROOT/ipod-sync.sh" \
     --ipod "$YES_IPOD" \
     --clear \
     --yes \
-    "$YES_SOURCE" < /dev/null > "$EVIDENCE_DIR/clear-with-yes.txt" 2>&1
-grep -Fq 'Delete 1 existing track(s) and 1 playlist(s) from the iPod?' \
-    "$EVIDENCE_DIR/clear-with-yes.txt"
+    --dry-run \
+    "$YES_SOURCE" < /dev/null)"
+/usr/bin/python3 -c '
+import json, sys
+plan = json.loads(sys.argv[1])
+assert plan["action"] == "sync"
+assert plan["destructive"] is True
+assert plan["arguments"][-1] == sys.argv[2]
+assert plan["confirmationToken"]
+' "$clear_plan" "$YES_SOURCE"
+run_approved "$ROOT/ipod-sync.sh" \
+    --ipod "$YES_IPOD" \
+    --clear \
+    --yes \
+    "$YES_SOURCE" < /dev/null > "$EVIDENCE_DIR/clear-with-token.txt" 2>&1
 test -f "$YES_IPOD/iPod_Control/Music/yes-source/track.mp3"
 test ! -e "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
 test ! -e "$YES_IPOD/Existing.M3U"
@@ -192,17 +217,325 @@ if "$ROOT/ipod-sync.sh" \
     echo "--clear removed a playlist without confirmation" >&2
     exit 1
 fi
-grep -Fq 'Aborted.' "$EVIDENCE_DIR/clear-playlist-only-without-yes.txt"
+grep -Fq 'Non-interactive destructive action refused' \
+    "$EVIDENCE_DIR/clear-playlist-only-without-yes.txt"
 test -f "$PLAYLIST_ONLY_IPOD/Only List.PLS"
-"$ROOT/ipod-sync.sh" \
+run_approved "$ROOT/ipod-sync.sh" \
     --ipod "$PLAYLIST_ONLY_IPOD" \
     --clear \
     --yes \
     "$YES_SOURCE" < /dev/null \
-    > "$EVIDENCE_DIR/clear-playlist-only-with-yes.txt" 2>&1
-grep -Fq 'Delete 1 playlist(s) from the iPod?' \
-    "$EVIDENCE_DIR/clear-playlist-only-with-yes.txt"
+    > "$EVIDENCE_DIR/clear-playlist-only-with-token.txt" 2>&1
 test ! -e "$PLAYLIST_ONLY_IPOD/Only List.PLS"
+
+# Everything the handshake refuses, on one device that starts with two tracks.
+# A machine caller has exactly one way through - the plan it was printed,
+# returned unaltered, against the device it was printed for - and the three
+# ways past it that look plausible from outside are a token that was guessed,
+# a token that belonged to another plan, and a token that belonged to the iPod
+# which used to be plugged in here. Each of them is one keystroke away from
+# the deletion the plan described.
+HANDSHAKE_IPOD="$TEST_ROOT/handshake-target"
+mkdir -p \
+    "$HANDSHAKE_IPOD/iPod_Control/iTunes" \
+    "$HANDSHAKE_IPOD/iPod_Control/Music/Album" \
+    "$HANDSHAKE_IPOD/iPod_Control/Speakable/System" \
+    "$HANDSHAKE_IPOD/iPod_Control/Device"
+printf 'spoken battery prompt\n' \
+    > "$HANDSHAKE_IPOD/iPod_Control/Speakable/System/battery.wav"
+printf 'the iPod the caller inspected\n' \
+    > "$HANDSHAKE_IPOD/iPod_Control/Device/SysInfo"
+printf 'keep me\n' > "$HANDSHAKE_IPOD/iPod_Control/Music/Album/01 - Keep.mp3"
+printf 'keep me too\n' \
+    > "$HANDSHAKE_IPOD/iPod_Control/Music/Album/02 - Also Keep.mp3"
+
+# What a refusal is worth is read off the volume rather than out of the
+# sentence it printed: a run that says it refused and deletes anyway is the
+# failure all of this exists to prevent, and it would print the same words.
+device_state() {
+    find "$1" -mindepth 1 -printf '%y %P\n' | sort
+    find "$1" -type f -exec md5sum {} + | sed "s|$1/||" | sort
+}
+device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-before.txt"
+
+handshake_sync_plan="$("$ROOT/ipod-sync.sh" \
+    --ipod "$HANDSHAKE_IPOD" --clear --yes --dry-run "$YES_SOURCE" \
+    < /dev/null 2> "$EVIDENCE_DIR/handshake-plan-sync.stderr.txt")"
+handshake_remove_plan="$("$ROOT/ipod-remove.sh" \
+    --ipod "$HANDSHAKE_IPOD" --yes --dry-run 'Album/01 - Keep.mp3' \
+    < /dev/null 2> "$EVIDENCE_DIR/handshake-plan-remove.stderr.txt")"
+handshake_wipe_plan="$("$ROOT/ipod-wipe.sh" \
+    --ipod "$HANDSHAKE_IPOD" --yes --dry-run \
+    < /dev/null 2> "$EVIDENCE_DIR/handshake-plan-wipe.stderr.txt")"
+printf '%s\n' "$handshake_sync_plan" "$handshake_remove_plan" \
+    "$handshake_wipe_plan" > "$EVIDENCE_DIR/handshake-plans.ndjson"
+
+# Three plans for the same mounted iPod: the same device either way, a
+# separate approval each, and a volume none of them wrote to.
+/usr/bin/python3 -c '
+import json, sys
+plans = [json.loads(line) for line in open(sys.argv[1])]
+mount = sys.argv[2]
+assert [p["action"] for p in plans] == ["sync", "remove", "wipe"], plans
+for plan in plans:
+    assert plan["destructive"] is True, plan
+    assert plan["device"]["mount"] == mount, plan
+    assert plan["device"]["identity"], plan
+    assert plan["confirmationToken"], plan
+assert len({p["device"]["identity"] for p in plans}) == 1, plans
+assert len({p["confirmationToken"] for p in plans}) == 3, plans
+' "$EVIDENCE_DIR/handshake-plans.ndjson" "$HANDSHAKE_IPOD"
+device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-after-plans.txt"
+diff -u "$EVIDENCE_DIR/handshake-device-before.txt" \
+    "$EVIDENCE_DIR/handshake-device-after-plans.txt"
+
+handshake_identity="$(/usr/bin/python3 -c \
+    'import json,sys; print(json.loads(sys.argv[1])["device"]["identity"])' \
+    "$handshake_remove_plan")"
+handshake_remove_token="$(/usr/bin/python3 -c \
+    'import json,sys; print(json.loads(sys.argv[1])["confirmationToken"])' \
+    "$handshake_remove_plan")"
+
+# A token that is not this plan's is not a weaker approval, it is none: a
+# caller that invents one, or that keeps returning the one it was given
+# yesterday, is a caller that never read what it is about to do.
+handshake_wrong=0
+"$ROOT/ipod-remove.sh" \
+    --ipod "$HANDSHAKE_IPOD" \
+    --yes \
+    --confirm-token \
+    0000000000000000000000000000000000000000000000000000000000000000 \
+    'Album/01 - Keep.mp3' < /dev/null \
+    > "$EVIDENCE_DIR/handshake-wrong-token.txt" 2>&1 || handshake_wrong=$?
+test "$handshake_wrong" -eq 7
+grep -Fq 'Non-interactive destructive action refused' \
+    "$EVIDENCE_DIR/handshake-wrong-token.txt"
+
+# The token is this plan's, and the run is not: one names the other track, the
+# other adds an option. Approval that survived either would be approval of the
+# words "delete something" rather than of the deletion the caller read.
+handshake_changed_target=0
+"$ROOT/ipod-remove.sh" \
+    --ipod "$HANDSHAKE_IPOD" \
+    --yes \
+    --confirm-token "$handshake_remove_token" \
+    'Album/02 - Also Keep.mp3' < /dev/null \
+    > "$EVIDENCE_DIR/handshake-changed-target.txt" 2>&1 \
+    || handshake_changed_target=$?
+test "$handshake_changed_target" -eq 7
+grep -Fq 'Non-interactive destructive action refused' \
+    "$EVIDENCE_DIR/handshake-changed-target.txt"
+
+handshake_changed_options=0
+"$ROOT/ipod-remove.sh" \
+    --ipod "$HANDSHAKE_IPOD" \
+    --yes \
+    --eject \
+    --confirm-token "$handshake_remove_token" \
+    'Album/01 - Keep.mp3' < /dev/null \
+    > "$EVIDENCE_DIR/handshake-changed-options.txt" 2>&1 \
+    || handshake_changed_options=$?
+test "$handshake_changed_options" -eq 7
+grep -Fq 'Non-interactive destructive action refused' \
+    "$EVIDENCE_DIR/handshake-changed-options.txt"
+
+device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-after-refusals.txt"
+diff -u "$EVIDENCE_DIR/handshake-device-before.txt" \
+    "$EVIDENCE_DIR/handshake-device-after-refusals.txt"
+
+# The same command with the plan's own token and the plan's own device goes
+# through, which is what makes the three refusals above answers to what was
+# wrong with them rather than a script that refuses everything.
+"$ROOT/ipod-remove.sh" \
+    --ipod "$HANDSHAKE_IPOD" \
+    --yes \
+    --expect-device "$handshake_identity" \
+    --confirm-token "$handshake_remove_token" \
+    'Album/01 - Keep.mp3' < /dev/null \
+    > "$EVIDENCE_DIR/handshake-approved-remove.txt" 2>&1
+test ! -e "$HANDSHAKE_IPOD/iPod_Control/Music/Album/01 - Keep.mp3"
+test -s "$HANDSHAKE_IPOD/iPod_Control/Music/Album/02 - Also Keep.mp3"
+
+# The iPod that was inspected, unplugged and replaced at the same mount point
+# by another one before the run it authorized arrives. A volume formatted
+# without a filesystem UUID answers with the device's own SysInfo instead,
+# which is what a second iPod plugged in here changes; findmnt is answered the
+# way it answers for such a volume, so this reads the same wherever the
+# suite's temporary directory happens to live.
+STALE_PATH="$TEST_ROOT/stale-device-bin"
+mkdir -p "$STALE_PATH"
+printf '%s\n' '#!/usr/bin/env bash' 'printf -- "-\n"' > "$STALE_PATH/findmnt"
+chmod +x "$STALE_PATH/findmnt"
+stale_plan="$(PATH="$STALE_PATH:$BASE_PATH" "$ROOT/ipod-wipe.sh" \
+    --ipod "$HANDSHAKE_IPOD" --yes --dry-run < /dev/null 2>/dev/null)"
+stale_identity="$(/usr/bin/python3 -c \
+    'import json,sys; print(json.loads(sys.argv[1])["device"]["identity"])' \
+    "$stale_plan")"
+stale_token="$(/usr/bin/python3 -c \
+    'import json,sys; print(json.loads(sys.argv[1])["confirmationToken"])' \
+    "$stale_plan")"
+case "$stale_identity" in
+    sysinfo:?*) ;;
+    *) echo "a volume with no UUID did not identify itself by SysInfo" >&2
+       exit 1 ;;
+esac
+printf 'a different iPod\n' \
+    > "$HANDSHAKE_IPOD/iPod_Control/Device/SysInfo"
+device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-swapped.txt"
+
+# Every script that changes the device asks, including a plain sync with no
+# --clear in it: copying an album onto the wrong iPod deletes nothing and is
+# still not what the caller approved.
+for stale_script in ipod-sync.sh ipod-remove.sh ipod-wipe.sh; do
+    case "$stale_script" in
+        ipod-sync.sh)   stale_args=("$YES_SOURCE") ;;
+        ipod-remove.sh) stale_args=(--yes --confirm-token "$stale_token"
+                                    'Album/02 - Also Keep.mp3') ;;
+        ipod-wipe.sh)   stale_args=(--yes --confirm-token "$stale_token") ;;
+    esac
+    stale_refused=0
+    PATH="$STALE_PATH:$BASE_PATH" "$ROOT/$stale_script" \
+        --ipod "$HANDSHAKE_IPOD" \
+        --expect-device "$stale_identity" \
+        "${stale_args[@]}" < /dev/null \
+        > "$EVIDENCE_DIR/handshake-stale-$stale_script.txt" 2>&1 \
+        || stale_refused=$?
+    if (( stale_refused == 0 )); then
+        echo "$stale_script acted on an iPod that had been replaced" >&2
+        exit 1
+    fi
+    grep -Fq "Expected device '$stale_identity'" \
+        "$EVIDENCE_DIR/handshake-stale-$stale_script.txt"
+done
+device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-after-stale.txt"
+diff -u "$EVIDENCE_DIR/handshake-device-swapped.txt" \
+    "$EVIDENCE_DIR/handshake-device-after-stale.txt"
+
+# A plan is the whole of stdout, on a device that has something to say first.
+# Every sync that was given options saves them, and the next run announces the
+# ones it is replaying: printed where the plan goes, that sentence leaves the
+# caller with a document json.loads refuses and so with no token, and a --clear
+# it can never authorize. The options themselves still belong in the plan,
+# because they are part of what the run will do.
+SAVED_OPTIONS_IPOD="$TEST_ROOT/saved-options-clear-target"
+mkdir -p \
+    "$SAVED_OPTIONS_IPOD/iPod_Control/iTunes" \
+    "$SAVED_OPTIONS_IPOD/iPod_Control/Music" \
+    "$SAVED_OPTIONS_IPOD/iPod_Control/Speakable"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$SAVED_OPTIONS_IPOD" \
+    --dir-playlists \
+    --playlist-voiceover \
+    "$YES_SOURCE" < /dev/null \
+    > "$EVIDENCE_DIR/saved-options-first-sync.txt" 2>&1
+test -s "$SAVED_OPTIONS_IPOD/iPod_Control/.sync-options"
+
+saved_options_plan="$("$ROOT/ipod-sync.sh" \
+    --ipod "$SAVED_OPTIONS_IPOD" \
+    --clear \
+    --yes \
+    --dry-run \
+    "$YES_SOURCE" < /dev/null \
+    2> "$EVIDENCE_DIR/saved-options-plan.stderr.txt")"
+/usr/bin/python3 -c '
+import json, sys
+plan = json.loads(sys.argv[1])
+assert plan["action"] == "sync"
+assert plan["destructive"] is True
+assert "--auto-dir-playlists" in plan["arguments"], plan["arguments"]
+assert "--playlist-voiceover" in plan["arguments"], plan["arguments"]
+assert "existing-tracks=1" in plan["arguments"], plan["arguments"]
+assert plan["confirmationToken"]
+' "$saved_options_plan"
+grep -Fq 'Reusing saved options' "$EVIDENCE_DIR/saved-options-plan.stderr.txt"
+test -s "$SAVED_OPTIONS_IPOD/iPod_Control/Music/yes-source/track.mp3"
+run_approved "$ROOT/ipod-sync.sh" \
+    --ipod "$SAVED_OPTIONS_IPOD" \
+    --clear \
+    --yes \
+    "$YES_SOURCE" < /dev/null \
+    > "$EVIDENCE_DIR/saved-options-clear-with-token.txt" 2>&1
+test -s "$SAVED_OPTIONS_IPOD/iPod_Control/Music/yes-source/track.mp3"
+
+# An iPod that has never held music has no iPod_Control/Music directory: the
+# sync creates it. Counting what a --clear would delete happens before that,
+# and a count of a directory that is not there is none rather than a run that
+# stops with nothing printed to say why.
+NO_MUSIC_IPOD="$TEST_ROOT/no-music-dir-target"
+mkdir -p \
+    "$NO_MUSIC_IPOD/iPod_Control/iTunes" \
+    "$NO_MUSIC_IPOD/iPod_Control/Speakable"
+no_music_plan="$("$ROOT/ipod-sync.sh" \
+    --ipod "$NO_MUSIC_IPOD" \
+    --clear \
+    --yes \
+    --dry-run \
+    "$YES_SOURCE" < /dev/null)"
+/usr/bin/python3 -c '
+import json, sys
+plan = json.loads(sys.argv[1])
+assert "existing-tracks=0" in plan["arguments"], plan["arguments"]
+assert "existing-playlists=0" in plan["arguments"], plan["arguments"]
+' "$no_music_plan"
+test ! -e "$NO_MUSIC_IPOD/iPod_Control/Music"
+run_approved "$ROOT/ipod-sync.sh" \
+    --ipod "$NO_MUSIC_IPOD" \
+    --clear \
+    --yes \
+    "$YES_SOURCE" < /dev/null \
+    > "$EVIDENCE_DIR/clear-no-music-dir.txt" 2>&1
+test -s "$NO_MUSIC_IPOD/iPod_Control/Music/yes-source/track.mp3"
+
+# The same device wiped with a backup: there is nothing to copy, so the backup
+# has no Music directory either, and verifying none copied against none there
+# is a pass. The Speakable prompts are still what a wipe keeps.
+NO_MUSIC_WIPE_IPOD="$TEST_ROOT/no-music-dir-wipe-target"
+mkdir -p \
+    "$NO_MUSIC_WIPE_IPOD/iPod_Control/iTunes" \
+    "$NO_MUSIC_WIPE_IPOD/iPod_Control/Speakable/System"
+printf 'spoken battery prompt\n' \
+    > "$NO_MUSIC_WIPE_IPOD/iPod_Control/Speakable/System/battery.wav"
+run_approved "$ROOT/ipod-wipe.sh" \
+    --ipod "$NO_MUSIC_WIPE_IPOD" \
+    --backup "$TEST_ROOT/no-music-backup" \
+    --yes < /dev/null \
+    > "$EVIDENCE_DIR/wipe-no-music-dir.txt" 2>&1
+grep -Fq 'Backup verified: 0 track(s)' "$EVIDENCE_DIR/wipe-no-music-dir.txt"
+test -s "$NO_MUSIC_WIPE_IPOD/iPod_Control/Speakable/System/battery.wav"
+test -d "$NO_MUSIC_WIPE_IPOD/iPod_Control/Music"
+
+# A library from before UTF-8 is still a library. A folder named in latin-1 is
+# a sequence of bytes no decoder claims, and it reaches the plan as an
+# argument like any other: a run that could not write that name out would end
+# an ordinary sync where the copy should have been, and nothing about the
+# names on a person's disk is theirs to change.
+LATIN1_SOURCE="$TEST_ROOT/$(printf 'Bj\xf6rk')"
+LATIN1_IPOD="$TEST_ROOT/latin1-clear-target"
+mkdir -p "$LATIN1_SOURCE" \
+    "$LATIN1_IPOD/iPod_Control/iTunes" \
+    "$LATIN1_IPOD/iPod_Control/Music" \
+    "$LATIN1_IPOD/iPod_Control/Speakable"
+printf 'a song\n' > "$LATIN1_SOURCE/01 - Human Behaviour.mp3"
+latin1_plan="$("$ROOT/ipod-sync.sh" \
+    --ipod "$LATIN1_IPOD" \
+    --clear \
+    --yes \
+    --dry-run \
+    "$LATIN1_SOURCE" < /dev/null \
+    2> "$EVIDENCE_DIR/sync-latin1-plan.stderr.txt")"
+/usr/bin/python3 -c '
+import json, sys
+plan = json.loads(sys.argv[1])
+assert plan["arguments"][-1] == sys.argv[2], plan["arguments"]
+assert plan["confirmationToken"]
+' "$latin1_plan" "$LATIN1_SOURCE"
+run_approved "$ROOT/ipod-sync.sh" \
+    --ipod "$LATIN1_IPOD" \
+    --clear \
+    --yes \
+    "$LATIN1_SOURCE" < /dev/null \
+    > "$EVIDENCE_DIR/sync-latin1-source.txt" 2>&1
+test -s "$LATIN1_IPOD/iPod_Control/Music/$(printf 'Bj\xf6rk')/01 - Human Behaviour.mp3"
 
 # --yes has to answer every prompt, not just the caller's own. assert_shuffle
 # asks its own question from inside lib.sh when a volume has no Speakable
@@ -216,11 +549,19 @@ for script in ipod-sync.sh ipod-remove.sh ipod-wipe.sh; do
         ipod-remove.sh) args=(--yes --list) ;;
         ipod-wipe.sh)   args=(--yes) ;;
     esac
-    "$ROOT/$script" --ipod "$NOT_A_SHUFFLE" "${args[@]}" \
-        < /dev/null \
-        > "$EVIDENCE_DIR/no-speakable-$script.stdout.txt" \
-        2> "$EVIDENCE_DIR/no-speakable-$script.stderr.txt" \
-        || { echo "$script --yes stopped at the Speakable prompt" >&2; exit 1; }
+    if [[ "$script" == ipod-wipe.sh ]]; then
+        run_approved "$ROOT/$script" --ipod "$NOT_A_SHUFFLE" "${args[@]}" \
+            < /dev/null \
+            > "$EVIDENCE_DIR/no-speakable-$script.stdout.txt" \
+            2> "$EVIDENCE_DIR/no-speakable-$script.stderr.txt" \
+            || { echo "$script approval stopped at the Speakable prompt" >&2; exit 1; }
+    else
+        "$ROOT/$script" --ipod "$NOT_A_SHUFFLE" "${args[@]}" \
+            < /dev/null \
+            > "$EVIDENCE_DIR/no-speakable-$script.stdout.txt" \
+            2> "$EVIDENCE_DIR/no-speakable-$script.stderr.txt" \
+            || { echo "$script --yes stopped at the Speakable prompt" >&2; exit 1; }
+    fi
     grep -Fq 'Continue anyway?' \
         "$EVIDENCE_DIR/no-speakable-$script.stderr.txt"
     if [[ "$script" == ipod-remove.sh ]]; then
@@ -234,7 +575,7 @@ printf '%s\n' \
     '{artist}' \
     --playlist-voiceover > "$IPOD/iPod_Control/.sync-options"
 
-"$ROOT/ipod-wipe.sh" \
+run_approved "$ROOT/ipod-wipe.sh" \
     --ipod "$IPOD" \
     --backup "$BACKUP" \
     --yes > "$EVIDENCE_DIR/wipe-with-backup.txt" 2>&1
@@ -687,7 +1028,7 @@ grep -Fxq 'Mixtape/Side A/02 - Delete.mp3' "$EVIDENCE_DIR/remove-list.txt"
 # disappears while the old database continues offering it to the player.
 missing_builder_failed=0
 IPOD_DB_TOOL="$TEST_ROOT/missing-db-builder.py" \
-    "$ROOT/ipod-remove.sh" \
+    run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$IPOD" \
     --yes \
     'Mixtape/Side A/02 - Delete.mp3' \
@@ -706,7 +1047,7 @@ mv -- "$OPTIONS_FILE" "$SAVED_OPTIONS"
 mkdir "$OPTIONS_FILE"
 
 unreadable_remove_failed=0
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$IPOD" \
     --yes \
     'Mixtape/Side A/02 - Delete.mp3' \
@@ -734,9 +1075,8 @@ grep -Fq 'Could not read saved playlist and voiceover options' \
 grep -Fq 'Could not read saved playlist and voiceover options' \
     "$EVIDENCE_DIR/sync-unreadable-options.txt"
 
-# Without --yes it asks first, listing what it is about to delete. Answering
-# no has to leave the device exactly as it was, since this prompt is the only
-# thing between a mistyped path and the one copy of a song.
+# A pipe is non-interactive too: input that happens to contain "n" is not an
+# authorization token and leaves the device untouched.
 declined=0
 printf 'n\n' | "$ROOT/ipod-remove.sh" \
     --ipod "$IPOD" \
@@ -744,9 +1084,10 @@ printf 'n\n' | "$ROOT/ipod-remove.sh" \
     || declined=1
 test "$declined" -eq 1
 test -s "$IPOD/iPod_Control/Music/Mixtape/Side A/02 - Delete.mp3"
-grep -Fq 'Mixtape/Side A/02 - Delete.mp3' "$EVIDENCE_DIR/remove-declined.txt"
+grep -Fq 'Non-interactive destructive action refused' \
+    "$EVIDENCE_DIR/remove-declined.txt"
 
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$IPOD" \
     --yes \
     'Mixtape/Side A/02 - Delete.mp3' > "$EVIDENCE_DIR/remove-track.txt" 2>&1
@@ -767,7 +1108,7 @@ diff -u <(printf '%s\n' \
 # A folder argument takes the folder with it. --dir-playlists builds one
 # playlist per folder, so an empty one left behind is a playlist that plays
 # nothing on a device with no screen to show that it is empty.
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$IPOD" \
     --yes \
     'Mixtape/Side B' > "$EVIDENCE_DIR/remove-folder.txt" 2>&1
@@ -776,7 +1117,7 @@ test -d "$IPOD/iPod_Control/Music/Mixtape/Side A"
 
 # Same reason for the folder a last remaining track leaves behind, all the way
 # up to the music root.
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$IPOD" \
     --yes \
     'Mixtape/Side A/01 - Keep.mp3' > "$EVIDENCE_DIR/remove-last.txt" 2>&1
@@ -823,7 +1164,7 @@ printf 'dash\n' > "$DASH_SOURCE/-1 Countdown.mp3"
     -- "$DASH_SOURCE/-1 Countdown.mp3" > "$EVIDENCE_DIR/dash-name.txt" 2>&1
 test -s "$IPOD/iPod_Control/Music/Dashes/-1 Countdown.mp3"
 
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$IPOD" \
     --yes \
     -- 'Dashes/-1 Countdown.mp3' >> "$EVIDENCE_DIR/dash-name.txt" 2>&1
@@ -1368,10 +1709,10 @@ printf '%s\n' \
     'iPod_Control/Music/Album/One.mp3' \
     'iPod_Control/Music/Album/Two.mp3' \
     > "$ATOMIC_REMOVE_IPOD/Atomic Remove.m3u"
-if env PATH="$FAILING_MV_PATH:$BASE_PATH" \
+if PATH="$FAILING_MV_PATH:$BASE_PATH" \
     FAIL_MOVE_TARGET="$ATOMIC_REMOVE_IPOD/Atomic Remove.m3u" \
     REAL_MV="$REAL_MV" \
-    "$ROOT/ipod-remove.sh" \
+    run_approved "$ROOT/ipod-remove.sh" \
         --ipod "$ATOMIC_REMOVE_IPOD" \
         --yes \
         'Album/One.mp3' \
@@ -1389,7 +1730,7 @@ test -z "$(find "$ATOMIC_REMOVE_IPOD" -maxdepth 1 -name '.ipod-tmp.*' -print -qu
 # A removed track leaves every list that names it, and a list that loses its
 # last track disappears rather than survive as a playlist that plays nothing.
 mv "$PLAYLIST_IPOD/Summer Mix.m3u" "$PLAYLIST_IPOD/Summer Mix.M3U"
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
     'Neil Young/Harvest Moon.mp3' > "$EVIDENCE_DIR/playlist-prune.txt" 2>&1
@@ -1401,7 +1742,7 @@ diff -u <(printf '%s\n' \
 grep -Fq "Playlist 'Summer Mix': dropped 1 removed track(s)" \
     "$EVIDENCE_DIR/playlist-prune.txt"
 
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
     'Beach Boys' > "$EVIDENCE_DIR/playlist-prune-empty.txt" 2>&1
@@ -1419,7 +1760,7 @@ printf '%s\n' \
     '[playlist]' \
     'File1=iPod_Control/Music/Neil Young/Heart of Gold.mp3' \
     > "$PLAYLIST_IPOD/Radio.PLS"
-"$ROOT/ipod-wipe.sh" \
+run_approved "$ROOT/ipod-wipe.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --backup "$TEST_ROOT/playlist-backup" \
     --yes > "$EVIDENCE_DIR/playlist-wipe.txt" 2>&1
@@ -1436,7 +1777,7 @@ test -z "$(find "$PLAYLIST_IPOD" -maxdepth 1 -type f \
     "$PLAYLIST_LIB/Summer Mix.m3u" > "$EVIDENCE_DIR/playlist-clear-setup.txt" 2>&1
 test -f "$PLAYLIST_IPOD/Summer Mix.m3u"
 mv "$PLAYLIST_IPOD/Summer Mix.m3u" "$PLAYLIST_IPOD/Summer Mix.M3U"
-"$ROOT/ipod-sync.sh" \
+run_approved "$ROOT/ipod-sync.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --clear \
     --yes \
@@ -1494,7 +1835,7 @@ printf '%s\n' "$PLAYLIST_LIB/Neil Young/Heart of Gold.mp3" \
     --ipod "$PLAYLIST_IPOD" \
     "$PLAYLIST_LIB/mix..v2.m3u" > "$EVIDENCE_DIR/playlist-double-dot-setup.txt" 2>&1
 test -f "$PLAYLIST_IPOD/mix..v2.m3u"
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
     --playlist 'mix..v2' > "$EVIDENCE_DIR/playlist-double-dot-delete.txt" 2>&1
@@ -1506,13 +1847,13 @@ printf '%s\n' "$PLAYLIST_LIB/Neil Young/Heart of Gold.mp3" \
     --ipod "$PLAYLIST_IPOD" \
     "$PLAYLIST_LIB/mix.m3u.m3u" > "$EVIDENCE_DIR/playlist-extension-stem-setup.txt" 2>&1
 test -f "$PLAYLIST_IPOD/mix.m3u.m3u"
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
     --playlist 'mix.m3u' > "$EVIDENCE_DIR/playlist-extension-stem-delete.txt" 2>&1
 test ! -e "$PLAYLIST_IPOD/mix.m3u.m3u"
 
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
     --playlist 'Legacy' > "$EVIDENCE_DIR/playlist-pls-delete.txt" 2>&1
@@ -1520,19 +1861,19 @@ test ! -e "$PLAYLIST_IPOD/Legacy.PLS"
 
 printf '%s\n' '#EXTM3U' > "$PLAYLIST_IPOD/Priority.m3u"
 printf '%s\n' '[playlist]' > "$PLAYLIST_IPOD/Priority.pls"
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
     --playlist 'Priority.m3u' > "$EVIDENCE_DIR/playlist-format-priority.txt" 2>&1
 test ! -e "$PLAYLIST_IPOD/Priority.m3u"
 test -f "$PLAYLIST_IPOD/Priority.pls"
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
     --playlist 'Priority.pls' >> "$EVIDENCE_DIR/playlist-format-priority.txt" 2>&1
 test ! -e "$PLAYLIST_IPOD/Priority.pls"
 
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$PLAYLIST_IPOD" \
     --yes \
     --playlist 'Summer Mix' > "$EVIDENCE_DIR/playlist-byname-delete.txt" 2>&1
@@ -1950,13 +2291,13 @@ diff -u \
     <(sed "s|$QUIET_IPOD|IPOD|g" "$EVIDENCE_DIR/progress-sync-quiet-output.txt") \
     <(sed "s|$PROGRESS_IPOD|IPOD|g" "$EVIDENCE_DIR/progress-sync-output.txt")
 
-"$ROOT/ipod-remove.sh" \
+run_approved "$ROOT/ipod-remove.sh" \
     --ipod "$PROGRESS_IPOD" --yes --progress-json=7 \
     'Odd Album/01 - Plain.mp3' \
     7> "$EVIDENCE_DIR/progress-remove.ndjson" \
     > "$EVIDENCE_DIR/progress-remove-output.txt" 2>&1
 
-"$ROOT/ipod-wipe.sh" \
+run_approved "$ROOT/ipod-wipe.sh" \
     --ipod "$PROGRESS_IPOD" --yes --backup "$TEST_ROOT/progress-backup" \
     --progress-json \
     3> "$EVIDENCE_DIR/progress-wipe.ndjson" \
@@ -2356,6 +2697,53 @@ grep -Fq 'stopped answering' "$EVIDENCE_DIR/exit-code-device-gone.txt"
 # be held against further down: it has to answer with this same number.
 lib_gone_code="$LAST_EXIT_CODE"
 
+# The same answer when the volume goes away before the first count rather than
+# at the last write. A wipe reads what it is about to delete before it deletes
+# anything, and a device that is no longer there holds no files by every
+# reading a count can take: told that as a number, the run would go on to
+# verify a backup it never copied, recreate the skeleton on the mount point
+# left behind, and call that a wipe. The stand-in lsusb is where the iPod goes
+# because that is what assert_shuffle asks about the hardware, which is the
+# last thing to run while the script still believes the volume is mounted.
+UNPLUG_PATH="$TEST_ROOT/unplugging-bin"
+UNPLUG_IPOD="$TEST_ROOT/unplugged-mid-wipe"
+UNPLUG_BACKUP="$TEST_ROOT/unplugged-mid-wipe-backup"
+mkdir -p "$UNPLUG_PATH" \
+    "$UNPLUG_IPOD/iPod_Control/iTunes" \
+    "$UNPLUG_IPOD/iPod_Control/Music" \
+    "$UNPLUG_IPOD/iPod_Control/Speakable"
+# The mount point reaches the stub through its own environment, so the name
+# below belongs to the stub rather than to this file.
+# shellcheck disable=SC2016
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'rm -rf -- "$UNPLUG_IPOD/iPod_Control"' \
+    'exit 0' \
+    > "$UNPLUG_PATH/lsusb"
+chmod +x "$UNPLUG_PATH/lsusb"
+# Taken while the iPod is still there, so the run below is refused for the
+# device having gone rather than for an authorization it never had. An empty
+# device is what makes that possible: the count the plan was hashed from is
+# the same zero an unplugged one would report.
+unplug_plan="$("$ROOT/ipod-wipe.sh" \
+    --ipod "$UNPLUG_IPOD" \
+    --backup "$UNPLUG_BACKUP" \
+    --yes \
+    --dry-run < /dev/null 2>/dev/null)"
+unplug_token="$(/usr/bin/python3 -c 'import json,sys; print(json.loads(sys.argv[1])["confirmationToken"])' "$unplug_plan")"
+exit_code_is 5 wipe-unplugged-before-count.txt \
+    env PATH="$UNPLUG_PATH:$BASE_PATH" \
+    UNPLUG_IPOD="$UNPLUG_IPOD" \
+    IPOD_DB_TOOL="$ROOT/tests/fake-db-builder.py" \
+    "$ROOT/ipod-wipe.sh" \
+    --ipod "$UNPLUG_IPOD" \
+    --backup "$UNPLUG_BACKUP" \
+    --yes \
+    --confirm-token "$unplug_token"
+grep -Fq 'stopped answering' "$EVIDENCE_DIR/wipe-unplugged-before-count.txt"
+test ! -e "$UNPLUG_IPOD/iPod_Control"
+test ! -e "$UNPLUG_BACKUP"
+
 # The other half of that guard, and the reason it looks at the device rather
 # than at the failure: a builder that fails while the iPod is still sitting
 # there must not be reported as one that was unplugged.
@@ -2378,9 +2766,17 @@ if grep -Fq 'stopped answering' "$EVIDENCE_DIR/exit-code-builder-failed.txt"; th
     exit 1
 fi
 
+# Authorized rather than merely willing, because a removal that never came
+# through the handshake is refused before it can find out what is installed.
+# The plan is taken with the builder already missing, which is what a caller
+# on a machine with no toolchain has to be able to do: what it gets back is
+# the run's own answer, "install the tools", rather than a refusal that says
+# nothing about them.
 IPOD_DB_TOOL="$TEST_ROOT/no-such-db-builder.py" \
     exit_code_is 6 exit-code-missing-dependency.txt \
-    "$ROOT/ipod-remove.sh" --ipod "$PLAYLIST_IPOD" --yes 'Beach Boys/Surfin.mp3'
+    run_approved "$ROOT/ipod-remove.sh" \
+    --ipod "$PLAYLIST_IPOD" --yes 'Beach Boys/Surfin.mp3'
+grep -Fq 'Database tool missing' "$EVIDENCE_DIR/exit-code-missing-dependency.txt"
 test -s "$PLAYLIST_IPOD/iPod_Control/Music/Beach Boys/Surfin.mp3"
 
 # Both prompts, because the one that stopped an unattended run was never the
@@ -2685,6 +3081,9 @@ printf '%s\n' \
     "PASS: sync copied a symlinked library, through links and out of the tree" \
     "PASS: sync named a broken link, walked a loop once, and matched the GUI's count" \
     "PASS: sync --clear confirmed track and playlist deletion, including playlist-only devices" \
+    "PASS: a dry run of each script printed its plan and left the device byte for byte" \
+    "PASS: a guessed token, another plan's token and a changed plan were each refused" \
+    "PASS: every device-changing script refused an iPod swapped in behind the plan" \
     "PASS: --yes answered the Speakable prompt too, in all three scripts" \
     "PASS: wipe backed up music/database and preserved Speakable plus Device state" \
     "PASS: JSON mount detection retained a mount path containing spaces" \

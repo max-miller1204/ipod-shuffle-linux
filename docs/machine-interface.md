@@ -24,6 +24,31 @@ This is the same reading the window takes when you plug the iPod in, and it cove
 
 Without `--json`, `--list` still prints nothing but the track paths, so the two forms of the same question give the same answer in different shapes.
 
+## Planning and authorizing changes
+
+`ipod-sync.sh`, `ipod-remove.sh` and `ipod-wipe.sh` accept `--dry-run`.
+It resolves the device and requested targets, prints one JSON plan, and changes nothing.
+The plan names the `action`, the device `mount` and `identity`, whether the operation is `destructive`, its normalized `arguments`, and a `confirmationToken` bound to all of those values.
+The plan is the whole of stdout: anything the run would have said to a person, such as which saved options it is replaying, goes to stderr instead, so what the caller parses is one document and nothing else.
+
+A non-interactive clear, removal or wipe is refused even with `--yes` unless the caller first reads that plan and returns its token with `--confirm-token TOKEN`.
+This prevents `--yes`, which records a human confirmation in an interactive flow, from becoming authorization merely because an automated caller copied the flag.
+Pass the plan's device identity back as `--expect-device ID` as well.
+Every device-changing script checks it after resolving the mount, and refuses if another iPod has replaced the one the caller inspected.
+That refusal leaves with `1`, the code for a failure whose message is the explanation, and the message names both the identity that was expected and the one that answered.
+`7` is kept for the missing or wrong token, which is the withheld approval a declined prompt reports.
+A volume that will say neither a UUID nor a `SysInfo` of its own has no identity to pin: the plan carries an empty one, and passing an empty `--expect-device` back checks nothing.
+
+```bash
+plan="$(./ipod-wipe.sh --ipod "$mount" --dry-run)"
+identity="$(printf '%s' "$plan" | jq -r '.device.identity')"
+token="$(printf '%s' "$plan" | jq -r '.confirmationToken')"
+./ipod-wipe.sh --ipod "$mount" --yes \
+  --expect-device "$identity" --confirm-token "$token"
+```
+
+Changing an argument, choosing another mount, or replacing the device changes the token, so approval for one plan cannot authorize another.
+
 ## What a run is doing, while it is doing it
 
 ```bash
@@ -99,7 +124,7 @@ The same report closes a real install, in the same words, because a caller that 
 | `4` | Several iPods are connected | Name which one with `--ipod` |
 | `5` | The iPod stopped answering part way through | Plug it back in and try again |
 | `6` | A dependency is missing | Run `./install.sh`, or `./install.sh --check` to find out which |
-| `7` | A prompt was declined | Ask again, or pass `--yes` |
+| `7` | A prompt was declined or a non-interactive destructive plan lacked its token | Ask again, or run `--dry-run` and return its `confirmationToken` |
 
 Code `5` is the one worth explaining.
 Unplugging an iPod mid-copy is the failure this project sees most, and it arrives as whichever command happened to touch the volume next: a copy that cannot write, a walk that cannot descend, a database builder that cannot open its file.

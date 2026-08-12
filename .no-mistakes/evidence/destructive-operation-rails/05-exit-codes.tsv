@@ -1,0 +1,10 @@
+7	non-interactive --clear with --yes and no token
+7	a token the caller made up
+7	this plan's token, on a run that syncs a different folder
+7	this plan's token, on a run that also ejects the device
+1	the iPod that was planned against has been swapped for another
+0	--expect-device and --confirm-token from the plan above
+1	a track path that climbs out of the music folder
+0	the removal that plan describes
+0	the wipe that plan describes
+0	interactive --clear, answered y at the prompt

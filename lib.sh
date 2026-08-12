@@ -68,6 +68,37 @@ count_files() {
     find "$@" -type f -printf '.' | wc -c
 }
 
+# The same count for a path that is allowed not to be there yet.
+#
+# An iPod that has never been synced has no iPod_Control/Music, and a backup
+# taken from one has no Music either: "nothing there" is the answer, not a
+# failure. find disagrees - it leaves with a non-zero status for a path it
+# could not open - and under pipefail that ends the run where it stands, with
+# nothing printed to say why.
+#
+# Only while the directory above it is still there, though. A path that has
+# gone along with everything around it is a volume that has gone, and the
+# counts these scripts take are what they are about to delete or verify a
+# backup against: answering zero for an unplugged iPod would let a wipe report
+# a backup it never copied and a clear rebuild the device's skeleton on the
+# mount point it was left behind. So the missing directory is an answer, and a
+# missing parent is the failure that count_files makes it - the same failure
+# the way out re-reads as "the iPod stopped answering".
+count_files_present() {
+    local path="$1" parent
+    if [[ ! -e "$path" ]]; then
+        case "$path" in
+            */*) parent="${path%/*}"; [[ -n "$parent" ]] || parent="/" ;;
+            *)   parent="." ;;
+        esac
+        if [[ -d "$parent" ]]; then
+            printf '0\n'
+            return 0
+        fi
+    fi
+    count_files "$path"
+}
+
 # Whether the firmware could play a file with this name.
 #
 # The one place the question is asked, because the copy decides what to skip by
@@ -78,8 +109,22 @@ playable_name() {
     [[ "${1,,}" =~ \.(${SUPPORTED_EXT})$ ]]
 }
 
+# Whether this run is only planning, set by the scripts that offer --dry-run.
+#
+# Declared here as well, because info() below reads it: a plan is the whole of
+# what a dry run puts on stdout, so a sentence meant for a person has to go to
+# stderr while one is being prepared rather than land in front of the JSON the
+# caller is about to parse.
+DRY_RUN=0
+
 err()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; }
-info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
+info() {
+    if (( DRY_RUN )); then
+        printf '\033[36m==>\033[0m %s\n' "$*" >&2
+    else
+        printf '\033[36m==>\033[0m %s\n' "$*"
+    fi
+}
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
 
 die() { die_with 1 "$@"; }
@@ -109,6 +154,61 @@ DEVICE_WATCH_IDENTITY=""
 device_identity() {
     command -v python3 >/dev/null || return 0
     python3 "$REPORT_TOOL" identity "$1" 2>/dev/null || true
+}
+
+# A machine caller first asks for a plan, then returns the token from that
+# exact plan. The token binds approval to the action, device identity and
+# normalized arguments rather than treating a programmatic --yes as consent.
+#
+# Escaped to ASCII, because a path is bytes and only some of them are text: a
+# folder called "Bjork" spelled in latin-1 reaches python3 as a surrogate that
+# no encoder will write out, and this runs on every device-changing run rather
+# than only on the ones asking to be authorized. The escaping is part of what
+# is hashed, so both sides of the handshake agree on it whatever the argument
+# was, and json.loads gives the same string back.
+operation_token() {
+    command -v python3 >/dev/null \
+        || die_with "$EXIT_MISSING_DEPENDENCY" "python3 is required but not installed."
+    python3 -c 'import hashlib,json,sys; print(hashlib.sha256(json.dumps(sys.argv[1:],separators=(",",":")).encode()).hexdigest())' "$@"
+}
+
+# The plan a dry run prints, carrying the token computed from that same plan.
+#
+# Handed the token rather than hashing a second time, so that the value the
+# caller is told to return and the value the run will compare it against
+# cannot be computed from two different lists of arguments.
+#
+# Written in ASCII for the reason the token is hashed in it, and for one more:
+# stdout is whatever encoding the locale gave this run, so a plan naming a
+# track with an accent in it would be a plan that cannot be printed at all
+# under LC_ALL=C. An escaped document is the same document to a JSON reader.
+emit_operation_plan() {
+    local action="$1" mount="$2" identity="$3" destructive="$4" token="$5"
+    shift 5
+    python3 -c 'import json,sys; print(json.dumps({"action":sys.argv[1],"device":{"mount":sys.argv[2],"identity":sys.argv[3]},"destructive":sys.argv[4]=="1","arguments":sys.argv[6:],"confirmationToken":sys.argv[5]},separators=(",",":")))' \
+        "$action" "$mount" "$identity" "$destructive" "$token" "$@"
+}
+
+prepare_operation() {
+    local action="$1" mount="$2" identity="$3" destructive="$4"
+    local expected="$5" supplied_token="$6" dry_run="$7"
+    shift 7
+
+    if [[ -n "$expected" && "$identity" != "$expected" ]]; then
+        die "Expected device '$expected', but '$identity' is mounted at $mount."
+    fi
+
+    local token
+    token="$(operation_token "$action" "$mount" "$identity" "$destructive" "$@")"
+    if (( dry_run )); then
+        emit_operation_plan "$action" "$mount" "$identity" "$destructive" \
+            "$token" "$@"
+        leave 0
+    fi
+    if (( destructive )) && [[ ! -t 0 && "$supplied_token" != "$token" ]]; then
+        die_with "$EXIT_DECLINED" \
+            "Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token."
+    fi
 }
 
 # Print the JSON report for a mounted device, or print nothing at all.

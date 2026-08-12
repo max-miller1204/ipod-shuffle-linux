@@ -2,10 +2,13 @@
 
 Every device-changing action goes through `_run`, which holds the device write
 lock, re-checks that the iPod under the mount point is still the one the action
-was aimed at, and streams the script's output into the log. Owns the sync bar
-and its details pane, the busy state that makes the window refuse to race
-itself, and the destructive and D-Bus actions: rebuild, wipe, remove, eject and
-mount.
+was aimed at, and streams the script's output into the log. A destructive one
+is planned inside that same lock: the script is asked for its `--dry-run` plan
+and then run with `--expect-device` and that plan's token, so the window's
+check and the script's own refusal are one decision rather than two. Owns the
+sync bar and its details pane, the busy state that makes the window refuse to
+race itself, and the destructive and D-Bus actions: rebuild, wipe, remove,
+eject and mount.
 
 Borrows from the window: `mount_point` and `device_identity` to aim a command,
 `speech_engine_available` to say what a rebuild costs the iPod's spoken names,
@@ -14,6 +17,7 @@ Borrows from the window: `mount_point` and `device_identity` to aim a command,
 `_update_device_controls`.
 """
 
+import json
 import os
 import subprocess
 import threading
@@ -46,6 +50,33 @@ from .widgets import ELLIPSIZE_END, clear_children, label
 PROGRESS_SCRIPTS = frozenset(
     str(script) for script in (SYNC_SCRIPT, REMOVE_SCRIPT, WIPE_SCRIPT)
 )
+
+
+def _script_options(argv, *options):
+    """Insert script options before the `--` that begins path arguments."""
+    command = list(argv)
+    index = command.index("--") if "--" in command else len(command)
+    command[index:index] = options
+    return command
+
+
+def _is_destructive_script(argv):
+    """Whether this command changes what is on the device.
+
+    Read from the options alone, on the same rule `_script_options` inserts
+    by: everything after `--` is a name the device gave us, and a track called
+    `--list` is a track. Reading one as a flag would leave the window sending
+    a removal it never planned or authorized, which the script then refuses.
+    """
+    script = str(argv[0])
+    if script == str(WIPE_SCRIPT):
+        return True
+    options = argv[: argv.index("--")] if "--" in argv else argv
+    if script == str(REMOVE_SCRIPT):
+        return "--list" not in options and "-l" not in options
+    return script == str(SYNC_SCRIPT) and (
+        "--clear" in options or "-c" in options
+    )
 
 
 class CommandsMixin:
@@ -308,6 +339,7 @@ class CommandsMixin:
 
         def worker():
             code = -1
+            command = list(argv)
 
             def run_process():
                 nonlocal code
@@ -318,7 +350,6 @@ class CommandsMixin:
                 # would mean renumbering a descriptor in the child and there is
                 # no safe moment to do that in a threaded process.
                 progress_read = progress_write = -1
-                command = list(argv)
                 reader = None
                 try:
                     if argv[0] in PROGRESS_SCRIPTS:
@@ -380,6 +411,45 @@ class CommandsMixin:
                     ):
                         GLib.idle_add(self._cancel_device_command)
                         return
+                    command = _script_options(
+                        command, "--expect-device", str(expected_identity)
+                    )
+                    if _is_destructive_script(command):
+                        plan_command = _script_options(command, "--dry-run")
+                        try:
+                            plan = subprocess.run(
+                                plan_command,
+                                capture_output=True,
+                                text=True,
+                                check=False,
+                            )
+                            if plan.returncode != 0:
+                                GLib.idle_add(self._log, plan.stderr or plan.stdout)
+                                code = plan.returncode
+                                GLib.idle_add(
+                                    self._finish,
+                                    code,
+                                    done_message,
+                                    then,
+                                    device_command,
+                                    on_failure,
+                                )
+                                return
+                            token = json.loads(plan.stdout)["confirmationToken"]
+                        except (OSError, ValueError, KeyError, TypeError) as exc:
+                            GLib.idle_add(self._log, f"failed to plan: {exc}\n")
+                            GLib.idle_add(
+                                self._finish,
+                                code,
+                                done_message,
+                                then,
+                                device_command,
+                                on_failure,
+                            )
+                            return
+                        command = _script_options(
+                            command, "--confirm-token", str(token)
+                        )
                     run_process()
             else:
                 run_process()
