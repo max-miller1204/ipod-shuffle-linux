@@ -1,0 +1,37 @@
+$ python3 -m venv "${RUNNER_TEMP}/tag-venv"
+$ "${RUNNER_TEMP}/tag-venv/bin/pip" install -q --disable-pip-version-check mutagen
+  -> tag-venv can import mutagen (1, 48, 1)
+
+$ SCREENSHOT_EVIDENCE_DIR="${RUNNER_TEMP}/screenshots" \
+  IPOD_VENV_PYTHON="${RUNNER_TEMP}/tag-venv/bin/python" python3 tests/screenshot-harness.py
+warning: the sync did not finish, so the device will look empty:
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Database tool missing at /tmp/empty-home/ipod-tools/IPod-Shuffle-4g/ipod-shuffle-4g.py - run ./install.sh first.
+libEGL warning: DRI3 error: Could not get DRI3 device
+libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+libEGL warning: DRI3 error: Could not get DRI3 device
+libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+GNOME_KEYRING_CONTROL=/run/user/1000/keyring
+SSH_AUTH_SOCK=/run/user/1000/keyring/ssh
+SpiRegistry daemon is running with well-known name - org.a11y.atspi.Registry
+/tmp/ci-runner-temp/screenshots/library-1180-1x.png
+libEGL warning: DRI3 error: Could not get DRI3 device
+libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+/tmp/ci-runner-temp/screenshots/playlists-760-2x.png
+libEGL warning: DRI3 error: Could not get DRI3 device
+libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+/tmp/ci-runner-temp/screenshots/library-1180-2x.png
+libEGL warning: DRI3 error: Could not get DRI3 device
+libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+/tmp/screenshot-harness-jkt2lhs1/playlists-again.png
+screenshot harness ok: /tmp/ci-runner-temp/screenshots
+  -> exit 0
+
+$ # what actions/upload-artifact would collect from ${RUNNER_TEMP}/screenshots
+total 396
+-rw-rw-r-- 1 max max  84293 Aug 12 07:05 library-1180-1x.png
+-rw-rw-r-- 1 max max 205095 Aug 12 07:05 library-1180-2x.png
+-rw-rw-r-- 1 max max 108943 Aug 12 07:05 playlists-760-2x.png
+  library-1180-1x.png    (1180, 760) sha256 5a4682696f5c0f07
+  library-1180-2x.png    (2360, 1520) sha256 f5d97d90a16642ac
+  playlists-760-2x.png   (1520, 1520) sha256 9e008a57700e93c7

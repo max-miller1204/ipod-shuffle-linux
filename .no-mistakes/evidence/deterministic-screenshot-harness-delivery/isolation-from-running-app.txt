@@ -1,0 +1,33 @@
+=== A stand-in desktop, with a Shuffle already running on it ===
+decoy display :77 (1024x768), decoy session bus unix:path=/tmp/dbus-2Cic7DEEA8
+windows on the stand-in desktop:
+  0x200004 "Shuffle": ("ipod-gui.py" "ipod-gui.py")  1024x760+0+0  +0+0
+  0x200002 "ipod-gui.py": ("" "")  1x1+0+0  +0+0
+the name that Shuffle owns on the stand-in bus:
+   ['io.github.max_miller1204.IpodShuffle']
+
+that running window repaints on its own, so the screen never sits still:
+  screen now      53f960f9b81d9da4
+  screen 6s later 8066ac7c99c8119e   <- control: nothing but the app was running
+
+=== Without the runner, the shot would be forwarded to that Shuffle ===
+$ SHUFFLE_HEADLESS_TEST=1 python3 tools/shoot.py --fixture /tmp/shuffle-demo --page playlists --width 760 --scale 2 --output /tmp/decoy-forwarded.png
+a Shuffle is already running and owns this application's name, so this process never gets a window of its own: close the running window, or run this on a session bus of its own
+exit=1  wrote a PNG: no
+
+=== As shipped, the same command ignores both and shoots in private ===
+$ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page playlists --width 760 --scale 2 --output /tmp/decoy-shot.png
+error: fuse init failed: Can't mount path /home/max/.cache/doc
+/tmp/decoy-shot.png
+exit=0
+
+windows on the stand-in desktop after the shot:
+  0x200004 "Shuffle": ("ipod-gui.py" "ipod-gui.py")  1024x760+0+0  +0+0
+  0x200002 "ipod-gui.py": ("" "")  1x1+0+0  +0+0
+  same list as before: the harness opened no window on it
+the Shuffle that was already running is still up: yes
+
+the shot taken beside a running Shuffle, against the one taken alone:
+9e008a57700e93c7be7e50a498e6909ad4bd9093fd374add024a2cf6babf7c5b  /tmp/decoy-shot.png
+9e008a57700e93c7be7e50a498e6909ad4bd9093fd374add024a2cf6babf7c5b  /tmp/repeat-1.png
+identical: yes

@@ -1,0 +1,11 @@
+$ # CI runner without a tag reader (workflow before the fix: no mutagen anywhere)
+$ env HOME=<no ~/ipod-tools/venv> python3 tests/screenshot-harness.py
+warning: the sync did not finish, so the device will look empty:
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Database tool missing at /tmp/empty-home/ipod-tools/IPod-Shuffle-4g/ipod-shuffle-4g.py - run ./install.sh first.
+Traceback (most recent call last):
+  File "/home/max/.no-mistakes/worktrees/f62f10c43f33/01KZTNCGWTTRBPH2B4VBRH1PE0/tests/screenshot-harness.py", line 191, in <module>
+    assert albums == ALBUMS, (
+           ^^^^^^^^^^^^^^^^
+AssertionError: the fixture under /tmp/screenshot-harness-bb66bmut/demo reads as ['None'], not the ['Field Notes', 'Nightbus', 'Slow Copper', 'Warm Ridge'] the canonical shot is of: no interpreter here has mutagen, so point IPOD_VENV_PYTHON at one that does
+  -> harness exit 1 (assertion above); no shot was rendered or uploaded

@@ -1,0 +1,63 @@
+=== 1. The validation environment cannot reach the desktop ===
+DISPLAY=<unset>  WAYLAND_DISPLAY=<unset>
+DBUS_SESSION_BUS_ADDRESS=<unset>  XDG_RUNTIME_DIR=<unset>
+GTK reaches display: None
+
+=== 2. A direct GUI launch fails rather than appearing ===
+$ python3 ipod-gui.py
+    super().__init__(**kwargs)
+  File "/usr/lib/python3/dist-packages/gi/overrides/Gtk.py", line 508, in __init__
+    raise RuntimeError(
+RuntimeError: Gtk couldn't be initialized. Use Gtk.init_check() if you want to handle this case.
+
+=== 3. The documented command, straight out of the README ===
+$ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page library --width 1180 --scale 2 --output $E/readme-usage-library-1180-2x.png
+Ignoring invalid max threads value 4294967295 > max (100000).
+Non-compatible display server, exposing settings only.
+/tmp/no-mistakes-evidence/01KZTNCGWTTRBPH2B4VBRH1PE0/readme-usage-library-1180-2x.png
+exit=0
+
+=== 4. One command, run twice, is one file ===
+$ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page playlists --width 760 --scale 2 --output /tmp/repeat-1.png
+Ignoring invalid max threads value 4294967295 > max (100000).
+Non-compatible display server, exposing settings only.
+/tmp/repeat-1.png
+$ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page playlists --width 760 --scale 2 --output /tmp/repeat-2.png
+Ignoring invalid max threads value 4294967295 > max (100000).
+Non-compatible display server, exposing settings only.
+/tmp/repeat-2.png
+9e008a57700e93c7be7e50a498e6909ad4bd9093fd374add024a2cf6babf7c5b  /tmp/repeat-1.png
+9e008a57700e93c7be7e50a498e6909ad4bd9093fd374add024a2cf6babf7c5b  /tmp/repeat-2.png
+identical: yes
+
+=== 5. It refuses rather than writing a shot it cannot vouch for ===
+$ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page library --width 1180 --output /tmp/refused.png
+                --width WIDTH --scale {1,2} --output OUTPUT
+shoot.py: error: the following arguments are required: --scale
+exit=2  wrote a PNG: no
+
+$ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page library --width 1180 --scale 3 --output /tmp/refused.png
+                --width WIDTH --scale {1,2} --output OUTPUT
+shoot.py: error: argument --scale: invalid choice: 3 (choose from 1, 2)
+exit=2  wrote a PNG: no
+
+$ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page library --width 320 --scale 1 --output /tmp/refused.png
+Non-compatible display server, exposing settings only.
+--width must be at least the window's own minimum, 660
+exit=1  wrote a PNG: no
+
+$ python3 tools/shoot.py --fixture /tmp --page library --width 1180 --scale 1 --output /tmp/refused.png
+not a tools/demo-library.py fixture: /tmp
+exit=1  wrote a PNG: no
+
+$ python3 tools/shoot.py --fixture /tmp/shuffle-demo --page nowhere --width 1180 --scale 1 --output /tmp/refused.png
+                --width WIDTH --scale {1,2} --output OUTPUT
+shoot.py: error: argument --page: invalid choice: 'nowhere' (choose from 'library', 'playlists', 'settings')
+exit=2  wrote a PNG: no
+
+=== 6. Sizes of everything written ===
+library-1180-1x.png                    (1180, 760)  84293 bytes
+library-1180-2x.png                    (2360, 1520)  205095 bytes
+playlists-760-2x.png                   (1520, 1520)  108943 bytes
+readme-usage-library-1180-2x.png       (2360, 1520)  205095 bytes
+repeat-1.png                           (1520, 1520)  108943 bytes

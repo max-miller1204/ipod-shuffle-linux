@@ -1,0 +1,19 @@
+$ # the desktop this validation ran beside (a real GNOME Wayland session)
+$ python3 /tmp/where-am-i.py
+  DISPLAY=':1' WAYLAND_DISPLAY='wayland-0'
+  DBUS_SESSION_BUS_ADDRESS='unix:path=/run/user/1000/bus'
+  GDK connected to 'wayland-0' via GdkWaylandDisplay, screen 1536x960
+
+$ # the same probe routed through the harness runner every GUI check uses
+$ python3 tools/headless-run.py python3 /tmp/where-am-i.py
+libEGL warning: DRI3 error: Could not get DRI3 device
+libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+  DISPLAY=':99' WAYLAND_DISPLAY=None
+  DBUS_SESSION_BUS_ADDRESS='unix:path=/tmp/dbus-e2NpspAEgn,guid=2b9fd8ce56ee7221a7846d256a7c53d9'
+  GDK connected to ':99' via X11Display, screen 2400x1800
+
+$ python3 tests/headless-isolation.py
+  libEGL warning: DRI3 error: Could not get DRI3 device
+  libEGL warning: Ensure your X server supports DRI3 to get accelerated rendering
+  headless isolation ok
+  -> exit 0

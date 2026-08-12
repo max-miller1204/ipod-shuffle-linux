@@ -1,0 +1,29 @@
+$ python3 tools/shoot.py --fixture /tmp/shuffle-shot-fixture --page library --width 1180 --output /tmp/refused.png   # no --scale
+  usage: shoot.py [-h] --fixture FIXTURE --page {library,playlists,settings}
+                  --width WIDTH --scale {1,2} --output OUTPUT
+  shoot.py: error: the following arguments are required: --scale
+  -> exit 2
+
+$ python3 tools/shoot.py --fixture /tmp/shuffle-shot-fixture --page library --width 1180 --scale 3 --output /tmp/refused.png
+  usage: shoot.py [-h] --fixture FIXTURE --page {library,playlists,settings}
+                  --width WIDTH --scale {1,2} --output OUTPUT
+  shoot.py: error: argument --scale: invalid choice: 3 (choose from 1, 2)
+  -> exit 2
+
+$ python3 tools/shoot.py --fixture /tmp/shuffle-shot-fixture --page nowhere --width 1180 --scale 1 --output /tmp/refused.png
+  usage: shoot.py [-h] --fixture FIXTURE --page {library,playlists,settings}
+                  --width WIDTH --scale {1,2} --output OUTPUT
+  shoot.py: error: argument --page: invalid choice: 'nowhere' (choose from 'library', 'playlists', 'settings')
+  -> exit 2
+
+$ python3 tools/shoot.py --fixture /tmp/not-a-fixture --page library --width 1180 --scale 1 --output /tmp/refused.png
+  not a tools/demo-library.py fixture: /tmp/not-a-fixture
+  -> exit 1
+
+$ python3 tools/shoot.py --fixture /tmp/shuffle-shot-fixture --page library --width 500 --scale 1 --output /tmp/refused.png
+  error: fuse init failed: Can't mount path /run/user/1000/doc
+  --width must be at least the window's own minimum, 660
+  -> exit 1
+
+$ ls /tmp/refused.png   # nothing was ever written
+  ls: cannot access '/tmp/refused.png': No such file or directory
