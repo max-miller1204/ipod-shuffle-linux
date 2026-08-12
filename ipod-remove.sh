@@ -15,6 +15,9 @@ EJECT=0
 LIST=0
 JSON=0
 PROGRESS_TARGET=""
+DRY_RUN=0
+EXPECT_DEVICE=""
+CONFIRM_TOKEN=""
 
 # Declared before anything can fail, because the result event is written from
 # wherever the run ends rather than from where the counting happens. What was
@@ -49,6 +52,11 @@ Options:
                     it can say out loud, and the options the last sync saved
   -P, --playlist    Treat the arguments as playlist names, not tracks
   -y, --yes         Answer yes to every prompt
+      --dry-run     Print the exact operation plan as JSON and change nothing
+      --expect-device ID
+                    Refuse unless the mounted iPod has this identity
+      --confirm-token TOKEN
+                    Approve the exact non-interactive plan from --dry-run
   -e, --eject       Unmount the iPod when finished
       --progress-json[=FD]
                     Report progress as one JSON object per line on descriptor
@@ -85,6 +93,9 @@ while [[ $# -gt 0 ]]; do
         -j|--json) JSON=1; shift ;;
         -P|--playlist) PLAYLIST_MODE=1; shift ;;
         -y|--yes)  ASSUME_YES=1; shift ;;
+        --dry-run) DRY_RUN=1; shift ;;
+        --expect-device) EXPECT_DEVICE="$2"; shift 2 ;;
+        --confirm-token) CONFIRM_TOKEN="$2"; shift 2 ;;
         -e|--eject) EJECT=1; shift ;;
         --progress-json|--progress-json=*) progress_flag "$1"; shift ;;
         -h|--help) usage; exit 0 ;;
@@ -168,7 +179,6 @@ fi
 
 [[ $# -gt 0 ]] || { usage; leave 1; }
 
-info "iPod: $IPOD"
 
 # Resolve every argument before deleting anything, so a typo in the last one
 # does not leave the first half of the request already carried out.
@@ -249,6 +259,14 @@ if (( ! PLAYLIST_MODE )); then
         removing=$(( removing + TARGET_TRACKS[-1] ))
     done
 fi
+
+prepare_operation remove "$IPOD" "$DEVICE_WATCH_IDENTITY" 1 \
+    "$EXPECT_DEVICE" "$CONFIRM_TOKEN" "$DRY_RUN" \
+    "playlist-mode=$PLAYLIST_MODE" \
+    "eject=$EJECT" \
+    "tracks=$removing" \
+    "${TARGETS[@]}"
+info "iPod: $IPOD"
 
 # One item per thing the user named, rather than per file underneath it: what
 # was asked for is "remove this album", and an album that goes in one rm is

@@ -111,6 +111,45 @@ device_identity() {
     python3 "$REPORT_TOOL" identity "$1" 2>/dev/null || true
 }
 
+# A machine caller first asks for a plan, then returns the token from that
+# exact plan. The token binds approval to the action, device identity and
+# normalized arguments rather than treating a programmatic --yes as consent.
+operation_token() {
+    command -v python3 >/dev/null \
+        || die_with "$EXIT_MISSING_DEPENDENCY" "python3 is required but not installed."
+    python3 -c 'import hashlib,json,sys; print(hashlib.sha256(json.dumps(sys.argv[1:],ensure_ascii=False,separators=(",",":")).encode()).hexdigest())' "$@"
+}
+
+emit_operation_plan() {
+    local action="$1" mount="$2" identity="$3" destructive="$4"
+    shift 4
+    local token
+    token="$(operation_token "$action" "$mount" "$identity" "$destructive" "$@")"
+    python3 -c 'import json,sys; print(json.dumps({"action":sys.argv[1],"device":{"mount":sys.argv[2],"identity":sys.argv[3]},"destructive":sys.argv[4]=="1","arguments":sys.argv[6:],"confirmationToken":sys.argv[5]},ensure_ascii=False,separators=(",",":")))' \
+        "$action" "$mount" "$identity" "$destructive" "$token" "$@"
+}
+
+prepare_operation() {
+    local action="$1" mount="$2" identity="$3" destructive="$4"
+    local expected="$5" supplied_token="$6" dry_run="$7"
+    shift 7
+
+    if [[ -n "$expected" && "$identity" != "$expected" ]]; then
+        die "Expected device '$expected', but '$identity' is mounted at $mount."
+    fi
+
+    local token
+    token="$(operation_token "$action" "$mount" "$identity" "$destructive" "$@")"
+    if (( dry_run )); then
+        emit_operation_plan "$action" "$mount" "$identity" "$destructive" "$@"
+        leave 0
+    fi
+    if (( destructive )) && [[ ! -t 0 && "$supplied_token" != "$token" ]]; then
+        die_with "$EXIT_DECLINED" \
+            "Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token."
+    fi
+}
+
 # Print the JSON report for a mounted device, or print nothing at all.
 #
 # The writer decides between "the volume stopped answering" and "something

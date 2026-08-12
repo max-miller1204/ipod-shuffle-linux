@@ -14,6 +14,9 @@ EJECT=0
 CLEAR=0
 REBUILD_ONLY=0
 PROGRESS_TARGET=""
+DRY_RUN=0
+EXPECT_DEVICE=""
+CONFIRM_TOKEN=""
 declare -a DB_ARGS=()
 
 # Declared here rather than beside the copy that keeps them, because the
@@ -47,6 +50,11 @@ Options:
   -n, --forget-options   Ignore the saved playlist and voiceover options,
                          building a plain database with neither
   -y, --yes              Answer yes to every prompt
+      --dry-run          Print the exact operation plan as JSON and change nothing
+      --expect-device ID
+                         Refuse unless the mounted iPod has this identity
+      --confirm-token TOKEN
+                         Approve the exact non-interactive plan from --dry-run
       --progress-json[=FD]
                          Report progress as one JSON object per line on
                          descriptor FD (default 3), which the caller opens.
@@ -93,6 +101,9 @@ while [[ $# -gt 0 ]]; do
         -r|--rebuild-only) REBUILD_ONLY=1; shift ;;
         -n|--forget-options) FORGET_OPTIONS=1; shift ;;
         -y|--yes)          ASSUME_YES=1; shift ;;
+        --dry-run)          DRY_RUN=1; shift ;;
+        --expect-device)    EXPECT_DEVICE="$2"; shift 2 ;;
+        --confirm-token)    CONFIRM_TOKEN="$2"; shift 2 ;;
         --progress-json|--progress-json=*)
                            progress_flag "$1"; shift ;;
         -t|--voiceover)    DB_ARGS+=("--track-voiceover"); shift ;;
@@ -163,7 +174,6 @@ IPOD="$(find_ipod "$IPOD")"
 assert_shuffle "$IPOD"
 watch_device "$IPOD"
 progress_event device ipod "$IPOD"
-info "iPod: $IPOD"
 
 MUSIC_DIR="$IPOD/iPod_Control/Music"
 OPTIONS_FILE="$(sync_options_file "$IPOD")"
@@ -191,6 +201,25 @@ if (( PLAYLISTS && ! PLAYLIST_VOICEOVER )); then
     warn "Playlists without --playlist-voiceover will be unnamed on the device."
     warn "With no screen, there is no way to tell them apart. Consider adding -p."
 fi
+
+plan_existing=0
+plan_playlists=0
+if (( CLEAR )); then
+    plan_existing="$(count_files "$MUSIC_DIR" 2>/dev/null)"
+    mapfile -d '' -t plan_root_playlists < <(root_playlist_files "$IPOD")
+    plan_playlists=${#plan_root_playlists[@]}
+fi
+prepare_operation sync "$IPOD" "$DEVICE_WATCH_IDENTITY" "$CLEAR" \
+    "$EXPECT_DEVICE" "$CONFIRM_TOKEN" "$DRY_RUN" \
+    "clear=$CLEAR" \
+    "eject=$EJECT" \
+    "rebuild-only=$REBUILD_ONLY" \
+    "forget-options=$FORGET_OPTIONS" \
+    "existing-tracks=$plan_existing" \
+    "existing-playlists=$plan_playlists" \
+    "${DB_ARGS[@]}" \
+    "$@"
+info "iPod: $IPOD"
 
 mkdir -p "$MUSIC_DIR"
 

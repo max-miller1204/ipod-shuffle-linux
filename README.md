@@ -302,13 +302,11 @@ Replace everything currently on the device and unmount when done:
 ./ipod-sync.sh --clear --eject ~/Music/albums/*/
 ```
 
-`--clear` asks before it deletes anything, so from a script or a cron job add `--yes` to answer that automatically, exactly as `ipod-remove.sh` and `ipod-wipe.sh` accept it:
-
-```bash
-./ipod-sync.sh --clear --yes ~/Music/albums/*/
-```
-
-`--yes` answers every prompt the run can reach, including the one that asks whether to continue on a volume that does not look like a shuffle.
+`--clear` asks before it deletes anything.
+An interactive run can add `--yes` after the person has decided.
+A script or agent must first run the same command with `--dry-run`, verify the returned device identity and exact JSON plan, then return its `confirmationToken` with `--confirm-token` and the identity with `--expect-device`.
+`ipod-remove.sh` and `ipod-wipe.sh` use the same handshake.
+See [planning and authorizing changes](docs/machine-interface.md#planning-and-authorizing-changes).
 
 Rebuild the database without copying anything, which is the fix when tracks are on the device but will not play:
 
