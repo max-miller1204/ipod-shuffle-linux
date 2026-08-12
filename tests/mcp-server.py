@@ -1,35 +1,150 @@
 #!/usr/bin/env python3
-"""Exercise the MCP stdio handshake, tools, and destructive boundary."""
+"""Exercise the MCP stdio handshake, tools, and destructive boundary.
 
+The boundary is checked by driving a real session over the protocol against a
+fake mount, and by reading the volume afterwards rather than the sentence the
+run printed: a refusal that deletes anyway prints the same words as one that
+does not. A dry run has to leave the device byte-identical and hand back a
+token, an execute has to be refused when the identity or the token is not the
+one that plan printed, and the plan's own token has to carry the run through.
+
+The server is one process for the whole file, because the session is part of
+what is being checked: a request that cannot be served is one answer, and a
+child that could reach this client's pipe would answer with the next request.
+"""
+
+import hashlib
 import json
 import os
 import subprocess
 import tempfile
+import threading
 from pathlib import Path
 
 repo = Path(__file__).resolve().parents[1]
-home = Path(tempfile.mkdtemp(prefix="mcp-server-"))
-(home / "Music").mkdir()
-env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home / "config"), XDG_CACHE_HOME=str(home / "cache"))
-requests = [
-    {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}}},
-    {"jsonrpc": "2.0", "method": "notifications/initialized"},
-    {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
-    {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "read_library", "arguments": {}}},
-]
-process = subprocess.run(
-    ["/usr/bin/python3", "tools/mcp-server.py"],
-    cwd=repo,
-    env=env,
-    input="".join(json.dumps(request) + "\n" for request in requests),
-    capture_output=True,
-    text=True,
-    check=True,
+root = Path(tempfile.mkdtemp(prefix="mcp-server-")).resolve()
+home = root / "home"
+(home / "Music").mkdir(parents=True)
+source = root / "New Album"
+source.mkdir()
+(source / "01 - New.mp3").write_text("new song\n")
+backup = root / "backup"
+# The database builder is the test double the end-to-end suite uses, named the
+# way lib.sh resolves it, so an approved run finishes without the upstream
+# writer and records what it was asked to build.
+env = dict(
+    os.environ,
+    HOME=str(home),
+    XDG_CONFIG_HOME=str(home / "config"),
+    XDG_CACHE_HOME=str(home / "cache"),
+    IPOD_DB_TOOL=str(repo / "tests" / "fake-db-builder.py"),
+    IPOD_VENV_PYTHON="/usr/bin/python3",
+    FAKE_DB_RECORD=str(root / "database-invocations.jsonl"),
 )
-assert not process.stderr, process.stderr
-answers = [json.loads(line) for line in process.stdout.splitlines()]
-assert answers[0]["result"]["protocolVersion"] == "2025-06-18"
-tools = answers[1]["result"]["tools"]
+
+
+class Session:
+    """A running server, driven one request at a time over its pipes."""
+
+    def __init__(self):
+        self.process = subprocess.Popen(
+            ["/usr/bin/python3", "tools/mcp-server.py"],
+            cwd=repo,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert self.process.stdin is not None and self.process.stdout is not None
+        self.stdin = self.process.stdin
+        self.stdout = self.process.stdout
+        self.identifier = 0
+
+    def send(self, document):
+        self.stdin.write(json.dumps(document) + "\n")
+        self.stdin.flush()
+
+    def request(self, method, params=None):
+        self.identifier += 1
+        document = {"jsonrpc": "2.0", "id": self.identifier, "method": method}
+        if params is not None:
+            document["params"] = params
+        self.send(document)
+        # A server that let a child read this pipe would leave the answer to
+        # be written by nobody, so the wait is bounded and reported rather
+        # than left to hang whichever runner it happens on.
+        watchdog = threading.Timer(180, self.process.kill)
+        watchdog.start()
+        try:
+            line = self.stdout.readline()
+        finally:
+            watchdog.cancel()
+        assert line, f"no answer to {method} {params}"
+        answer = json.loads(line)
+        assert answer["id"] == self.identifier, answer
+        return answer
+
+    def call(self, name, arguments):
+        answer = self.request("tools/call", {"name": name, "arguments": arguments})
+        assert "result" in answer, answer
+        result = answer["result"]
+        assert len(result["content"]) == 1, result
+        return result["isError"], result["content"][0]["text"]
+
+    def refuse(self, name, arguments):
+        """A call the server declines to make at all, as a protocol error."""
+        answer = self.request("tools/call", {"name": name, "arguments": arguments})
+        assert "result" not in answer, answer
+        assert answer["error"]["code"] == -32602, answer
+        return answer["error"]["message"]
+
+    def close(self):
+        self.stdin.close()
+        trailing, complaints = self.process.communicate(timeout=180)
+        assert not trailing, trailing
+        assert not complaints, complaints
+        assert self.process.returncode == 0, self.process.returncode
+
+
+def make_mount(name, speakable=True):
+    mount = root / name
+    (mount / "iPod_Control" / "iTunes").mkdir(parents=True)
+    (mount / "iPod_Control" / "Music" / "Album").mkdir(parents=True)
+    (mount / "iPod_Control" / "Device").mkdir(parents=True)
+    (mount / "iPod_Control" / "Device" / "SysInfo").write_text(f"identity of {name}\n")
+    (mount / "iPod_Control" / "Music" / "Album" / "01 - Keep.mp3").write_text("keep me\n")
+    (mount / "iPod_Control" / "Music" / "Album" / "02 - Also Keep.mp3").write_text("keep me too\n")
+    if speakable:
+        (mount / "iPod_Control" / "Speakable" / "System").mkdir(parents=True)
+        (mount / "iPod_Control" / "Speakable" / "System" / "battery.wav").write_text("prompt\n")
+    return mount
+
+
+def device_state(mount):
+    """Every path on the volume and the bytes of every file on it."""
+    state = []
+    for path in sorted(mount.rglob("*")):
+        name = str(path.relative_to(mount))
+        if path.is_dir():
+            state.append(f"d {name}")
+        else:
+            state.append(f"f {name} {hashlib.sha256(path.read_bytes()).hexdigest()}")
+    return state
+
+
+session = Session()
+
+answer = session.request(
+    "initialize",
+    {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "1"}},
+)
+assert answer["result"]["protocolVersion"] == "2025-06-18", answer
+# A notification carries no id and gets no answer; the next request still does.
+session.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+assert session.request("ping")["result"] == {}
+
+tools = session.request("tools/list")["result"]["tools"]
 names = [tool["name"] for tool in tools]
 assert names[:5] == ["read_library", "read_device", "read_playlists", "read_cache", "read_search"]
 assert names[5:] == ["plan_sync", "execute_sync", "plan_remove", "execute_remove", "plan_wipe", "execute_wipe"]
@@ -39,7 +154,154 @@ for tool in tools[5::2]:
     assert tool["description"].startswith("DRY RUN")
 for tool in tools[6::2]:
     assert tool["description"].startswith("DESTRUCTIVE")
-result = json.loads(answers[2]["result"]["content"][0]["text"])
+
+# What the listing promises about the boundary, read off the schemas a client
+# generates its calls from: a plan takes no approval because it never needs
+# one, and an execute cannot be called without both halves of the handshake.
+schemas = {tool["name"]: tool["inputSchema"] for tool in tools}
+for operation, field in (("sync", "sources"), ("remove", "targets"), ("wipe", "backup")):
+    plan_schema = schemas[f"plan_{operation}"]
+    execute_schema = schemas[f"execute_{operation}"]
+    assert plan_schema["required"] == ["ipod"], plan_schema
+    assert set(plan_schema["properties"]) == {"ipod", field}, plan_schema
+    assert set(execute_schema["required"]) == {"ipod", "expectedDevice", "confirmationToken"}, execute_schema
+    assert set(execute_schema["properties"]) == {"ipod", "expectedDevice", "confirmationToken", field}, execute_schema
+    assert plan_schema["additionalProperties"] is False
+    assert execute_schema["additionalProperties"] is False
+
+result = json.loads(session.call("read_library", {})[1])
 assert result["command"] == "library"
 assert result["result"]["complete"] is True
+
+# Arguments that do not fit the schema are refused before anything is run, so
+# a string where an array belongs cannot reach a command line one character at
+# a time, and a field belonging to another operation is an error rather than
+# something silently dropped. The mount named here does not exist: a call that
+# reached a script would come back as a tool result instead of an error.
+assert "sources must be an array" in session.refuse("plan_sync", {"ipod": "/nowhere", "sources": "/home/u/Music"})
+assert "unknown argument: sources" in session.refuse("plan_wipe", {"ipod": "/nowhere", "sources": ["/home/u/Music"]})
+assert "unknown argument: confirmationToken" in session.refuse(
+    "plan_remove", {"ipod": "/nowhere", "confirmationToken": "x"}
+)
+assert "missing argument: confirmationToken" in session.refuse(
+    "execute_wipe", {"ipod": "/nowhere", "expectedDevice": "x"}
+)
+assert "ipod must be a non-empty string" in session.refuse("plan_wipe", {"ipod": ""})
+assert "youtube must be a boolean" in session.refuse("read_search", {"query": "x", "youtube": "yes"})
+assert "unknown tool" in session.refuse("execute_everything", {})
+
+# A device the scripts would ask a question about. The server has no answer to
+# give and must not go looking for one on the client's pipe: the run is
+# declined, and the session keeps answering the client afterwards.
+unattended = make_mount("not-a-shuffle", speakable=False)
+failed, text = session.call("plan_wipe", {"ipod": str(unattended)})
+assert failed, text
+assert "Aborted" in text, text
+assert session.request("ping")["result"] == {}
+
+mount = make_mount("target")
+# Options a previous sync saved, so that a refused run has something on stdout
+# as well as the refusal on stderr, and both have to survive the round trip.
+(mount / "iPod_Control" / ".sync-options").write_text("--playlist-voiceover\n")
+before = device_state(mount)
+
+
+def plan(name, arguments):
+    failed, text = session.call(name, arguments)
+    assert not failed, text
+    document = json.loads(text)
+    assert document["device"]["mount"] == str(mount), document
+    assert document["device"]["identity"], document
+    assert document["confirmationToken"], document
+    return document
+
+
+remove_plan = plan("plan_remove", {"ipod": str(mount), "targets": ["Album/01 - Keep.mp3"]})
+sync_plan = plan("plan_sync", {"ipod": str(mount), "sources": [str(source)]})
+wipe_plan = plan("plan_wipe", {"ipod": str(mount), "backup": str(backup)})
+plans = (remove_plan, sync_plan, wipe_plan)
+assert [document["action"] for document in plans] == ["remove", "sync", "wipe"]
+assert len({document["confirmationToken"] for document in plans}) == 3, plans
+assert len({document["device"]["identity"] for document in plans}) == 1, plans
+assert remove_plan["destructive"] is True, remove_plan
+assert wipe_plan["destructive"] is True, wipe_plan
+assert any(argument.endswith("Album/01 - Keep.mp3") for argument in remove_plan["arguments"]), remove_plan
+assert str(source) in sync_plan["arguments"], sync_plan
+assert f"backup={backup}" in wipe_plan["arguments"], wipe_plan
+assert device_state(mount) == before, "a dry run changed the device"
+assert not backup.exists(), "a dry run made a backup"
+
+identity = remove_plan["device"]["identity"]
+removal = {"ipod": str(mount), "targets": ["Album/01 - Keep.mp3"]}
+
+failed, text = session.call(
+    "execute_remove",
+    {**removal, "expectedDevice": "sysinfo:some-other-ipod", "confirmationToken": remove_plan["confirmationToken"]},
+)
+assert failed, text
+assert "Expected device" in text, text
+assert device_state(mount) == before, "a refused removal deleted something"
+
+failed, text = session.call(
+    "execute_remove",
+    {**removal, "expectedDevice": identity, "confirmationToken": wipe_plan["confirmationToken"]},
+)
+assert failed, text
+assert "Non-interactive destructive action refused" in text, text
+assert device_state(mount) == before, "a removal approved by another plan's token deleted something"
+
+# The refusal arrives even though the run had already printed to stdout.
+failed, text = session.call(
+    "execute_sync",
+    {
+        "ipod": str(mount),
+        "sources": [str(source)],
+        "expectedDevice": "sysinfo:some-other-ipod",
+        "confirmationToken": sync_plan["confirmationToken"],
+    },
+)
+assert failed, text
+assert "Reusing saved options: --playlist-voiceover" in text, text
+assert "Expected device" in text, text
+assert device_state(mount) == before, "a refused sync wrote to the device"
+
+failed, text = session.call(
+    "execute_remove",
+    {**removal, "expectedDevice": identity, "confirmationToken": remove_plan["confirmationToken"]},
+)
+assert not failed, text
+assert not (mount / "iPod_Control" / "Music" / "Album" / "01 - Keep.mp3").exists()
+assert (mount / "iPod_Control" / "Music" / "Album" / "02 - Also Keep.mp3").exists()
+
+# The device changed, so the plan is made again: what an execute is authorized
+# to do is what the dry run in front of it described.
+sync_plan = plan("plan_sync", {"ipod": str(mount), "sources": [str(source)]})
+failed, text = session.call(
+    "execute_sync",
+    {
+        "ipod": str(mount),
+        "sources": [str(source)],
+        "expectedDevice": identity,
+        "confirmationToken": sync_plan["confirmationToken"],
+    },
+)
+assert not failed, text
+assert (mount / "iPod_Control" / "Music" / "New Album" / "01 - New.mp3").read_text() == "new song\n"
+
+wipe_plan = plan("plan_wipe", {"ipod": str(mount), "backup": str(backup)})
+failed, text = session.call(
+    "execute_wipe",
+    {
+        "ipod": str(mount),
+        "backup": str(backup),
+        "expectedDevice": identity,
+        "confirmationToken": wipe_plan["confirmationToken"],
+    },
+)
+assert not failed, text
+assert sorted(path.name for path in (mount / "iPod_Control" / "Music").rglob("*")) == []
+assert (mount / "iPod_Control" / "Speakable" / "System" / "battery.wav").exists()
+assert (backup / "Music" / "New Album" / "01 - New.mp3").read_text() == "new song\n"
+
+session.close()
 print("mcp server ok")

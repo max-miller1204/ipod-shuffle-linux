@@ -649,6 +649,7 @@ Activating `dump-state` refreshes its JSON string state with the current page, v
 For clients outside this checkout, `python3 tools/mcp-server.py` serves the same machine interfaces over MCP stdio with no additional package dependency.
 Its tool listing keeps `read_*` queries separate from `plan_*` dry runs and `execute_*` device changes.
 An execute tool requires both `expectedDevice` and the `confirmationToken` returned by the corresponding dry run, so an MCP caller cannot bypass the destructive-operation rails.
+Those two checks run before anything is touched, and the token is what approves the run: the prompts written for a person are answered with `--yes`, because a server has no terminal to ask at and must never read an answer off its client's pipe.
 Configure an MCP client to launch the server with `/usr/bin/python3` and the absolute path to `tools/mcp-server.py`.
 
 For reproducible visual evidence, build the canonical four-album fixture and render a page without depending on compositor frames:

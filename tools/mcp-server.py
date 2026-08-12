@@ -14,13 +14,14 @@ READ_TOOLS = {
     "read_playlists": ("playlists", "list"),
     "read_cache": ("cache", "status"),
 }
-SCRIPT_TOOLS = {
-    "plan_sync": "ipod-sync.sh",
-    "execute_sync": "ipod-sync.sh",
-    "plan_remove": "ipod-remove.sh",
-    "execute_remove": "ipod-remove.sh",
-    "plan_wipe": "ipod-wipe.sh",
-    "execute_wipe": "ipod-wipe.sh",
+PATH = {"type": "string", "description": "Absolute path"}
+
+# Each device operation is declared with the arguments its script actually
+# reads, so an argument meant for another one is refused rather than dropped.
+OPERATIONS = {
+    "sync": ("ipod-sync.sh", {"sources": {"type": "array", "items": PATH}}),
+    "remove": ("ipod-remove.sh", {"targets": {"type": "array", "items": {"type": "string"}}}),
+    "wipe": ("ipod-wipe.sh", {"backup": PATH}),
 }
 
 
@@ -33,7 +34,6 @@ def schema(properties, required=()):
     }
 
 
-PATH = {"type": "string", "description": "Absolute path"}
 TOOLS = [
     *[
         {"name": name, "description": f"Read {name[5:].replace('_', ' ')} state. Read-only.", "inputSchema": schema({})}
@@ -44,57 +44,122 @@ TOOLS = [
         "description": "Search the local library and optionally YouTube. Read-only.",
         "inputSchema": schema({"query": {"type": "string"}, "youtube": {"type": "boolean"}}, ("query",)),
     },
-    *[
+]
+for _operation in OPERATIONS:
+    _fields = OPERATIONS[_operation][1]
+    TOOLS.append(
         {
-            "name": name,
-            "description": (
-                "DRY RUN: return the exact device-changing plan and confirmation token; changes nothing."
-                if name.startswith("plan_")
-                else "DESTRUCTIVE: execute only the exact dry-run plan authorized by expectedDevice and confirmationToken."
-            ),
+            "name": f"plan_{_operation}",
+            "description": "DRY RUN: return the exact device-changing plan and confirmation token; changes nothing.",
+            "inputSchema": schema({"ipod": PATH, **_fields}, ("ipod",)),
+        }
+    )
+    TOOLS.append(
+        {
+            "name": f"execute_{_operation}",
+            "description": "DESTRUCTIVE: execute only the exact dry-run plan authorized by expectedDevice and confirmationToken.",
             "inputSchema": schema(
                 {
                     "ipod": PATH,
                     "expectedDevice": {"type": "string"},
                     "confirmationToken": {"type": "string"},
-                    "sources": {"type": "array", "items": PATH},
-                    "targets": {"type": "array", "items": {"type": "string"}},
-                    "backup": PATH,
+                    **_fields,
                 },
-                ("ipod",) if name.startswith("plan_") else ("ipod", "expectedDevice", "confirmationToken"),
+                ("ipod", "expectedDevice", "confirmationToken"),
             ),
         }
-        for name in SCRIPT_TOOLS
-    ],
-]
+    )
+TOOL_INDEX = {tool["name"]: tool for tool in TOOLS}
 
 
-def cli(arguments):
+def validate(document, arguments):
+    """Hold a call to the schema its tool advertises, before anything runs.
+
+    A client that sends an argument no tool declares, omits a required one, or
+    sends a string where an array belongs is told so, rather than having the
+    value reach a command line that would read it as something else entirely.
+    """
+    if not isinstance(arguments, dict):
+        raise ValueError("arguments must be an object")
+    properties = document["properties"]
+    for name in arguments:
+        if name not in properties:
+            raise ValueError(f"unknown argument: {name}")
+    for name in document["required"]:
+        if name not in arguments:
+            raise ValueError(f"missing argument: {name}")
+    for name, value in arguments.items():
+        kind = properties[name]["type"]
+        if kind == "string" and not (isinstance(value, str) and value):
+            raise ValueError(f"{name} must be a non-empty string")
+        if kind == "boolean" and not isinstance(value, bool):
+            raise ValueError(f"{name} must be a boolean")
+        if kind == "array" and not (
+            isinstance(value, list) and all(isinstance(item, str) and item for item in value)
+        ):
+            raise ValueError(f"{name} must be an array of non-empty strings")
+
+
+def run(command):
+    """Run one command with no way to ask this server's client a question.
+
+    stdin is closed rather than inherited: the scripts prompt on a terminal,
+    and the only thing on this process's stdin is the client's next request,
+    which a child reading an answer would swallow.
+    """
     return subprocess.run(
-        [sys.executable, "-m", "ipod_gui.cli", *arguments],
+        command,
         cwd=REPO,
         capture_output=True,
         text=True,
+        stdin=subprocess.DEVNULL,
     )
 
 
+def cli(arguments):
+    return run([sys.executable, "-m", "ipod_gui.cli", *arguments])
+
+
 def script(name, arguments):
-    command = [str(REPO / SCRIPT_TOOLS[name]), "--ipod", arguments["ipod"]]
+    """Build the argument vector for one device operation.
+
+    Every option goes before the positional list and the two are separated by
+    `--`, because the scripts stop reading options at the first path: a rail
+    written after one would arrive as a track name instead of as a rail.
+    """
     operation = name.removeprefix("plan_").removeprefix("execute_")
-    if operation == "sync":
-        command.extend(arguments.get("sources", []))
-    elif operation == "remove":
-        command.extend(arguments.get("targets", []))
-    elif arguments.get("backup"):
-        command.extend(("--backup", arguments["backup"]))
+    executable, _ = OPERATIONS[operation]
+    command = [str(REPO / executable), "--ipod", arguments["ipod"]]
     if name.startswith("plan_"):
         command.append("--dry-run")
     else:
-        command.extend(("--expect-device", arguments["expectedDevice"], "--confirm-token", arguments["confirmationToken"]))
-    return subprocess.run(command, cwd=REPO, capture_output=True, text=True)
+        # The token is the consent a machine caller gives; --yes only answers
+        # the prompts written for a person, and cannot answer for the token.
+        command.extend(
+            (
+                "--yes",
+                "--expect-device",
+                arguments["expectedDevice"],
+                "--confirm-token",
+                arguments["confirmationToken"],
+            )
+        )
+    if operation == "wipe":
+        if "backup" in arguments:
+            command.extend(("--backup", arguments["backup"]))
+        return run(command)
+    positionals = arguments.get("sources" if operation == "sync" else "targets", [])
+    if positionals:
+        command.append("--")
+        command.extend(positionals)
+    return run(command)
 
 
 def call(name, arguments):
+    tool = TOOL_INDEX.get(name)
+    if tool is None:
+        raise ValueError(f"unknown tool: {name}")
+    validate(tool["inputSchema"], arguments)
     if name in READ_TOOLS:
         process = cli(list(READ_TOOLS[name]))
     elif name == "read_search":
@@ -102,12 +167,15 @@ def call(name, arguments):
         if arguments.get("youtube"):
             command.append("--youtube")
         process = cli(command)
-    elif name in SCRIPT_TOOLS:
-        process = script(name, arguments)
     else:
-        raise ValueError(f"unknown tool: {name}")
-    output = process.stdout.strip()
-    text = output or process.stderr.strip() or f"command exited {process.returncode}"
+        process = script(name, arguments)
+    # A failed run keeps both streams: the plan or the report is on stdout,
+    # while the sentence saying why a rail refused the run is on stderr, and
+    # returning only the first would drop the answer the caller needs.
+    parts = [process.stdout.strip()]
+    if process.returncode != 0:
+        parts.append(process.stderr.strip())
+    text = "\n".join(part for part in parts if part) or f"command exited {process.returncode}"
     return {"content": [{"type": "text", "text": text}], "isError": process.returncode != 0}
 
 
@@ -140,8 +208,19 @@ def main():
                 reply(identifier, call(params.get("name", ""), params.get("arguments", {})))
             else:
                 reply(identifier, error={"code": -32601, "message": f"method not found: {method}"})
-        except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
-            reply(request.get("id") if isinstance(request, dict) else None, error={"code": -32602, "message": str(exc)})
+        # One request that cannot be served is one answer, never the end of
+        # the session: a missing script or an unreadable one raises from the
+        # dispatch, and a server that died there would take every later
+        # request with it.
+        except Exception as exc:  # noqa: BLE001
+            invalid = isinstance(exc, (ValueError, TypeError, KeyError))
+            reply(
+                request.get("id") if isinstance(request, dict) else None,
+                error={
+                    "code": -32602 if invalid else -32603,
+                    "message": str(exc) if invalid else f"{type(exc).__name__}: {exc}",
+                },
+            )
     return 0
 
 
