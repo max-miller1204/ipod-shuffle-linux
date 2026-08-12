@@ -199,7 +199,7 @@ gdbus call --session --dest io.github.max_miller1204.IpodShuffle \
 | `schema` | `1`, on the same rule as everything above: bumped only when a field changes meaning or leaves |
 | `page` | Which page is on screen, by the same name `navigate` takes |
 | `visibleCounts` | How many tracks are in each state - `ipod`, `queued`, `library`, `preview`. Tracks, always: the library page's filter pills count albums or artists while the grid is up, and only agree with this in list mode |
-| `staged` | What the next sync would do: its `sources` as the paths that staged them, the `tracks` those come to, the `changes` and `bytes` the sync bar quotes, and the `deviceIdentity` the queue is held against |
+| `staged` | What the next sync would do: its `sources` as the paths that staged them, the `tracks` those come to, the `changes` the **Sync** button counts and the `bytes` the device card quotes beside it, and the `deviceIdentity` the queue is held against |
 | `nowPlaying` | The preview player's `state` - `idle`, `fetching`, `loading`, `playing` or `paused` - its `track`, and its `error`, which is either what failed to play or why this machine cannot play a preview at all |
 | `sync` | The bar a running script reports through: whether one is `active`, and the `title`, `current`, `count` and `progress` it is showing. The bar is only on screen while a script runs, so the four are empty whenever `active` is false rather than holding the last run's words |
 | `inlineError` | The note the search page is showing in place of results, and empty when search is not the page on screen |

@@ -78,8 +78,8 @@ jobs:
       - name: GUI reads a real progress stream
         run: python3 tests/gui-progress-stream.py
 
-      # The only check that constructs the window. Every other GUI check runs
-      # methods unbound against a stand-in, so none of them would notice a
+      # Where the real window is built and inspected part by part. The GUI
+      # checks that run methods unbound against a stand-in would not notice a
       # builder that stopped being called or a widget that never reached the
       # stack. -a picks a free display number rather than assuming :99 is free.
       - name: GUI window builds
@@ -93,6 +93,9 @@ jobs:
       - name: GUI window fits its minimum
         run: xvfb-run -a python3 tests/gui-window-minimum.py
 
+      # The actions another program drives the window through, activated the
+      # way a client activates them against a real application and the real
+      # window under it. Needs a display for the same reason the two above do.
       - name: Gio application actions
         run: xvfb-run -a python3 tests/gui-gio-actions.py
 

@@ -1,4 +1,11 @@
-"""The Adw.Application the launcher starts."""
+"""The Adw.Application the launcher starts, and the actions it exports.
+
+The actions are how another program drives the window a person already has
+open, on the bus name GTK publishes for this application anyway. Their shapes
+and the document `dump-state` answers with are an interface rather than an
+implementation detail, and docs/machine-interface.md is where that is written
+down for the clients that read it.
+"""
 
 import json
 import sys

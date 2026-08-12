@@ -1,0 +1,31 @@
+{
+  "path": "/tmp/gio-actions-demo/home/Music/Kova/Nightbus/01 - Last Stop.mp3",
+  "dumpState": {
+    "path": "/tmp/gio-actions-demo/home/Music/Kova/Nightbus/01 - Last Stop.mp3",
+    "title": "Last Stop",
+    "artist": "Kova",
+    "album": "Nightbus",
+    "genre": "",
+    "duration": 1.0448979591836736,
+    "trackNumber": 1,
+    "art": "/tmp/gio-actions-demo/home/.cache/ipod-shuffle-linux/art/3ad2d8c962b20efcfb90bffddc849f233e9868cd.img",
+    "size": 20579,
+    "state": "queued",
+    "onIpod": false
+  },
+  "headlessCli": {
+    "path": "/tmp/gio-actions-demo/home/Music/Kova/Nightbus/01 - Last Stop.mp3",
+    "title": "Last Stop",
+    "artist": "Kova",
+    "album": "Nightbus",
+    "genre": "",
+    "duration": 1.0448979591836736,
+    "trackNumber": 1,
+    "art": "/tmp/gio-actions-demo/home/.cache/ipod-shuffle-linux/art/3ad2d8c962b20efcfb90bffddc849f233e9868cd.img",
+    "size": 20579,
+    "state": "library",
+    "onIpod": false
+  },
+  "sameFields": true,
+  "sameExceptState": true
+}

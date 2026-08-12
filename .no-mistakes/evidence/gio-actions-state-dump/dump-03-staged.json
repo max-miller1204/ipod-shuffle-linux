@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "page": "library",
+  "visibleCounts": {
+    "ipod": 2,
+    "queued": 1,
+    "library": 3,
+    "preview": 0
+  },
+  "staged": {
+    "sources": [
+      "/tmp/gio-actions-demo/home/Music/Kova/Nightbus/01 - Last Stop.mp3"
+    ],
+    "tracks": [
+      {
+        "path": "/tmp/gio-actions-demo/home/Music/Kova/Nightbus/01 - Last Stop.mp3",
+        "title": "Last Stop",
+        "artist": "Kova",
+        "album": "Nightbus",
+        "genre": "",
+        "duration": 1.0448979591836736,
+        "trackNumber": 1,
+        "art": "/tmp/gio-actions-demo/home/.cache/ipod-shuffle-linux/art/3ad2d8c962b20efcfb90bffddc849f233e9868cd.img",
+        "size": 20579,
+        "state": "queued",
+        "onIpod": false
+      }
+    ],
+    "changes": 1,
+    "bytes": 20579,
+    "deviceIdentity": "uuid:/dev/sdz"
+  },
+  "nowPlaying": {
+    "state": "idle",
+    "track": null,
+    "error": ""
+  },
+  "sync": {
+    "active": false,
+    "title": "",
+    "current": "",
+    "count": "",
+    "progress": 0.0
+  },
+  "inlineError": ""
+}
