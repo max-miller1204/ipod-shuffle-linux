@@ -148,6 +148,17 @@ assert not older_cover.exists(), "a playlist kept a cover in a second format"
 assert gui.playlist_custom_cover(older) == COVERS / ".covers" / "Mix.m3u.old.m3u.png"
 assert not list((COVERS / ".covers").glob("*.part")), "a half-copied image was left"
 
+# Landing on the name it already has is the one rename that clears nothing:
+# the cover slot it would be told to empty is the one its own image is in.
+unmoved = gui.rename_local_playlist(older, "Mix.m3u.old")
+assert unmoved == older, unmoved
+assert gui.playlist_custom_cover(older) == COVERS / ".covers" / "Mix.m3u.old.m3u.png"
+# A playlist that has gone is renamed to nothing at all, its own name included:
+# there is no file to move and nothing for the window to select afterwards.
+assert gui.rename_local_playlist(COVERS / "No Such.m3u", "No Such") is None
+assert gui.rename_local_playlist(COVERS / "No Such.m3u", "Something Else") is None
+assert not (COVERS / "Something Else.m3u").exists()
+
 # A playlist deleted by hand while the app was not running is deleted, and the
 # store has to catch up with that rather than reporting the deletion and
 # keeping the image.

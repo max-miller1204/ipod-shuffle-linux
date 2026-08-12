@@ -498,17 +498,23 @@ def rename_local_playlist(path, new_name):
     the new name's cover slots held is cleared either way: the name was free,
     so anything stored under it belonged to a playlist that has gone, and a
     renamed list must not arrive wearing it.
+
+    Landing on the name it already has moves nothing and clears nothing - the
+    slot the cover is in is its own. It is still answered against the folder
+    rather than waved through, because a playlist that has gone has not been
+    renamed to anything, its own name included.
     """
     source = Path(path)
     destination = local_playlist_file(source.parent, new_name)
-    if destination.exists() and destination != source:
+    if destination == source:
+        return destination if source.is_file() else None
+    if destination.exists():
         return None
     cover = playlist_custom_cover(source)
     renamed_cover = None
-    if destination != source:
-        remove_playlist_cover(destination)
+    remove_playlist_cover(destination)
     try:
-        if cover is not None and destination != source:
+        if cover is not None:
             renamed_cover = cover.with_name(f"{destination.name}{cover.suffix}")
             os.replace(cover, renamed_cover)
         os.replace(source, destination)
