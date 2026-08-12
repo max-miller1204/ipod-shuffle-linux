@@ -17,10 +17,13 @@ run until the window has finished instead, which is also what a client of these
 actions has to do - they are fire-and-forget, and dump-state activated straight
 after one can honestly answer from before the work landed.
 
-Needs a display, so CI runs it under xvfb. Hermetic: HOME is a temporary
-directory set before the package is imported, so the scan the window starts at
-startup reads the music folder written below rather than the real one, and the
-counts in the dump are a library this file knows the whole of.
+Needs a display, and starts its own: run directly, it re-executes itself
+through tools/headless-run.py onto a private Xvfb display and a private session
+bus, which is also what keeps the application name it owns off the bus any
+running Shuffle is on. Hermetic: HOME is a temporary directory set before the
+package is imported, so the scan the window starts at startup reads the music
+folder written below rather than the real one, and the counts in the dump are a
+library this file knows the whole of.
 """
 
 import json
