@@ -68,6 +68,20 @@ count_files() {
     find "$@" -type f -printf '.' | wc -c
 }
 
+# The same count for a path that is allowed not to be there yet.
+#
+# An iPod that has never been synced has no iPod_Control/Music, and a backup
+# taken from one has no Music either: "nothing there" is the answer, not a
+# failure. find disagrees - it leaves with a non-zero status for a path it
+# could not open - and under pipefail that ends the run where it stands, with
+# nothing printed to say why. Asked separately from count_files, because a
+# directory that vanishes mid-run must still be a failure: that is how a
+# script notices the iPod was unplugged while it was working.
+count_files_present() {
+    [[ -e "$1" ]] || { printf '0\n'; return 0; }
+    count_files "$1"
+}
+
 # Whether the firmware could play a file with this name.
 #
 # The one place the question is asked, because the copy decides what to skip by
@@ -78,8 +92,22 @@ playable_name() {
     [[ "${1,,}" =~ \.(${SUPPORTED_EXT})$ ]]
 }
 
+# Whether this run is only planning, set by the scripts that offer --dry-run.
+#
+# Declared here as well, because info() below reads it: a plan is the whole of
+# what a dry run puts on stdout, so a sentence meant for a person has to go to
+# stderr while one is being prepared rather than land in front of the JSON the
+# caller is about to parse.
+DRY_RUN=0
+
 err()  { printf '\033[31merror:\033[0m %s\n' "$*" >&2; }
-info() { printf '\033[36m==>\033[0m %s\n' "$*"; }
+info() {
+    if (( DRY_RUN )); then
+        printf '\033[36m==>\033[0m %s\n' "$*" >&2
+    else
+        printf '\033[36m==>\033[0m %s\n' "$*"
+    fi
+}
 warn() { printf '\033[33mwarning:\033[0m %s\n' "$*" >&2; }
 
 die() { die_with 1 "$@"; }
@@ -120,11 +148,14 @@ operation_token() {
     python3 -c 'import hashlib,json,sys; print(hashlib.sha256(json.dumps(sys.argv[1:],ensure_ascii=False,separators=(",",":")).encode()).hexdigest())' "$@"
 }
 
+# The plan a dry run prints, carrying the token computed from that same plan.
+#
+# Handed the token rather than hashing a second time, so that the value the
+# caller is told to return and the value the run will compare it against
+# cannot be computed from two different lists of arguments.
 emit_operation_plan() {
-    local action="$1" mount="$2" identity="$3" destructive="$4"
-    shift 4
-    local token
-    token="$(operation_token "$action" "$mount" "$identity" "$destructive" "$@")"
+    local action="$1" mount="$2" identity="$3" destructive="$4" token="$5"
+    shift 5
     python3 -c 'import json,sys; print(json.dumps({"action":sys.argv[1],"device":{"mount":sys.argv[2],"identity":sys.argv[3]},"destructive":sys.argv[4]=="1","arguments":sys.argv[6:],"confirmationToken":sys.argv[5]},ensure_ascii=False,separators=(",",":")))' \
         "$action" "$mount" "$identity" "$destructive" "$token" "$@"
 }
@@ -141,7 +172,8 @@ prepare_operation() {
     local token
     token="$(operation_token "$action" "$mount" "$identity" "$destructive" "$@")"
     if (( dry_run )); then
-        emit_operation_plan "$action" "$mount" "$identity" "$destructive" "$@"
+        emit_operation_plan "$action" "$mount" "$identity" "$destructive" \
+            "$token" "$@"
         leave 0
     fi
     if (( destructive )) && [[ ! -t 0 && "$supplied_token" != "$token" ]]; then

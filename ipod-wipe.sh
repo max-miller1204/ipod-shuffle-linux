@@ -110,7 +110,7 @@ ITUNES_DIR="$IPOD/iPod_Control/iTunes"
 # the only record of which songs made up that playlist.
 mapfile -d '' -t ROOT_PLAYLISTS < <(root_playlist_files "$IPOD")
 
-track_count="$(count_files "$MUSIC_DIR" 2>/dev/null)"
+track_count="$(count_files_present "$MUSIC_DIR")"
 prepare_operation wipe "$IPOD" "$DEVICE_WATCH_IDENTITY" 1 \
     "$EXPECT_DEVICE" "$CONFIRM_TOKEN" "$DRY_RUN" \
     "backup=$BACKUP_DIR" \
@@ -134,7 +134,7 @@ if [[ -n "$BACKUP_DIR" ]]; then
     # Verify before anything irreversible happens. The iTunesDB copy matters as
     # much as the audio: iPod filenames are scrambled four-character codes, and
     # that database is what maps them back to real artist and title metadata.
-    backed_up="$(count_files "$BACKUP_DIR/Music" 2>/dev/null)"
+    backed_up="$(count_files_present "$BACKUP_DIR/Music")"
     (( backed_up == track_count )) \
         || die "Backup verification failed: $backed_up of $track_count files copied."
     info "Backup verified: $backed_up track(s) plus databases"
@@ -171,7 +171,7 @@ progress_stage clear 'done'
 
 rebuild_database "$IPOD"
 
-info "Preserved: $(count_files "$IPOD/iPod_Control/Speakable" 2>/dev/null) Speakable prompt file(s)"
+info "Preserved: $(count_files_present "$IPOD/iPod_Control/Speakable") Speakable prompt file(s)"
 info "Wipe complete. The iPod is empty and ready for ./ipod-sync.sh"
 
 warn "Unmount before unplugging:  ./ipod-sync.sh --rebuild-only --eject"

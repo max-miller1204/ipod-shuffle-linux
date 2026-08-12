@@ -29,6 +29,7 @@ Without `--json`, `--list` still prints nothing but the track paths, so the two 
 `ipod-sync.sh`, `ipod-remove.sh` and `ipod-wipe.sh` accept `--dry-run`.
 It resolves the device and requested targets, prints one JSON plan, and changes nothing.
 The plan names the `action`, the device `mount` and `identity`, whether the operation is `destructive`, its normalized `arguments`, and a `confirmationToken` bound to all of those values.
+The plan is the whole of stdout: anything the run would have said to a person, such as which saved options it is replaying, goes to stderr instead, so what the caller parses is one document and nothing else.
 
 A non-interactive clear, removal or wipe is refused even with `--yes` unless the caller first reads that plan and returns its token with `--confirm-token TOKEN`.
 This prevents `--yes`, which records a human confirmation in an interactive flow, from becoming authorization merely because an automated caller copied the flag.

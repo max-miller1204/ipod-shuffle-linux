@@ -205,7 +205,7 @@ fi
 plan_existing=0
 plan_playlists=0
 if (( CLEAR )); then
-    plan_existing="$(count_files "$MUSIC_DIR" 2>/dev/null)"
+    plan_existing="$(count_files_present "$MUSIC_DIR")"
     mapfile -d '' -t plan_root_playlists < <(root_playlist_files "$IPOD")
     plan_playlists=${#plan_root_playlists[@]}
 fi

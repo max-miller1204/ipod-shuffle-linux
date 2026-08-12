@@ -228,6 +228,99 @@ run_approved "$ROOT/ipod-sync.sh" \
     > "$EVIDENCE_DIR/clear-playlist-only-with-token.txt" 2>&1
 test ! -e "$PLAYLIST_ONLY_IPOD/Only List.PLS"
 
+# A plan is the whole of stdout, on a device that has something to say first.
+# Every sync that was given options saves them, and the next run announces the
+# ones it is replaying: printed where the plan goes, that sentence leaves the
+# caller with a document json.loads refuses and so with no token, and a --clear
+# it can never authorize. The options themselves still belong in the plan,
+# because they are part of what the run will do.
+SAVED_OPTIONS_IPOD="$TEST_ROOT/saved-options-clear-target"
+mkdir -p \
+    "$SAVED_OPTIONS_IPOD/iPod_Control/iTunes" \
+    "$SAVED_OPTIONS_IPOD/iPod_Control/Music" \
+    "$SAVED_OPTIONS_IPOD/iPod_Control/Speakable"
+"$ROOT/ipod-sync.sh" \
+    --ipod "$SAVED_OPTIONS_IPOD" \
+    --dir-playlists \
+    --playlist-voiceover \
+    "$YES_SOURCE" < /dev/null \
+    > "$EVIDENCE_DIR/saved-options-first-sync.txt" 2>&1
+test -s "$SAVED_OPTIONS_IPOD/iPod_Control/.sync-options"
+
+saved_options_plan="$("$ROOT/ipod-sync.sh" \
+    --ipod "$SAVED_OPTIONS_IPOD" \
+    --clear \
+    --yes \
+    --dry-run \
+    "$YES_SOURCE" < /dev/null \
+    2> "$EVIDENCE_DIR/saved-options-plan.stderr.txt")"
+/usr/bin/python3 -c '
+import json, sys
+plan = json.loads(sys.argv[1])
+assert plan["action"] == "sync"
+assert plan["destructive"] is True
+assert "--auto-dir-playlists" in plan["arguments"], plan["arguments"]
+assert "--playlist-voiceover" in plan["arguments"], plan["arguments"]
+assert "existing-tracks=1" in plan["arguments"], plan["arguments"]
+assert plan["confirmationToken"]
+' "$saved_options_plan"
+grep -Fq 'Reusing saved options' "$EVIDENCE_DIR/saved-options-plan.stderr.txt"
+test -s "$SAVED_OPTIONS_IPOD/iPod_Control/Music/yes-source/track.mp3"
+run_approved "$ROOT/ipod-sync.sh" \
+    --ipod "$SAVED_OPTIONS_IPOD" \
+    --clear \
+    --yes \
+    "$YES_SOURCE" < /dev/null \
+    > "$EVIDENCE_DIR/saved-options-clear-with-token.txt" 2>&1
+test -s "$SAVED_OPTIONS_IPOD/iPod_Control/Music/yes-source/track.mp3"
+
+# An iPod that has never held music has no iPod_Control/Music directory: the
+# sync creates it. Counting what a --clear would delete happens before that,
+# and a count of a directory that is not there is none rather than a run that
+# stops with nothing printed to say why.
+NO_MUSIC_IPOD="$TEST_ROOT/no-music-dir-target"
+mkdir -p \
+    "$NO_MUSIC_IPOD/iPod_Control/iTunes" \
+    "$NO_MUSIC_IPOD/iPod_Control/Speakable"
+no_music_plan="$("$ROOT/ipod-sync.sh" \
+    --ipod "$NO_MUSIC_IPOD" \
+    --clear \
+    --yes \
+    --dry-run \
+    "$YES_SOURCE" < /dev/null)"
+/usr/bin/python3 -c '
+import json, sys
+plan = json.loads(sys.argv[1])
+assert "existing-tracks=0" in plan["arguments"], plan["arguments"]
+assert "existing-playlists=0" in plan["arguments"], plan["arguments"]
+' "$no_music_plan"
+test ! -e "$NO_MUSIC_IPOD/iPod_Control/Music"
+run_approved "$ROOT/ipod-sync.sh" \
+    --ipod "$NO_MUSIC_IPOD" \
+    --clear \
+    --yes \
+    "$YES_SOURCE" < /dev/null \
+    > "$EVIDENCE_DIR/clear-no-music-dir.txt" 2>&1
+test -s "$NO_MUSIC_IPOD/iPod_Control/Music/yes-source/track.mp3"
+
+# The same device wiped with a backup: there is nothing to copy, so the backup
+# has no Music directory either, and verifying none copied against none there
+# is a pass. The Speakable prompts are still what a wipe keeps.
+NO_MUSIC_WIPE_IPOD="$TEST_ROOT/no-music-dir-wipe-target"
+mkdir -p \
+    "$NO_MUSIC_WIPE_IPOD/iPod_Control/iTunes" \
+    "$NO_MUSIC_WIPE_IPOD/iPod_Control/Speakable/System"
+printf 'spoken battery prompt\n' \
+    > "$NO_MUSIC_WIPE_IPOD/iPod_Control/Speakable/System/battery.wav"
+run_approved "$ROOT/ipod-wipe.sh" \
+    --ipod "$NO_MUSIC_WIPE_IPOD" \
+    --backup "$TEST_ROOT/no-music-backup" \
+    --yes < /dev/null \
+    > "$EVIDENCE_DIR/wipe-no-music-dir.txt" 2>&1
+grep -Fq 'Backup verified: 0 track(s)' "$EVIDENCE_DIR/wipe-no-music-dir.txt"
+test -s "$NO_MUSIC_WIPE_IPOD/iPod_Control/Speakable/System/battery.wav"
+test -d "$NO_MUSIC_WIPE_IPOD/iPod_Control/Music"
+
 # --yes has to answer every prompt, not just the caller's own. assert_shuffle
 # asks its own question from inside lib.sh when a volume has no Speakable
 # directory, and a script that only guarded its local confirm still stopped
