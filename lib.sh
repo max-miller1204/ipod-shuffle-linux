@@ -205,9 +205,10 @@ prepare_operation() {
             "$token" "$@"
         leave 0
     fi
-    if (( destructive )) \
-        && { [[ ! -t 0 ]] || (( ASSUME_YES )); } \
-        && [[ "$supplied_token" != "$token" ]]; then
+    if [[ -n "$supplied_token" && "$supplied_token" != "$token" ]] \
+        || { (( destructive )) \
+            && { [[ ! -t 0 ]] || (( ASSUME_YES )); } \
+            && [[ -z "$supplied_token" ]]; }; then
         die_with "$EXIT_DECLINED" \
             "Destructive action refused: confirmation is not authorization. Answer the prompt at a terminal without --yes, or run --dry-run and pass its confirmationToken with --confirm-token."
     fi

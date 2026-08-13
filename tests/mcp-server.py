@@ -153,6 +153,12 @@ def device_state(mount):
     return state
 
 
+def database_state():
+    """The bytes the database-builder double has recorded, when it has run."""
+    record = Path(env["FAKE_DB_RECORD"])
+    return record.read_bytes() if record.exists() else None
+
+
 session = Session()
 
 answer = session.request(
@@ -186,6 +192,12 @@ for operation, field in (("sync", "sources"), ("remove", "targets"), ("wipe", "b
     assert set(plan_schema["properties"]) == {"ipod", field}, plan_schema
     assert set(execute_schema["required"]) == {"ipod", "expectedDevice", "confirmationToken"}, execute_schema
     assert set(execute_schema["properties"]) == {"ipod", "expectedDevice", "confirmationToken", field}, execute_schema
+    assert execute_schema["properties"]["expectedDevice"]["description"] == (
+        f"Exact device.identity returned by plan_{operation} for this execution."
+    )
+    assert execute_schema["properties"]["confirmationToken"]["description"] == (
+        f"Exact confirmationToken returned by plan_{operation} for this execution."
+    )
     assert plan_schema["additionalProperties"] is False
     assert execute_schema["additionalProperties"] is False
 
@@ -323,6 +335,50 @@ assert not backup.exists(), "a dry run made a backup"
 
 identity = remove_plan["device"]["identity"]
 removal = {"ipod": str(mount), "targets": ["Album/01 - Keep.mp3"]}
+
+sync = {"ipod": str(mount), "sources": [str(source)]}
+
+# Supplying a token opts every sync into the exact dry-run plan, even though a
+# normal interactive sync is not destructive and may run without one.
+sync_before = device_state(mount)
+database_before = database_state()
+failed, text = session.call(
+    "execute_sync",
+    {**sync, "expectedDevice": identity, "confirmationToken": "not-a-plan-token"},
+)
+assert failed, text
+assert "Destructive action refused: confirmation is not authorization" in text, text
+assert device_state(mount) == sync_before, "a sync with an invalid token wrote to the device"
+assert database_state() == database_before, "a sync with an invalid token rebuilt the database"
+
+failed, text = session.call(
+    "execute_sync",
+    {
+        "ipod": str(mount),
+        "sources": [str(source / "01 - New.mp3")],
+        "expectedDevice": identity,
+        "confirmationToken": sync_plan["confirmationToken"],
+    },
+)
+assert failed, text
+assert "Destructive action refused: confirmation is not authorization" in text, text
+assert device_state(mount) == sync_before, "a sync with changed sources wrote to the device"
+assert database_state() == database_before, "a sync with changed sources rebuilt the database"
+
+# Saved options are effective sync arguments. A plan made before they change
+# is stale even when the MCP request itself is byte-for-byte identical.
+options_file = mount / "iPod_Control" / ".sync-options"
+options_file.write_text("--track-voiceover\n")
+stale_before = device_state(mount)
+failed, text = session.call(
+    "execute_sync",
+    {**sync, "expectedDevice": identity, "confirmationToken": sync_plan["confirmationToken"]},
+)
+assert failed, text
+assert "Destructive action refused: confirmation is not authorization" in text, text
+assert device_state(mount) == stale_before, "a sync with a stale options token wrote to the device"
+assert database_state() == database_before, "a sync with a stale options token rebuilt the database"
+options_file.write_text("--playlist-voiceover\n")
 
 failed, text = session.call(
     "execute_remove",

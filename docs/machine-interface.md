@@ -36,6 +36,8 @@ The plan is the whole of stdout: anything the run would have said to a person, s
 A clear, removal or wipe that carries `--yes`, or whose input is not a terminal, is refused unless the caller first reads that plan and returns its token with `--confirm-token TOKEN`.
 The flag is checked rather than the terminal alone because a caller that allocates a pseudo-terminal looks exactly like a person sitting at one, so `--yes` cannot become authorization merely because an automated caller copied the flag.
 A person who wants to be asked omits `--yes` and answers the prompt, which is the one path that needs no token.
+An ordinary non-destructive sync may omit `--confirm-token`, but any non-empty token supplied to any operation is validated against that operation's exact plan.
+A wrong or stale token is refused with `7` before tracks are copied or the database is rebuilt, including when saved sync options or source paths changed after planning.
 Pass the plan's device identity back as `--expect-device ID` as well.
 Every device-changing script checks it after resolving the mount, and refuses if another iPod has replaced the one the caller inspected.
 That refusal leaves with `1`, the code for a failure whose message is the explanation, and the message names both the identity that was expected and the one that answered.
@@ -235,8 +237,8 @@ The listing is where the three kinds of call are kept apart, because the listing
 
 Each description says which kind it is in the same words every time - `Read-only`, `DRY RUN`, `DESTRUCTIVE` - since a client reads that beside the name.
 
-The two approvals are required by the execute schemas rather than checked after the fact, so a client cannot generate a call that leaves them out, and they arrive at the script as the `--expect-device` and `--confirm-token` of the section above.
-`--yes` is sent with them and answers only the prompts written for a person, which is why a token from another plan is still refused with it there.
+The two approvals are required by the execute schemas rather than checked after the fact, and their schema descriptions point to the exact `device.identity` and `confirmationToken` fields returned by the corresponding plan tool.
+They arrive at the script as `--expect-device` and `--confirm-token`, while `--yes` answers only the prompts written for a person, so a wrong, stale or mismatched token is still refused.
 A script that would stop to ask something else is refused rather than answered: every run this server starts has its stdin closed, because the only thing on the server's own stdin is the client's next request, and a child reading an answer would take it.
 
 Arguments are held to the schema the listing advertises before anything runs, so an argument no tool declares, a missing required one, or a string where an array of paths belongs comes back as `-32602` with nothing attempted.
