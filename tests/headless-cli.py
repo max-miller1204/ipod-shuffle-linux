@@ -20,11 +20,19 @@ home = Path(tempfile.mkdtemp(prefix="headless-cli-home-")).resolve()
 # than the repository, which is what a relative argument needs to mean anything.
 # The yt-dlp double is the same one product-e2e.sh uses, named the way lib.sh
 # resolves the searcher, so `search --youtube` answers without a network.
+#
+# The findmnt double is on PATH for every run rather than for the device checks
+# alone, because `library` and `search` read the iPod as well as the folders
+# now: left to the real findmnt, each of them would fold whatever this
+# developer has plugged in into the answer and fail on their machine only. The
+# double lists nothing until a run names a volume in FAKE_IPOD_MOUNT, so the
+# checks that want an empty bus get one.
 env = dict(
     os.environ,
     HOME=str(home),
     XDG_CONFIG_HOME=str(home / "config"),
     XDG_CACHE_HOME=str(home / "cache"),
+    PATH=os.pathsep.join([str(repo / "tests" / "bin"), os.environ["PATH"]]),
     PYTHONPATH=str(repo),
     IPOD_VENV_YT_DLP=str(repo / "tests" / "bin" / "yt-dlp"),
 )
@@ -311,11 +319,7 @@ for name in ("Song.mp3", "Other.mp3", "Device Only.mp3"):
 (shuffle / "Road Trip.m3u").write_text(
     "#EXTM3U\niPod_Control/Music/F00/Song.mp3\n", encoding="utf-8"
 )
-mounted = run(
-    "device",
-    PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
-    FAKE_IPOD_MOUNT=str(shuffle),
-)
+mounted = run("device", FAKE_IPOD_MOUNT=str(shuffle))
 assert mounted["result"]["candidates"] == [str(shuffle)]
 assert mounted["result"]["mountPoint"] == str(shuffle)
 assert mounted["result"]["readable"] is True
@@ -338,11 +342,7 @@ assert mounted["result"]["storage"]["usedBytes"] + mounted["result"]["storage"][
 preview_track = preview / "Preview Artist" / "Preview.mp3"
 preview_track.parent.mkdir(parents=True)
 preview_track.write_bytes(b"preview")
-merged = run(
-    "library",
-    PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
-    FAKE_IPOD_MOUNT=str(shuffle),
-)
+merged = run("library", FAKE_IPOD_MOUNT=str(shuffle))
 merged_tracks = merged["result"]["tracks"]
 assert len(merged_tracks) == 5
 assert merged["result"]["counts"] == {
@@ -371,11 +371,7 @@ assert all(
 # with a zero in it, rather than a partial one that a caller has to distrust.
 fresh = home / "NEW IPOD"
 (fresh / "iPod_Control").mkdir(parents=True)
-unsynced = run(
-    "library",
-    PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
-    FAKE_IPOD_MOUNT=str(fresh),
-)
+unsynced = run("library", FAKE_IPOD_MOUNT=str(fresh))
 assert unsynced["result"]["complete"] is True
 assert unsynced["result"]["counts"]["ipod"] == 0
 assert {track["title"] for track in unsynced["result"]["tracks"]} == {
@@ -392,11 +388,7 @@ if os.geteuid() != 0:
     shut = fresh / "iPod_Control" / "Music"
     shut.mkdir()
     shut.chmod(0o000)
-    device_short = invoke(
-        "library",
-        PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
-        FAKE_IPOD_MOUNT=str(fresh),
-    )
+    device_short = invoke("library", FAKE_IPOD_MOUNT=str(fresh))
     assert device_short.returncode != 0, device_short.stdout
     assert json.loads(device_short.stdout)["result"]["complete"] is False
     assert device_short.stderr.strip() == (
@@ -405,12 +397,7 @@ if os.geteuid() != 0:
     # Two of them short is both of them named, rather than the first one found
     # standing in for the rest.
     run("config", "--music-root", str(music), "--music-root", str(home / "Gone"))
-    both_short = invoke(
-        "search",
-        "Song",
-        PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
-        FAKE_IPOD_MOUNT=str(fresh),
-    )
+    both_short = invoke("search", "Song", FAKE_IPOD_MOUNT=str(fresh))
     assert both_short.returncode != 0, both_short.stdout
     assert both_short.stderr.strip() == (
         "a music folder and the connected iPod could not be read through:"
@@ -430,7 +417,6 @@ if os.geteuid() != 0:
     forbidden.chmod(0o000)
     beside = run(
         "device",
-        PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
         FAKE_IPOD_MOUNT=os.pathsep.join([str(forbidden), str(shuffle)]),
     )
     assert beside["result"]["candidates"] == [str(shuffle)]

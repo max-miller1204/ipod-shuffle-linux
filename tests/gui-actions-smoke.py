@@ -814,6 +814,12 @@ for attr in (
 busy_window.youtube_unavailable = None
 busy_window.speech_engine_available = False
 busy_window.pending = set()
+# A volume that has been synced, because the tag scan only walks a device that
+# has a music folder to walk; what is being checked below is the lock it takes
+# while it does.
+synced_volume = Path(tempfile.mkdtemp(prefix="synced-ipod-"))
+(synced_volume / "iPod_Control" / "Music").mkdir(parents=True)
+busy_window.mount_point = str(synced_volume)
 
 scan_entered = threading.Event()
 allow_scan_exit = threading.Event()
@@ -1537,6 +1543,56 @@ finally:
     gui.threading.Thread = real_thread
     gui.GLib.idle_add = real_idle
     images.shutdown()
+
+
+# An iPod that has never been synced has no iPod_Control/Music at all, the case
+# lib.sh's count_files_present is written for. The window has to read it as a
+# device holding nothing rather than one it could not read: the failure toast
+# sends its reader looking for a fault, and there is none to find here.
+class UnsyncedWindow(FakeWindow):
+    """A window whose device scan is the real one, run where it is started."""
+
+    _apply_device_track_batch = gui.IpodWindow._apply_device_track_batch
+    _finish_device_scan = gui.IpodWindow._finish_device_scan
+    _fail_device_scan = gui.IpodWindow._fail_device_scan
+
+    def _request_refresh(self, scan_complete=False):
+        pass
+
+    def _populate_playlist_rail(self):
+        pass
+
+
+unsynced_volume = Path(tempfile.mkdtemp(prefix="unsynced-ipod-"))
+(unsynced_volume / "iPod_Control").mkdir()
+unsynced_window = UnsyncedWindow()
+unsynced_window.mount_point = str(unsynced_volume)
+unsynced_window._busy_widgets = []
+for attr in (
+    "sync_button",
+    "new_playlist_button",
+    "rebuild_button",
+    "wipe_button",
+    "eject_button",
+    "sidebar_eject",
+):
+    setattr(unsynced_window, attr, FakeWidget())
+unsynced_window._device_snapshot_ready = False
+scan_thread, scan_idle = gui.threading.Thread, gui.GLib.idle_add
+gui.threading.Thread = ImmediateThread
+gui.GLib.idle_add = lambda callback, *args: callback(*args)
+try:
+    gui.IpodWindow._load_device_tracks_async(unsynced_window)
+finally:
+    gui.threading.Thread = scan_thread
+    gui.GLib.idle_add = scan_idle
+assert unsynced_window.toasts == [], unsynced_window.toasts
+assert unsynced_window.device_tracks == [], unsynced_window.device_tracks
+assert unsynced_window.track_names == {}, unsynced_window.track_names
+# The snapshot is what the sync accounting waits for, so an empty device has to
+# leave it ready or the queue would sit behind a scan that will never finish.
+assert unsynced_window._device_snapshot_ready is True
+assert not unsynced_window._device_scan_active
 
 
 def stub_yt_dlp(script):

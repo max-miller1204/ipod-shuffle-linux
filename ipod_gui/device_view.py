@@ -21,7 +21,7 @@ from gi.repository import GLib, Gtk, Pango
 from .config import STATE_IPOD, save_music_roots
 from .text import home_relative, human_size, plural
 from .tags import scan_tracks
-from .device import DEVICE_IO_LOCK, probe_device
+from .device import DEVICE_IO_LOCK, music_folder, probe_device
 from .model import Track
 from .widgets import ELLIPSIZE_END, StorageMeter, clear_children, label
 
@@ -673,7 +673,7 @@ class DeviceViewMixin:
             self.sync_button.set_label("Checking iPod…")
 
         def worker():
-            music = Path(mount_point, "iPod_Control", "Music")
+            music = music_folder(mount_point)
             batch = []
 
             def publish(record):
@@ -688,12 +688,15 @@ class DeviceViewMixin:
                         ready,
                     )
 
-            with DEVICE_IO_LOCK.read():
-                _records, complete = scan_tracks(
-                    music,
-                    on_record=publish,
-                    cancelled=lambda: generation != self.tag_generation,
-                )
+            if music is None:
+                complete = True
+            else:
+                with DEVICE_IO_LOCK.read():
+                    _records, complete = scan_tracks(
+                        music,
+                        on_record=publish,
+                        cancelled=lambda: generation != self.tag_generation,
+                    )
             if generation != self.tag_generation:
                 return
             if not complete:

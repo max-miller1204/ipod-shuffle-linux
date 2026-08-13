@@ -7,8 +7,16 @@ import sys
 
 
 # Several mounts are listed the way the real findmnt lists them, because a
-# machine with an iPod plugged in has other vfat volumes on it too.
-mount_points = os.environ["FAKE_IPOD_MOUNT"].split(os.pathsep)
+# machine with an iPod plugged in has other vfat volumes on it too. No variable
+# is an empty bus rather than an error, so a suite can put this double on PATH
+# for every one of its runs and name a volume only where it wants one: the
+# alternative is a check that reads whatever the developer happens to have
+# plugged in and fails on their machine alone.
+mount_points = [
+    path
+    for path in os.environ.get("FAKE_IPOD_MOUNT", "").split(os.pathsep)
+    if path
+]
 if "--json" in sys.argv:
     print(json.dumps({"filesystems": [{"target": path} for path in mount_points]}))
 elif "--target" in sys.argv:
