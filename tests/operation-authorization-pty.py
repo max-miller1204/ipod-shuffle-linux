@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Exercise destructive authorization through a real terminal."""
+"""Exercise destructive authorization through a real terminal.
+
+Every device-changing script is driven twice: once pausing at its confirmation
+prompt so the mounted volume's identity can be replaced before the answer is
+typed, and once with --yes, which is a confirmation a person could have typed
+but not the authorization a destructive run needs.
+"""
 
 from __future__ import annotations
 
@@ -17,10 +23,24 @@ ROOT = Path(sys.argv[1]).resolve()
 EVIDENCE = Path(sys.argv[2]).resolve()
 EVIDENCE.mkdir(parents=True, exist_ok=True)
 
+TRACK = "Album/Keep.mp3"
+TRACK_BYTES = b"keep me\n"
 
-def make_ipod(root: Path, identity: str) -> tuple[Path, Path]:
-    mount = root / identity
-    track = mount / "iPod_Control" / "Music" / "Album" / "Keep.mp3"
+# One entry per device-changing script, with the confirmation it stops at. The
+# sync prompt names the one track the fixture puts on the device.
+CASES = (
+    ("ipod-wipe.sh", b"Wipe this iPod?"),
+    ("ipod-remove.sh", b"Remove them?"),
+    ("ipod-sync.sh", b"Delete 1 existing track(s) from the iPod?"),
+)
+
+REFUSED_SWAP = b"unplugged or replaced mid-operation"
+REFUSED_YES = b"Destructive action refused: confirmation is not authorization"
+
+
+def make_ipod(root: Path, name: str, identity: str) -> tuple[Path, Path]:
+    mount = root / name
+    track = mount / "iPod_Control" / "Music" / TRACK
     (mount / "iPod_Control" / "iTunes").mkdir(parents=True)
     (mount / "iPod_Control" / "Speakable").mkdir(parents=True)
     (mount / "iPod_Control" / "Device").mkdir(parents=True)
@@ -28,8 +48,19 @@ def make_ipod(root: Path, identity: str) -> tuple[Path, Path]:
     (mount / "iPod_Control" / "Device" / "SysInfo").write_text(
         identity, encoding="utf-8"
     )
-    track.write_bytes(b"keep me\n")
+    track.write_bytes(TRACK_BYTES)
     return mount, track
+
+
+def command(script: str, mount: Path, source: Path, *flags: str) -> list[str]:
+    # Flags go before the positional arguments, which is where a caller of any
+    # of the three would put them.
+    argv = [str(ROOT / script), "--ipod", str(mount), *flags]
+    if script == "ipod-remove.sh":
+        argv.append(TRACK)
+    elif script == "ipod-sync.sh":
+        argv += ["--clear", str(source)]
+    return argv
 
 
 def run_in_pty(args: list[str], env: dict[str, str], prompt: bytes | None = None):
@@ -89,30 +120,46 @@ with tempfile.TemporaryDirectory(prefix="ipod-authorization-pty-") as workspace_
     env = dict(os.environ)
     env["PATH"] = f"{fake_bin}:{env['PATH']}"
 
-    swapped, swapped_track = make_ipod(workspace, "original-ipod")
-    process, master, output = run_in_pty(
-        [str(ROOT / "ipod-wipe.sh"), "--ipod", str(swapped)],
-        env,
-        b"Wipe this iPod?",
-    )
-    (swapped / "iPod_Control" / "Device" / "SysInfo").write_text(
-        "replacement-ipod", encoding="utf-8"
-    )
-    os.write(master, b"y\n")
-    swap_output = finish(process, master, output)
-    (EVIDENCE / "wipe-device-swap-pty.txt").write_bytes(swap_output)
-    assert process.returncode == 5, (process.returncode, swap_output)
-    assert swapped_track.read_bytes() == b"keep me\n", "replacement device was wiped"
-    assert b"unplugged or replaced mid-operation" in swap_output, swap_output
+    source = workspace / "source"
+    source.mkdir()
+    (source / "Song.mp3").write_bytes(b"a track\n")
 
-    automatic, automatic_track = make_ipod(workspace, "yes-on-terminal")
-    process, master, output = run_in_pty(
-        [str(ROOT / "ipod-wipe.sh"), "--ipod", str(automatic), "--yes"], env
-    )
-    yes_output = finish(process, master, output)
-    (EVIDENCE / "wipe-yes-without-token-pty.txt").write_bytes(yes_output)
-    assert process.returncode == 7, (process.returncode, yes_output)
-    assert automatic_track.read_bytes() == b"keep me\n", "--yes bypassed plan authorization"
-    assert b"Non-interactive destructive action refused" in yes_output, yes_output
+    for script, prompt in CASES:
+        name = script.removeprefix("ipod-").removesuffix(".sh")
+
+        # The iPod is swapped for another one while the person is still reading
+        # the prompt, so the answer arrives for a device that is no longer
+        # there. Nothing on the replacement may change.
+        swapped, swapped_track = make_ipod(workspace, f"{name}-swap", "original-ipod")
+        process, master, output = run_in_pty(
+            command(script, swapped, source), env, prompt
+        )
+        (swapped / "iPod_Control" / "Device" / "SysInfo").write_text(
+            "replacement-ipod", encoding="utf-8"
+        )
+        os.write(master, b"y\n")
+        swap_output = finish(process, master, output)
+        (EVIDENCE / f"{name}-device-swap-pty.txt").write_bytes(swap_output)
+        assert process.returncode == 5, (script, process.returncode, swap_output)
+        assert swapped_track.read_bytes() == TRACK_BYTES, (
+            f"{script} changed the replacement device"
+        )
+        assert REFUSED_SWAP in swap_output, (script, swap_output)
+
+        # --yes at a terminal is still not authorization: the run is refused
+        # without the token from its own plan.
+        automatic, automatic_track = make_ipod(
+            workspace, f"{name}-yes", "yes-on-terminal"
+        )
+        process, master, output = run_in_pty(
+            command(script, automatic, source, "--yes"), env
+        )
+        yes_output = finish(process, master, output)
+        (EVIDENCE / f"{name}-yes-without-token-pty.txt").write_bytes(yes_output)
+        assert process.returncode == 7, (script, process.returncode, yes_output)
+        assert automatic_track.read_bytes() == TRACK_BYTES, (
+            f"{script} let --yes bypass plan authorization"
+        )
+        assert REFUSED_YES in yes_output, (script, yes_output)
 
 print("destructive authorization PTY checks passed")

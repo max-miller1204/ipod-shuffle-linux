@@ -33,8 +33,9 @@ It resolves the device and requested targets, prints one JSON plan, and changes 
 The plan names the `action`, the device `mount` and `identity`, whether the operation is `destructive`, its normalized `arguments`, and a `confirmationToken` bound to all of those values.
 The plan is the whole of stdout: anything the run would have said to a person, such as which saved options it is replaying, goes to stderr instead, so what the caller parses is one document and nothing else.
 
-A non-interactive clear, removal or wipe is refused even with `--yes` unless the caller first reads that plan and returns its token with `--confirm-token TOKEN`.
-This prevents `--yes`, which records a human confirmation in an interactive flow, from becoming authorization merely because an automated caller copied the flag.
+A clear, removal or wipe that carries `--yes`, or whose input is not a terminal, is refused unless the caller first reads that plan and returns its token with `--confirm-token TOKEN`.
+The flag is checked rather than the terminal alone because a caller that allocates a pseudo-terminal looks exactly like a person sitting at one, so `--yes` cannot become authorization merely because an automated caller copied the flag.
+A person who wants to be asked omits `--yes` and answers the prompt, which is the one path that needs no token.
 Pass the plan's device identity back as `--expect-device ID` as well.
 Every device-changing script checks it after resolving the mount, and refuses if another iPod has replaced the one the caller inspected.
 That refusal leaves with `1`, the code for a failure whose message is the explanation, and the message names both the identity that was expected and the one that answered.
@@ -254,13 +255,14 @@ The scripts say what went wrong as a number. These are theirs; the CLI above has
 | `4` | Several iPods are connected | Name which one with `--ipod` |
 | `5` | The iPod stopped answering part way through | Plug it back in and try again |
 | `6` | A dependency is missing | Run `./install.sh`, or `./install.sh --check` to find out which |
-| `7` | A prompt was declined or a non-interactive destructive plan lacked its token | Ask again, or run `--dry-run` and return its `confirmationToken` |
+| `7` | A prompt was declined, or a destructive run lacked the plan token it needed | Answer the prompt at a terminal without `--yes`, or run `--dry-run` and return its `confirmationToken` |
 
 Code `5` is the one worth explaining.
 Unplugging an iPod mid-copy is the failure this project sees most, and it arrives as whichever command happened to touch the volume next: a copy that cannot write, a walk that cannot descend, a database builder that cannot open its file.
 Rather than name a code at each of those and still miss the next one, the scripts remember what the volume called itself when they latched onto it, and on the way out of any failure they look at whether that volume is still there.
 A volume that has gone, or that has been replaced by a different one at the same path, turns the failure into `5`.
 A builder that fails while the iPod is still sitting there stays `1`.
+The same question is asked ahead of every change a run makes rather than only after something has failed, so `5` also arrives from a run in which nothing failed at all: a device swapped while a person was reading a prompt, or while the database was rebuilding, stops the run before the next write instead of after it.
 Asking what the volume calls itself needs `python3`, and a machine without one is treated as a volume that will not say rather than as a failure of its own, since this question is asked on the way out of every other failure and has to come back with an answer.
 Such a machine still gets `6` from the work that genuinely needs the interpreter - the JSON report, the progress stream and the database builder - while a plain `--list`, which never needed it, still answers.
 

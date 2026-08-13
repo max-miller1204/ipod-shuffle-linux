@@ -44,12 +44,13 @@ empty database. Preserves Apple's Speakable prompts and the Device directory.
 Options:
   -i, --ipod PATH     iPod mount point (default: autodetect)
   -b, --backup DIR    Copy existing music and databases to DIR first
-  -y, --yes           Answer yes to every prompt
+  -y, --yes           Answer yes to every prompt; a destructive run
+                      carrying it still needs --confirm-token
       --dry-run       Print the exact operation plan as JSON and change nothing
       --expect-device ID
                       Refuse unless the mounted iPod has this identity
       --confirm-token TOKEN
-                      Approve the exact non-interactive plan from --dry-run
+                      Approve the exact plan from --dry-run
       --progress-json[=FD]
                       Report progress as one JSON object per line on
                       descriptor FD (default 3), which the caller opens. The

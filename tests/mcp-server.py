@@ -337,7 +337,7 @@ failed, text = session.call(
     {**removal, "expectedDevice": identity, "confirmationToken": wipe_plan["confirmationToken"]},
 )
 assert failed, text
-assert "Non-interactive destructive action refused" in text, text
+assert "Destructive action refused: confirmation is not authorization" in text, text
 assert device_state(mount) == before, "a removal approved by another plan's token deleted something"
 
 # The refusal arrives even though the run had already printed to stdout.

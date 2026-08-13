@@ -51,12 +51,13 @@ Options:
                     its storage, its tracks, its playlists and which of them
                     it can say out loud, and the options the last sync saved
   -P, --playlist    Treat the arguments as playlist names, not tracks
-  -y, --yes         Answer yes to every prompt
+  -y, --yes         Answer yes to every prompt; a destructive run carrying
+                    it still needs --confirm-token
       --dry-run     Print the exact operation plan as JSON and change nothing
       --expect-device ID
                     Refuse unless the mounted iPod has this identity
       --confirm-token TOKEN
-                    Approve the exact non-interactive plan from --dry-run
+                    Approve the exact plan from --dry-run
   -e, --eject       Unmount the iPod when finished
       --progress-json[=FD]
                     Report progress as one JSON object per line on descriptor
@@ -394,6 +395,7 @@ if (( ! PLAYLIST_MODE )); then
 fi
 
 if (( EJECT )); then
+    assert_watched_device
     dev="$(ipod_device "$IPOD")"
     info "Unmounting $dev"
     sync

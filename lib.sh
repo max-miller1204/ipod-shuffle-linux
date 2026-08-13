@@ -209,7 +209,7 @@ prepare_operation() {
         && { [[ ! -t 0 ]] || (( ASSUME_YES )); } \
         && [[ "$supplied_token" != "$token" ]]; then
         die_with "$EXIT_DECLINED" \
-            "Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token."
+            "Destructive action refused: confirmation is not authorization. Answer the prompt at a terminal without --yes, or run --dry-run and pass its confirmationToken with --confirm-token."
     fi
 }
 

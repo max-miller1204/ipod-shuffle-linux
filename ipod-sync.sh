@@ -49,12 +49,13 @@ Options:
   -r, --rebuild-only     Rebuild the database without copying anything
   -n, --forget-options   Ignore the saved playlist and voiceover options,
                          building a plain database with neither
-  -y, --yes              Answer yes to every prompt
+  -y, --yes              Answer yes to every prompt; a destructive run
+                         carrying it still needs --confirm-token
       --dry-run          Print the exact operation plan as JSON and change nothing
       --expect-device ID
                          Refuse unless the mounted iPod has this identity
       --confirm-token TOKEN
-                         Approve the exact non-interactive plan from --dry-run
+                         Approve the exact plan from --dry-run
       --progress-json[=FD]
                          Report progress as one JSON object per line on
                          descriptor FD (default 3), which the caller opens.
@@ -247,6 +248,7 @@ if (( CLEAR )); then
     # The playlists at the volume root reference the tracks just deleted, so
     # leaving them behind would rebuild playlists full of dead entries.
     if (( playlist_count > 0 )); then
+        assert_watched_device
         rm -f -- "${stale_playlists[@]}"
         info "Removed $playlist_count playlist(s)"
     fi
@@ -649,6 +651,7 @@ total="$(count_files "$MUSIC_DIR")"
 info "iPod now holds $total track(s)"
 
 if (( EJECT )); then
+    assert_watched_device
     dev="$(ipod_device "$IPOD")"
     info "Unmounting $dev"
     sync
