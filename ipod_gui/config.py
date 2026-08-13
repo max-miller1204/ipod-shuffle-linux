@@ -7,6 +7,7 @@ real ones have been touched.
 
 import json
 import os
+import stat
 from pathlib import Path
 
 
@@ -102,6 +103,29 @@ GROUP_MODE_CHOICES = (("album", "Album"), ("artist", "Artist"))
 GROUP_MODES = tuple(mode for mode, _label in GROUP_MODE_CHOICES)
 GROUP_MODE_LABELS = tuple(label for _mode, label in GROUP_MODE_CHOICES)
 VIEW_MODES = ("grid", "list")
+
+
+def folder_is_there(path):
+    """Whether a folder is there, raising when the filesystem will not say.
+
+    The folders this app reads are allowed not to exist yet: the preview cache
+    before the first download, iPod_Control/Music before the first sync. That
+    is nothing to read, and every reader answers it with a zero. A folder that
+    will not answer - a volume that stopped responding, a parent this user may
+    not enter - is a different thing entirely, and answering it with the same
+    zero writes down a confident lie about a device or a cache nobody can see.
+
+    Path.is_dir cannot tell them apart, and worse, which of the two it does
+    changed underneath: it propagated EACCES and EIO up to Python 3.12 and
+    swallows them from 3.13 on. So the rule is written here in errnos of its
+    own - only "it is not there" is an answer, everything else is raised - and
+    stays the same rule on every interpreter this runs under.
+    """
+    try:
+        info = os.stat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return stat.S_ISDIR(info.st_mode)
 
 
 def _read_config():

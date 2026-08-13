@@ -20,11 +20,20 @@ home = Path(tempfile.mkdtemp(prefix="headless-cli-home-")).resolve()
 # than the repository, which is what a relative argument needs to mean anything.
 # The yt-dlp double is the same one product-e2e.sh uses, named the way lib.sh
 # resolves the searcher, so `search --youtube` answers without a network.
+#
+# The findmnt double is on PATH for every run rather than for the device checks
+# alone, because `library` reads the iPod as well as the folders now: left to
+# the real findmnt, it would fold whatever this developer has plugged in into
+# the answer and fail on their machine only. FAKE_IPOD_MOUNT is set to nothing
+# here rather than left out, which is how the double is asked for an empty bus:
+# unset is the error it stays for every other harness that names a volume.
 env = dict(
     os.environ,
     HOME=str(home),
     XDG_CONFIG_HOME=str(home / "config"),
     XDG_CACHE_HOME=str(home / "cache"),
+    PATH=os.pathsep.join([str(repo / "tests" / "bin"), os.environ["PATH"]]),
+    FAKE_IPOD_MOUNT="",
     PYTHONPATH=str(repo),
     IPOD_VENV_YT_DLP=str(repo / "tests" / "bin" / "yt-dlp"),
 )
@@ -90,6 +99,17 @@ config = run("config", "--music-root", str(music), "--group", "artist", "--view"
 assert config["result"]["musicRoots"] == [str(music)]
 assert config["result"]["group"] == "artist"
 assert config["result"]["view"] == "list"
+
+# Nothing has been previewed on this machine, so there is no preview cache to
+# read. That is a place holding nothing rather than a place that would not be
+# read, and a fresh install has to answer whole rather than partial.
+assert not (home / "cache" / "ipod-shuffle-linux" / "previews").exists()
+fresh_install = run("library")
+assert fresh_install["result"]["complete"] is True
+assert fresh_install["result"]["counts"]["preview"] == 0
+assert [track["state"] for track in fresh_install["result"]["tracks"]] == [
+    "library"
+] * 3
 
 playlists = home / "Playlists"
 created = run("playlists", "--root", str(playlists), "create", "Road Trip", str(song))
@@ -171,25 +191,58 @@ if os.geteuid() != 0:
     assert str(other) not in Path(locked["result"]["path"]).read_text()
     Path(locked["result"]["path"]).unlink()
 
-preview = home / "preview"
+external_cache = home / "preview"
+(external_cache / "Old Artist").mkdir(parents=True)
+(external_cache / "New Artist").mkdir(parents=True)
+(external_cache / "Old Artist" / "old.mp3").write_bytes(b"old")
+(external_cache / "New Artist" / "new.mp3").write_bytes(b"newer")
+os.utime(external_cache / "Old Artist" / "old.mp3", (1, 1))
+os.utime(external_cache / "New Artist" / "new.mp3", (2, 2))
+status = run("cache", "status", "--root", str(external_cache))
+assert status["result"]["sizeBytes"] == 8
+assert status["result"]["removed"] == []
+assert status["result"]["complete"] is True
+assert run("cache", "status", "--root", "~/preview")["result"] == status["result"]
+
+# An arbitrary music directory remains available to read as cache-shaped
+# status, but neither mutating action may turn it into recursively deleted
+# preview content.
+for action in ("prune", "clear"):
+    refused("cache", action, "--root", str(external_cache), "--limit", "0")
+    assert sorted(path.name for path in external_cache.rglob("*.mp3")) == [
+        "new.mp3",
+        "old.mp3",
+    ]
+
+preview = home / "cache" / "ipod-shuffle-linux" / "previews"
 (preview / "Old Artist").mkdir(parents=True)
 (preview / "New Artist").mkdir(parents=True)
 (preview / "Old Artist" / "old.mp3").write_bytes(b"old")
 (preview / "New Artist" / "new.mp3").write_bytes(b"newer")
 os.utime(preview / "Old Artist" / "old.mp3", (1, 1))
 os.utime(preview / "New Artist" / "new.mp3", (2, 2))
-status = run("cache", "status", "--root", str(preview))
-assert status["result"]["sizeBytes"] == 8
-assert status["result"]["removed"] == []
-assert status["result"]["complete"] is True
-assert run("cache", "status", "--root", "~/preview")["result"] == status["result"]
-pruned = run("cache", "prune", "--root", str(preview), "--limit", "5")
+# The configured cache named on the command line is the configured cache
+# whatever it is spelled as, because what a mutation is allowed to delete is
+# decided on the folder rather than on the characters: a caller passing the
+# root it read back from `cache status` gets the prune it asked for.
+spelt = str(preview / ".." / preview.name)
+assert spelt != str(preview)
+for named_root in (spelt, "~/cache/ipod-shuffle-linux/previews"):
+    named = run("cache", "prune", "--root", named_root, "--limit", "5")
+    assert named["result"]["root"] == str(preview)
+    assert named["result"]["removed"] == [str(preview / "Old Artist" / "old.mp3")]
+    assert not (preview / "Old Artist").exists()
+    (preview / "Old Artist").mkdir()
+    (preview / "Old Artist" / "old.mp3").write_bytes(b"old")
+    os.utime(preview / "Old Artist" / "old.mp3", (1, 1))
+
+pruned = run("cache", "prune", "--limit", "5")
 assert [Path(entry["path"]).name for entry in pruned["result"]["entries"]] == ["new.mp3"]
 assert pruned["result"]["removed"] == [str(preview / "Old Artist" / "old.mp3")]
 # The artist folder goes with the last preview in it, the way the window's own
 # prune takes it, rather than leaving the cache full of empty directories.
 assert not (preview / "Old Artist").exists()
-cleared = run("cache", "clear", "--root", str(preview))
+cleared = run("cache", "clear")
 assert cleared["result"]["entries"] == []
 assert cleared["result"]["removed"] == [str(preview / "New Artist" / "new.mp3")]
 assert cleared["result"]["complete"] is True
@@ -200,14 +253,17 @@ assert preview.is_dir()
 # did go is still written, marked, and the run leaves non-zero - the same rule
 # a music folder that could not be read through follows.
 if os.geteuid() != 0:
-    stuck = home / "stuck"
+    stuck = preview
     (stuck / "Artist").mkdir(parents=True)
-    (stuck / "Artist" / "kept.mp3").write_bytes(b"kept")
+    kept = stuck / "Artist" / "kept.mp3"
+    kept.write_bytes(b"kept")
     (stuck / "Artist").chmod(0o500)
-    unremovable = partial("cache", "clear", "--root", str(stuck))
+    unremovable = partial("cache", "clear")
     assert unremovable["result"]["removed"] == []
     assert [Path(entry["path"]).name for entry in unremovable["result"]["entries"]] == ["kept.mp3"]
     (stuck / "Artist").chmod(0o700)
+    kept.unlink()
+    (stuck / "Artist").rmdir()
 
 library = run("library")
 assert library["result"]["complete"] is True
@@ -285,23 +341,20 @@ assert set(device["result"]) == {"candidates", "mountPoint", "identity", "readab
 # reading has to be that folder rather than the shape of one.
 shuffle = home / "ALEX IPOD"
 (shuffle / "iPod_Control" / "Music" / "F00").mkdir(parents=True)
-for name in ("Song.mp3", "Other.mp3"):
+for name in ("Song.mp3", "Other.mp3", "Device Only.mp3"):
     (shuffle / "iPod_Control" / "Music" / "F00" / name).write_bytes(b"audio")
 (shuffle / "Road Trip.m3u").write_text(
     "#EXTM3U\niPod_Control/Music/F00/Song.mp3\n", encoding="utf-8"
 )
-mounted = run(
-    "device",
-    PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
-    FAKE_IPOD_MOUNT=str(shuffle),
-)
+mounted = run("device", FAKE_IPOD_MOUNT=str(shuffle))
 assert mounted["result"]["candidates"] == [str(shuffle)]
 assert mounted["result"]["mountPoint"] == str(shuffle)
 assert mounted["result"]["readable"] is True
 assert mounted["result"]["identity"]
-# Two files under iPod_Control/Music, and the playlist at the volume root named
-# relative to the music folder, which is how the window lists what is on it.
-assert mounted["result"]["trackCount"] == 2
+# Three files under iPod_Control/Music, and the playlist at the volume root
+# named relative to the music folder, which is how the window lists what is on
+# it.
+assert mounted["result"]["trackCount"] == 3
 assert mounted["result"]["playlists"] == [
     {"name": "Road Trip", "entries": ["F00/Song.mp3"], "spoken": False}
 ]
@@ -309,6 +362,178 @@ assert mounted["result"]["storage"]["totalBytes"] > 0
 assert mounted["result"]["storage"]["usedBytes"] + mounted["result"]["storage"][
     "freeBytes"
 ] <= mounted["result"]["storage"]["totalBytes"]
+
+# The display-free library is the window's merged model: matching local copies
+# claim device tracks, device-only and preview tracks remain visible, and every
+# state count describes the records in the same document.
+preview_track = preview / "Preview Artist" / "Preview.mp3"
+preview_track.parent.mkdir(parents=True)
+preview_track.write_bytes(b"preview")
+merged = run("library", FAKE_IPOD_MOUNT=str(shuffle))
+merged_tracks = merged["result"]["tracks"]
+assert len(merged_tracks) == 5
+assert merged["result"]["counts"] == {
+    "ipod": 3,
+    "queued": 0,
+    "library": 1,
+    "preview": 1,
+}
+states = {track["title"]: track["state"] for track in merged_tracks}
+assert states == {
+    "Device Only": "ipod",
+    "Other": "ipod",
+    "Preview": "preview",
+    "Song": "ipod",
+    "Third": "library",
+}
+assert all(
+    track["onIpod"] == (track["state"] == "ipod")
+    for track in merged_tracks
+)
+
+# A search is the other half of that: the same iPod is plugged in and the same
+# preview is cached, and neither is in the answer. What a query reads is the
+# configured music folders, so a copy that is also on the device is still a
+# `library` record here, and a track only the device or the cache holds is not
+# a result at all.
+searched = run("search", "Song", FAKE_IPOD_MOUNT=str(shuffle))
+assert [track["path"] for track in searched["result"]["local"]] == [str(song)]
+assert searched["result"]["local"][0]["state"] == "library"
+assert searched["result"]["local"][0]["onIpod"] is False
+assert searched["result"]["complete"] is True
+for query in ("Device Only", "Preview"):
+    assert run("search", query, FAKE_IPOD_MOUNT=str(shuffle))["result"]["local"] == []
+
+# An iPod that has never been synced has no iPod_Control/Music at all, which is
+# nothing there rather than something that could not be read - the answer
+# count_files_present gives it in the scripts, and the one the device probe's
+# own track count gives it. The library reads it the same way: a whole answer,
+# with a zero in it, rather than a partial one that a caller has to distrust.
+fresh = home / "NEW IPOD"
+(fresh / "iPod_Control").mkdir(parents=True)
+unsynced = run("library", FAKE_IPOD_MOUNT=str(fresh))
+assert unsynced["result"]["complete"] is True
+assert unsynced["result"]["counts"]["ipod"] == 0
+assert {track["title"] for track in unsynced["result"]["tracks"]} == {
+    "Song",
+    "Other",
+    "Third",
+    "Preview",
+}
+
+# A reading that really did fall short says which of the three it was, because
+# a music folder, the preview cache and the iPod are three different places to
+# go and look.
+if os.geteuid() != 0:
+    shut = fresh / "iPod_Control" / "Music"
+    shut.mkdir()
+    shut.chmod(0o000)
+    device_short = invoke("library", FAKE_IPOD_MOUNT=str(fresh))
+    assert device_short.returncode != 0, device_short.stdout
+    assert json.loads(device_short.stdout)["result"]["complete"] is False
+    assert device_short.stderr.strip() == (
+        "the connected iPod could not be read through: this answer is partial"
+    )
+    # Two of them short is both of them named, rather than the first one found
+    # standing in for the rest.
+    run("config", "--music-root", str(music), "--music-root", str(home / "Gone"))
+    both_short = invoke("library", FAKE_IPOD_MOUNT=str(fresh))
+    assert both_short.returncode != 0, both_short.stdout
+    assert both_short.stderr.strip() == (
+        "a music folder and the connected iPod could not be read through:"
+        " this answer is partial"
+    )
+    # The same run as a search names the folder alone, because the iPod is not
+    # one of the places a search reads and cannot be one it is short of.
+    search_short = invoke("search", "Song", FAKE_IPOD_MOUNT=str(fresh))
+    assert search_short.returncode != 0, search_short.stdout
+    assert search_short.stderr.strip() == (
+        "a music folder could not be read through: this answer is partial"
+    )
+    run("config", "--music-root", str(music))
+    shut.chmod(0o700)
+    shut.rmdir()
+
+# An iPod that will not answer is short of a reading rather than an iPod
+# holding nothing: the probe cannot see inside it, so the library says so
+# instead of writing down a confident zero.
+if os.geteuid() != 0:
+    (fresh / "iPod_Control").chmod(0o000)
+    silent = invoke("library", FAKE_IPOD_MOUNT=str(fresh))
+    assert silent.returncode != 0, silent.stdout
+    silent_document = json.loads(silent.stdout)
+    assert silent_document["result"]["complete"] is False
+    assert silent_document["result"]["counts"]["ipod"] == 0
+    assert silent.stderr.strip() == (
+        "the connected iPod could not be read through: this answer is partial"
+    )
+    (fresh / "iPod_Control").chmod(0o700)
+
+# A music folder that is a link to itself is the same answer arrived at without
+# a permission bit, and it is the case that pins the rule rather than the
+# interpreter's mood: every Python answers "not a directory" to a loop like
+# this one, and only asking the filesystem in errnos tells it apart from a
+# device that simply holds nothing. Root meets it too, which is why this is
+# outside the checks above.
+looped = fresh / "iPod_Control" / "Music"
+looped.symlink_to(looped)
+try:
+    circular = invoke("library", FAKE_IPOD_MOUNT=str(fresh))
+finally:
+    looped.unlink()
+assert circular.returncode != 0, circular.stdout
+circular_document = json.loads(circular.stdout)
+assert circular_document["result"]["complete"] is False
+assert circular_document["result"]["counts"]["ipod"] == 0
+assert circular.stderr.strip() == (
+    "the connected iPod could not be read through: this answer is partial"
+)
+
+# Two iPods on the bus is a third way to be short of the device: the window
+# asks which one to unplug, and there is nobody here to ask, so the answer says
+# it is short rather than writing the zero an empty bus writes. What this
+# computer holds is still read and still handed over.
+crowded = invoke(
+    "library",
+    FAKE_IPOD_MOUNT=os.pathsep.join([str(shuffle), str(fresh)]),
+)
+assert crowded.returncode != 0, crowded.stdout
+crowded_document = json.loads(crowded.stdout)
+assert crowded_document["result"]["complete"] is False
+assert crowded_document["result"]["counts"]["ipod"] == 0
+assert {
+    track["title"]: track["state"] for track in crowded_document["result"]["tracks"]
+} == {
+    "Song": "library",
+    "Other": "library",
+    "Third": "library",
+    "Preview": "preview",
+}
+assert crowded.stderr.strip() == (
+    "the connected iPod could not be read through: this answer is partial"
+)
+
+# The preview cache answers the same two ways, and a cache this user cannot
+# reach is the second of them: the run still writes its document, marks it
+# partial and names the cache, rather than ending in a traceback that says
+# nothing a caller can parse.
+if os.geteuid() != 0:
+    cache_home = preview.parent
+    cache_home.chmod(0o000)
+    try:
+        shut_cache = invoke("library")
+    finally:
+        cache_home.chmod(0o700)
+    assert shut_cache.returncode != 0, shut_cache.stdout
+    shut_document = json.loads(shut_cache.stdout)
+    assert shut_document["result"]["complete"] is False
+    assert shut_document["result"]["counts"]["preview"] == 0
+    assert [track["state"] for track in shut_document["result"]["tracks"]] == [
+        "library"
+    ] * 3
+    assert shut_cache.stderr.strip() == (
+        "the preview cache could not be read through: this answer is partial"
+    )
 
 # Ordinary machines mount vfat volumes this user may not look inside - /boot/efi
 # is one, and it is mounted for root only on the runner this suite runs on - so
@@ -320,12 +545,11 @@ if os.geteuid() != 0:
     forbidden.chmod(0o000)
     beside = run(
         "device",
-        PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
         FAKE_IPOD_MOUNT=os.pathsep.join([str(forbidden), str(shuffle)]),
     )
     assert beside["result"]["candidates"] == [str(shuffle)]
     assert beside["result"]["mountPoint"] == str(shuffle)
-    assert beside["result"]["trackCount"] == 2
+    assert beside["result"]["trackCount"] == 3
     forbidden.chmod(0o700)
 
 # The searcher is asked for, so both answers it can give are checked: results

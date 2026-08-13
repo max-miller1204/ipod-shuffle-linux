@@ -8,7 +8,16 @@ import sys
 
 # Several mounts are listed the way the real findmnt lists them, because a
 # machine with an iPod plugged in has other vfat volumes on it too.
-mount_points = os.environ["FAKE_IPOD_MOUNT"].split(os.pathsep)
+#
+# Set to nothing is an empty bus, which is how a suite that puts this double on
+# PATH for every one of its runs asks for no device without reading whatever
+# the developer happens to have plugged in. Never set at all is still the
+# KeyError it always was: a harness that stopped exporting the variable would
+# otherwise go on rendering and asserting against "No iPod connected" rather
+# than saying its fixture had gone.
+mount_points = [
+    path for path in os.environ["FAKE_IPOD_MOUNT"].split(os.pathsep) if path
+]
 if "--json" in sys.argv:
     print(json.dumps({"filesystems": [{"target": path} for path in mount_points]}))
 elif "--target" in sys.argv:

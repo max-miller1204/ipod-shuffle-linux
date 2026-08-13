@@ -30,12 +30,10 @@ from pathlib import Path
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from .config import (
-    AUDIO_EXTENSIONS,
     GROUP_MODE_LABELS,
     GROUP_MODES,
     LIBRARY_FILTERS,
     PREVIEW_CACHE,
-    STATE_IPOD,
     STATE_LABELS,
     STATE_LIBRARY,
     STATE_PREVIEW,
@@ -44,7 +42,7 @@ from .config import (
 )
 from .text import home_relative, human_duration, human_size, plural
 from .tags import scan_tracks
-from .model import Track
+from .model import Track, merge_library_states
 from .widgets import (
     ALBUM_COVER,
     ELLIPSIZE_END,
@@ -538,101 +536,13 @@ class LibraryViewMixin:
         return False
 
     def _merge_states(self):
-        """Decide which local tracks are already on the device, or on their way.
-
-        Matched on tags rather than path: the device stores every track under a
-        scrambled four-letter name, so nothing about its location survives.
-
-        Queued is decided here too, and only here, because a track's state is
-        what every marker, pill and count in the window is drawn from: worked
-        out again beside each of them, the queue would be a rule four views
-        had to agree on rather than one this function already runs.
-
-        And a staged track that no music folder holds is built here as well,
-        because this is the only place that would: the scan reads the roots,
-        and a download is queued the moment it arrives rather than when a
-        rescan next finds it - if a root covers where it landed at all. The
-        grid gets it from the queue or not at all.
-        """
-        on_device = {}
-        for track in self.device_tracks:
-            on_device.setdefault(track.identity(), []).append(track)
-        matched = set()
-
-        def claim(track):
-            """Give this track the device's copy of itself, if there is one.
-
-            One rule for both loops below, which make the same claim and had
-            drifted apart once: the copy over there is what the file here
-            would become, so the row reads "On iPod" and carries the device's
-            path, and that copy is marked claimed rather than left to stand
-            alone in `device_only` and put the same song in the grid twice.
-
-            Popped rather than read, so two local files of one song claim two
-            different copies and the second is only "On iPod" if the device
-            really holds it twice.
-            """
-            matches = on_device.get(track.identity(), [])
-            if not matches:
-                return False
-            device_track = matches.pop(0)
-            track.state = STATE_IPOD
-            track.on_ipod = True
-            track.relpath = device_track.relpath
-            matched.add(id(device_track))
-            return True
-
-        self._library_by_path = {
-            track.path: track for track in self.library.tracks
-        }
-        queued = getattr(self, "pending", set())
-        for track in self.library.tracks:
-            track.relpath = track.path
-            if not claim(track):
-                # Assigned rather than only demoted from STATE_IPOD, because a
-                # track leaves the queue as readily as it joins it and the
-                # state it goes back to is the one this decides either way.
-                track.state = (
-                    STATE_QUEUED if track.path in queued else STATE_LIBRARY
-                )
-                track.on_ipod = False
-
-        pending_index = dict(self._library_by_path)
-        queued_only = []
-        records = getattr(self, "pending_records", {})
-        # Sorted rather than taken in whatever order the set iterates, because
-        # these tracks are rows now: two staged copies of one song claim the
-        # device's copy in a fixed order, so a repaint that changed nothing
-        # cannot swap which of them reads "On iPod".
-        for path in sorted(queued):
-            if path in pending_index or Path(path).suffix.lower() not in AUDIO_EXTENSIONS:
-                continue
-            record = dict(records.get(path, {}))
-            record.setdefault("title", Path(path).stem)
-            try:
-                record["size"] = Path(path).stat().st_size
-            except OSError:
-                record["size"] = 0
-            # Queued by construction: nothing but the queue names these, and
-            # they are here because no music folder does.
-            track = Track(path, record, STATE_QUEUED)
-            claim(track)
-            pending_index[path] = track
-            queued_only.append(track)
-        self._pending_track_index = pending_index
-        # The library the grid draws is what the sync is about to act on, so
-        # these belong in it: without them the Queued pill reads 0 beside a
-        # sidebar saying "+120 MB queued to sync" and a button offering to sync
-        # 30 changes, and the staged tracks are in no view at all.
-        self.library.queued_only = queued_only
-
-        # Device tracks with no local counterpart still belong in the grid, or
-        # music copied from another machine would simply not appear. Held
-        # separately from the scan results rather than appended to them, which
-        # would re-add the same tracks on every refresh.
-        self.library.device_only = [
-            track for track in self.device_tracks if id(track) not in matched
-        ]
+        """Apply the shared library/device/queue state model to the window."""
+        self._library_by_path, self._pending_track_index = merge_library_states(
+            self.library,
+            self.device_tracks,
+            getattr(self, "pending", set()),
+            getattr(self, "pending_records", {}),
+        )
 
     def visible_counts(self):
         """How many tracks are in each state.

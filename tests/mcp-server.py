@@ -201,12 +201,6 @@ for operation, field in (("sync", "sources"), ("remove", "targets"), ("wipe", "b
     assert plan_schema["additionalProperties"] is False
     assert execute_schema["additionalProperties"] is False
 
-result = json.loads(session.call("read_library", {})[1])
-assert result["command"] == "library"
-assert result["result"]["complete"] is True
-assert [track["path"] for track in result["result"]["tracks"]] == [str(library_track)], result
-assert result["result"]["counts"]["library"] == 1, result
-
 failed, text = session.call("read_search", {"query": "Song"})
 assert not failed, text
 found = json.loads(text)["result"]
@@ -228,11 +222,12 @@ assert cache["root"] == str(preview.parents[1]), cache
 assert [entry["path"] for entry in cache["entries"]] == [str(preview)], cache
 assert cache["sizeBytes"] == preview.stat().st_size, cache
 
-# The remaining two answers are not this machine's to give: the device probe
-# shells out to findmnt and the YouTube half of the search to yt-dlp, so both
-# are exercised against the doubles the rest of the suite uses, reached by
-# putting tests/bin first on PATH. A second server rather than the one above,
-# because that PATH would reach every script the device operations below run.
+# The remaining answers are not this machine's to give: the library reads
+# whatever iPod is plugged in as well as this computer, through findmnt, and
+# the YouTube half of the search calls yt-dlp, so both are exercised against
+# the doubles the rest of the suite uses, reached by putting tests/bin first on
+# PATH. A second server rather than the one above, because that PATH would
+# reach every script the device operations below run.
 attached = make_mount("attached")
 (attached / "Favourites.m3u").write_text("iPod_Control/Music/Album/01 - Keep.mp3\n")
 attached_before = device_state(attached)
@@ -256,6 +251,38 @@ assert device["trackCount"] == 2, device
 assert [(entry["name"], entry["entries"]) for entry in device["playlists"]] == [
     ("Favourites", ["Album/01 - Keep.mp3"])
 ], device
+
+# The library a client reads is the merged one the window shows: this
+# computer's music root, the download waiting in the preview cache, and the two
+# tracks only the attached iPod holds, each carrying the state it is in.
+failed, text = doubled.call("read_library", {})
+assert not failed, text
+merged = json.loads(text)
+assert merged["command"] == "library", merged
+assert merged["result"]["complete"] is True, merged
+album = attached / "iPod_Control" / "Music" / "Album"
+assert {
+    track["path"]: track["state"] for track in merged["result"]["tracks"]
+} == {
+    str(library_track): "library",
+    str(preview): "preview",
+    str(album / "01 - Keep.mp3"): "ipod",
+    str(album / "02 - Also Keep.mp3"): "ipod",
+}, merged
+# No window, so no queue: the fourth state is one this process cannot be in.
+assert merged["result"]["counts"] == {
+    "ipod": 2,
+    "queued": 0,
+    "library": 1,
+    "preview": 1,
+}, merged
+
+# A search with that same iPod plugged in answers about this computer only:
+# the tracks it holds and this one does not are what read_library and
+# read_device are for, and a query pays for neither.
+failed, text = doubled.call("read_search", {"query": "Keep"})
+assert not failed, text
+assert json.loads(text)["result"]["local"] == [], text
 
 failed, text = doubled.call("read_search", {"query": "Song", "youtube": True})
 assert not failed, text

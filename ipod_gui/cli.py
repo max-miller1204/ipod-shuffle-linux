@@ -6,10 +6,12 @@ run so another program can act on any of it without reading prose.
 
 A run either writes one `{schema, command, result}` object to stdout, or says
 what went wrong as a sentence on stderr and leaves non-zero. The one case that
-does both is a run that did part of what it was asked - a music folder that
-could not be read through, a cached preview that would not be deleted - which
-writes its document, marks it `complete: false`, and still leaves non-zero
-rather than passing the part off as the whole.
+does both is a run that did part of what it was asked - a music folder, the
+preview cache or the connected iPod that could not be read through, a cached
+preview that would not be deleted - which writes its document, marks it
+`complete: false`, and still leaves non-zero rather than passing the part off
+as the whole. Which of them was short is the sentence on stderr, because they
+are different places to go and look.
 """
 
 import argparse
@@ -24,14 +26,23 @@ from .config import (
     PLAYLIST_LIBRARY,
     PREVIEW_CACHE,
     PREVIEW_CACHE_LIMIT,
+    STATE_IPOD,
     STATE_LIBRARY,
+    STATE_PREVIEW,
+    folder_is_there,
     library_layout,
     music_roots,
     save_library_layout,
     save_music_roots,
 )
-from .device import probe_device
-from .model import LibraryIndex, Track, local_search_matches, track_document
+from .device import music_folder, probe_device
+from .model import (
+    LibraryIndex,
+    Track,
+    local_search_matches,
+    merge_library_states,
+    track_document,
+)
 from .playlists import (
     PLAYLIST_GONE,
     TARGET_GONE,
@@ -55,6 +66,13 @@ from .youtube import search_youtube
 
 SCHEMA = 1
 
+# The three readings a library answer is made of, named the way the sentence on
+# stderr has to name them: a partial answer sends its reader somewhere to look,
+# and "a music folder" for a cache or an iPod sends them to the wrong place.
+MUSIC_SOURCE = "a music folder"
+PREVIEW_SOURCE = "the preview cache"
+DEVICE_SOURCE = "the connected iPod"
+
 # `python3 -m ipod_gui.cli` imports the package before it runs this module, and
 # the package imports every one of its modules eagerly - it has to, since that
 # is where the GTK versions are pinned - so runpy finds this one already
@@ -69,30 +87,118 @@ warnings.filterwarnings(
 )
 
 
-def _library():
-    """The index the window builds, and whether it is the whole of it.
+def _local_library():
+    """The configured music folders, and which sources fell short of a read.
 
     Keyed by path across the roots, the way the window keys its own scan
     results, because the configured roots may overlap - ~/Music and the
     ~/Music/youtube that downloads land in is the ordinary case - and a file
     under both of them is one track rather than two.
 
-    `complete` is scan_tracks' own answer carried out rather than dropped. A
-    scan that timed out, or that met a folder it could not read, returns the
-    records it did get, and a caller handed those without being told is one
-    reading a truncated library as the library.
+    The second answer is the sources that could not be read through, empty
+    when none was. It is scan_tracks' own answer carried out rather than
+    dropped: a scan that timed out, or that met a folder it could not read,
+    returns the records it did get, and a caller handed those without being
+    told is one reading a truncated library as the library. Which source is
+    named, rather than only that one was, because they are different places to
+    go and look.
+
+    This is the whole of what a search reads. A query is answered from the
+    folders on this computer, so asking one costs no walk over USB and no
+    reading of the cache, and the records it hands back are the library's.
     """
     index = LibraryIndex()
     tracks = {}
-    complete = True
+    unread = []
     for root in index.roots:
         records, read_through = scan_tracks(root)
-        complete = complete and read_through
+        if not read_through and MUSIC_SOURCE not in unread:
+            unread.append(MUSIC_SOURCE)
         for record in records:
             track = Track(Path(root, record["path"]), record, STATE_LIBRARY)
             tracks[track.path] = track
     index.tracks = list(tracks.values())
-    return index, complete
+    return index, unread
+
+
+def _library():
+    """Build the same merged library model the window displays.
+
+    The folders on this computer, the downloads waiting in the preview cache
+    and the tracks on one readable connected iPod, merged by the rule the
+    window merges them with, so `library` answers what the window shows rather
+    than a third reading of the same three places.
+    """
+    index, unread = _local_library()
+
+    try:
+        # No cache at all until something has been previewed, which is nothing
+        # to read rather than a reading that fell short: scanning the folder
+        # that is not there would mark every fresh install partial.
+        cached = folder_is_there(PREVIEW_CACHE)
+    except OSError:
+        cached = False
+        unread.append(PREVIEW_SOURCE)
+    if cached:
+        records, read_through = scan_tracks(PREVIEW_CACHE)
+        if not read_through:
+            unread.append(PREVIEW_SOURCE)
+        index.previews = [
+            Track(PREVIEW_CACHE / record["path"], record, STATE_PREVIEW)
+            for record in records
+            if not any(part.startswith(".") for part in Path(record["path"]).parts)
+        ]
+
+    device_tracks = []
+    probe = probe_device()
+    if probe.candidates:
+        # More than one iPod-shaped volume is a reading this cannot take - the
+        # window says which to unplug, and there is nobody here to say it to -
+        # so it is short of the device rather than a library with no device in
+        # it, which is what an empty bus writes and is a different answer.
+        if (
+            len(probe.candidates) == 1
+            and probe.readable
+            and probe.mount_point is not None
+        ):
+            # None until the device has been synced once, which is an iPod
+            # holding nothing rather than one that would not be read: scanning
+            # the folder that is not there would answer "partial" for a device
+            # every other reader of it counts as empty. An iPod that went away
+            # between the probe and here raises instead, and is the device this
+            # answer is short of.
+            try:
+                music = music_folder(probe.mount_point)
+            except OSError:
+                music, read_through, records = None, False, []
+            else:
+                records, read_through = (
+                    ([], True) if music is None else scan_tracks(music)
+                )
+            if not read_through:
+                unread.append(DEVICE_SOURCE)
+            device_tracks = [
+                Track(
+                    music / record["path"],
+                    record,
+                    STATE_IPOD,
+                    relpath=record["path"],
+                )
+                for record in records
+            ]
+        else:
+            unread.append(DEVICE_SOURCE)
+    merge_library_states(index, device_tracks)
+    return index, unread
+
+
+def _scan_sentence(unread):
+    """What to say on stderr about a library reading that fell short."""
+    if len(unread) > 1:
+        named = f"{', '.join(unread[:-1])} and {unread[-1]}"
+    else:
+        named = "".join(unread)
+    return f"{named} could not be read through: this answer is partial"
 
 
 def _partial_exit(complete, sentence):
@@ -199,6 +305,17 @@ def _absolute(value):
     return os.path.abspath(os.path.expanduser(str(value)))
 
 
+def _mutable_preview_cache(root):
+    """Return the configured cache root, refusing every other deletion root."""
+    root = Path(_absolute(root))
+    configured = Path(_absolute(PREVIEW_CACHE))
+    if root != configured:
+        raise SystemExit(
+            f"cache prune and clear may only modify the application preview cache: {configured}"
+        )
+    return root
+
+
 def _remove_previews(paths, root):
     """Delete cached previews, answering with the ones that actually went.
 
@@ -275,7 +392,7 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.command == "library":
-        index, complete = _library()
+        index, unread = _library()
         collections = index.collections(args.group == "artist")
         _emit(
             "library",
@@ -291,34 +408,28 @@ def main(argv=None):
                     for collection in collections
                 ],
                 "counts": index.track_counts(),
-                "complete": complete,
+                "complete": not unread,
             },
         )
-        return _partial_exit(
-            complete,
-            "a music folder could not be read through: this answer is partial",
-        )
+        return _partial_exit(not unread, _scan_sentence(unread))
     if args.command == "device":
         _emit("device", _device(probe_device()))
         return 0
     if args.command == "search":
-        index, complete = _library()
+        index, unread = _local_library()
         result = {
             "local": [
                 track_document(track)
                 for track in local_search_matches(index.all_tracks(), args.query)
             ],
-            "complete": complete,
+            "complete": not unread,
         }
         if args.youtube:
             videos, reached = search_youtube(args.query)
             result["youtube"] = [_video(video) for video in videos]
             result["reachedYoutube"] = reached
         _emit("search", result)
-        return _partial_exit(
-            complete,
-            "a music folder could not be read through: this answer is partial",
-        )
+        return _partial_exit(not unread, _scan_sentence(unread))
     if args.command == "playlists":
         root = args.root or PLAYLIST_LIBRARY
         if args.playlist_action == "list":
@@ -359,6 +470,8 @@ def main(argv=None):
         _emit("playlists", result)
         return 0
     if args.command == "cache":
+        if args.action != "status":
+            args.root = _mutable_preview_cache(args.root)
         entries = preview_cache_entries(args.root)
         if args.action == "prune":
             wanted = prunable_previews(entries, args.limit)
