@@ -51,12 +51,13 @@ Options:
                     its storage, its tracks, its playlists and which of them
                     it can say out loud, and the options the last sync saved
   -P, --playlist    Treat the arguments as playlist names, not tracks
-  -y, --yes         Answer yes to every prompt
+  -y, --yes         Answer yes to every prompt; a destructive run carrying
+                    it still needs --confirm-token
       --dry-run     Print the exact operation plan as JSON and change nothing
       --expect-device ID
                     Refuse unless the mounted iPod has this identity
       --confirm-token TOKEN
-                    Approve the exact non-interactive plan from --dry-run
+                    Approve the exact plan from --dry-run
   -e, --eject       Unmount the iPod when finished
       --progress-json[=FD]
                     Report progress as one JSON object per line on descriptor
@@ -298,6 +299,8 @@ if (( ! ASSUME_YES )); then
     confirm "Remove them?" || die_with "$EXIT_DECLINED" "Aborted."
 fi
 
+assert_watched_device
+
 # Delete the folders a removal leaves empty, up to but not including the music
 # root. They are not harmless: --dir-playlists builds one playlist per folder,
 # so an empty one becomes a playlist that plays nothing, on a device with no
@@ -305,6 +308,7 @@ fi
 prune_empty_dirs() {
     local dir="$1"
     while [[ "$dir" == "$MUSIC_REAL"/* ]]; do
+        assert_watched_device
         rmdir -- "$dir" 2>/dev/null || break
         dir="$(dirname -- "$dir")"
     done
@@ -314,6 +318,7 @@ if (( PLAYLIST_MODE )); then
     # One rm for all of them, and the stream told afterwards: deleting them
     # one at a time to report each would stop at the first that refused and
     # leave the rest, where this attempts every one of them.
+    assert_watched_device
     rm -f -- "${TARGETS[@]}"
     removed_playlists=${#TARGETS[@]}
     for target in "${TARGETS[@]}"; do
@@ -324,6 +329,7 @@ if (( PLAYLIST_MODE )); then
 else
     for index in "${!TARGETS[@]}"; do
         target="${TARGETS[index]}"
+        assert_watched_device
         rm -rf -- "$target"
         prune_empty_dirs "$(dirname -- "$target")"
         removed_tracks=$((removed_tracks + TARGET_TRACKS[index]))
@@ -365,6 +371,7 @@ prune_playlists() {
         playlist_name="$(basename -- "$list")"
         playlist_name="${playlist_name%.*}"
         if (( kept_tracks == 0 )); then
+            assert_watched_device
             rm -f -- "$list"
             info "Removed playlist '$playlist_name': every track it listed is gone"
             progress_playlist removed "$playlist_name" 0
@@ -388,6 +395,7 @@ if (( ! PLAYLIST_MODE )); then
 fi
 
 if (( EJECT )); then
+    assert_watched_device
     dev="$(ipod_device "$IPOD")"
     info "Unmounting $dev"
     sync

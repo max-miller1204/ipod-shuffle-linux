@@ -44,12 +44,13 @@ empty database. Preserves Apple's Speakable prompts and the Device directory.
 Options:
   -i, --ipod PATH     iPod mount point (default: autodetect)
   -b, --backup DIR    Copy existing music and databases to DIR first
-  -y, --yes           Answer yes to every prompt
+  -y, --yes           Answer yes to every prompt; a destructive run
+                      carrying it still needs --confirm-token
       --dry-run       Print the exact operation plan as JSON and change nothing
       --expect-device ID
                       Refuse unless the mounted iPod has this identity
       --confirm-token TOKEN
-                      Approve the exact non-interactive plan from --dry-run
+                      Approve the exact plan from --dry-run
       --progress-json[=FD]
                       Report progress as one JSON object per line on
                       descriptor FD (default 3), which the caller opens. The
@@ -150,20 +151,25 @@ fi
 
 progress_stage clear start
 if [[ -d "$MUSIC_DIR" ]]; then
+    assert_watched_device
     rm -rf "${MUSIC_DIR:?}"/*
     info "Removed $track_count track(s)"
 fi
+assert_watched_device
 mkdir -p "$MUSIC_DIR"
 
 if (( ${#ROOT_PLAYLISTS[@]} > 0 )); then
+    assert_watched_device
     rm -f -- "${ROOT_PLAYLISTS[@]}"
     playlist_count=${#ROOT_PLAYLISTS[@]}
     info "Removed ${#ROOT_PLAYLISTS[@]} playlist(s)"
 fi
 
 for f in "${STALE_STATE[@]}"; do
+    assert_watched_device
     rm -f "$ITUNES_DIR/$f"
 done
+assert_watched_device
 rm -f "$(sync_options_file "$IPOD")"
 info "Cleared stale iTunes state and previous-owner library binding"
 WIPED=1

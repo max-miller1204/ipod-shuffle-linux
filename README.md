@@ -302,8 +302,8 @@ Replace everything currently on the device and unmount when done:
 ./ipod-sync.sh --clear --eject ~/Music/albums/*/
 ```
 
-`--clear` asks before it deletes anything.
-An interactive run can add `--yes` after the person has decided.
+`--clear` asks before it deletes anything, and answering that prompt is what authorizes the deletion.
+Leave `--yes` off if you want to be asked: it answers prompts but does not authorize a destructive run, so one that carries it is refused unless it also returns the plan's token.
 A script or agent must first run the same command with `--dry-run`, verify the returned device identity and exact JSON plan, then return its `confirmationToken` with `--confirm-token` and the identity with `--expect-device`.
 `ipod-remove.sh` and `ipod-wipe.sh` use the same handshake.
 See [planning and authorizing changes](docs/machine-interface.md#planning-and-authorizing-changes).

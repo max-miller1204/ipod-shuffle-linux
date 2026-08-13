@@ -49,12 +49,13 @@ Options:
   -r, --rebuild-only     Rebuild the database without copying anything
   -n, --forget-options   Ignore the saved playlist and voiceover options,
                          building a plain database with neither
-  -y, --yes              Answer yes to every prompt
+  -y, --yes              Answer yes to every prompt; a destructive run
+                         carrying it still needs --confirm-token
       --dry-run          Print the exact operation plan as JSON and change nothing
       --expect-device ID
                          Refuse unless the mounted iPod has this identity
       --confirm-token TOKEN
-                         Approve the exact non-interactive plan from --dry-run
+                         Approve the exact plan from --dry-run
       --progress-json[=FD]
                          Report progress as one JSON object per line on
                          descriptor FD (default 3), which the caller opens.
@@ -221,6 +222,7 @@ prepare_operation sync "$IPOD" "$DEVICE_WATCH_IDENTITY" "$CLEAR" \
     "$@"
 info "iPod: $IPOD"
 
+assert_watched_device
 mkdir -p "$MUSIC_DIR"
 
 if (( CLEAR )); then
@@ -238,6 +240,7 @@ if (( CLEAR )); then
         fi
         confirm "$clear_prompt" || die_with "$EXIT_DECLINED" "Aborted."
     fi
+    assert_watched_device
     if (( existing > 0 )); then
         rm -rf "${MUSIC_DIR:?}"/*
         info "Removed $existing track(s)"
@@ -245,6 +248,7 @@ if (( CLEAR )); then
     # The playlists at the volume root reference the tracks just deleted, so
     # leaving them behind would rebuild playlists full of dead entries.
     if (( playlist_count > 0 )); then
+        assert_watched_device
         rm -f -- "${stale_playlists[@]}"
         info "Removed $playlist_count playlist(s)"
     fi
@@ -297,6 +301,7 @@ copy_track() {
         warn "Destination already holds a different track; copying this one as ${COPY_TARGET#"$MUSIC_DIR"/}."
     fi
 
+    assert_watched_device
     mkdir -p "$(dirname "$COPY_TARGET")"
     cp "$source" "$COPY_TARGET"
     copied=$((copied + 1))
@@ -461,6 +466,7 @@ sys.stdout.write("".join(simple_fold(char) for char in sys.argv[1]))' \
         warn "  ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3"
     fi
     if (( added == 0 )); then
+        assert_watched_device
         for existing_target in "$target" "$pls_target"; do
             if [[ -f "$existing_target" ]]; then
                 rm -f -- "$existing_target"
@@ -625,6 +631,7 @@ fi
 rebuild_database "$IPOD" "${DB_ARGS[@]+"${DB_ARGS[@]}"}"
 
 if (( ${#DB_ARGS[@]} > 0 )); then
+    assert_watched_device
     options_tmp="$(mktemp "${OPTIONS_FILE}.tmp.XXXXXX")" \
         || die "Could not create a temporary options file on the iPod."
     trap 'rm -f -- "${options_tmp:-}"' EXIT
@@ -635,6 +642,7 @@ if (( ${#DB_ARGS[@]} > 0 )); then
     options_tmp=""
     trap - EXIT
 else
+    assert_watched_device
     rm -f -- "$OPTIONS_FILE" \
         || die "Could not clear playlist and voiceover options from the iPod."
 fi
@@ -643,6 +651,7 @@ total="$(count_files "$MUSIC_DIR")"
 info "iPod now holds $total track(s)"
 
 if (( EJECT )); then
+    assert_watched_device
     dev="$(ipod_device "$IPOD")"
     info "Unmounting $dev"
     sync

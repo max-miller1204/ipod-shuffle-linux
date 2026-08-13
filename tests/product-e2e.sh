@@ -175,7 +175,7 @@ if "$ROOT/ipod-sync.sh" \
     echo "--clear accepted --yes as machine authorization" >&2
     exit 1
 fi
-grep -Fq 'Non-interactive destructive action refused' \
+grep -Fq 'Destructive action refused: confirmation is not authorization' \
     "$EVIDENCE_DIR/clear-without-token.txt"
 test -s "$YES_IPOD/iPod_Control/Music/Existing/old.mp3"
 test -f "$YES_IPOD/Existing.M3U"
@@ -217,7 +217,7 @@ if "$ROOT/ipod-sync.sh" \
     echo "--clear removed a playlist without confirmation" >&2
     exit 1
 fi
-grep -Fq 'Non-interactive destructive action refused' \
+grep -Fq 'Destructive action refused: confirmation is not authorization' \
     "$EVIDENCE_DIR/clear-playlist-only-without-yes.txt"
 test -f "$PLAYLIST_ONLY_IPOD/Only List.PLS"
 run_approved "$ROOT/ipod-sync.sh" \
@@ -308,7 +308,7 @@ handshake_wrong=0
     'Album/01 - Keep.mp3' < /dev/null \
     > "$EVIDENCE_DIR/handshake-wrong-token.txt" 2>&1 || handshake_wrong=$?
 test "$handshake_wrong" -eq 7
-grep -Fq 'Non-interactive destructive action refused' \
+grep -Fq 'Destructive action refused: confirmation is not authorization' \
     "$EVIDENCE_DIR/handshake-wrong-token.txt"
 
 # The token is this plan's, and the run is not: one names the other track, the
@@ -323,7 +323,7 @@ handshake_changed_target=0
     > "$EVIDENCE_DIR/handshake-changed-target.txt" 2>&1 \
     || handshake_changed_target=$?
 test "$handshake_changed_target" -eq 7
-grep -Fq 'Non-interactive destructive action refused' \
+grep -Fq 'Destructive action refused: confirmation is not authorization' \
     "$EVIDENCE_DIR/handshake-changed-target.txt"
 
 handshake_changed_options=0
@@ -336,7 +336,7 @@ handshake_changed_options=0
     > "$EVIDENCE_DIR/handshake-changed-options.txt" 2>&1 \
     || handshake_changed_options=$?
 test "$handshake_changed_options" -eq 7
-grep -Fq 'Non-interactive destructive action refused' \
+grep -Fq 'Destructive action refused: confirmation is not authorization' \
     "$EVIDENCE_DIR/handshake-changed-options.txt"
 
 device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-after-refusals.txt"
@@ -410,6 +410,9 @@ done
 device_state "$HANDSHAKE_IPOD" > "$EVIDENCE_DIR/handshake-device-after-stale.txt"
 diff -u "$EVIDENCE_DIR/handshake-device-swapped.txt" \
     "$EVIDENCE_DIR/handshake-device-after-stale.txt"
+
+/usr/bin/python3 "$ROOT/tests/operation-authorization-pty.py" \
+    "$ROOT" "$EVIDENCE_DIR"
 
 # A plan is the whole of stdout, on a device that has something to say first.
 # Every sync that was given options saves them, and the next run announces the
@@ -1084,7 +1087,7 @@ printf 'n\n' | "$ROOT/ipod-remove.sh" \
     || declined=1
 test "$declined" -eq 1
 test -s "$IPOD/iPod_Control/Music/Mixtape/Side A/02 - Delete.mp3"
-grep -Fq 'Non-interactive destructive action refused' \
+grep -Fq 'Destructive action refused: confirmation is not authorization' \
     "$EVIDENCE_DIR/remove-declined.txt"
 
 run_approved "$ROOT/ipod-remove.sh" \
@@ -3084,6 +3087,7 @@ printf '%s\n' \
     "PASS: a dry run of each script printed its plan and left the device byte for byte" \
     "PASS: a guessed token, another plan's token and a changed plan were each refused" \
     "PASS: every device-changing script refused an iPod swapped in behind the plan" \
+    "PASS: every device-changing script refused a swap at its prompt, and --yes without a plan token" \
     "PASS: --yes answered the Speakable prompt too, in all three scripts" \
     "PASS: wipe backed up music/database and preserved Speakable plus Device state" \
     "PASS: JSON mount detection retained a mount path containing spaces" \

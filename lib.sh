@@ -205,9 +205,11 @@ prepare_operation() {
             "$token" "$@"
         leave 0
     fi
-    if (( destructive )) && [[ ! -t 0 && "$supplied_token" != "$token" ]]; then
+    if (( destructive )) \
+        && { [[ ! -t 0 ]] || (( ASSUME_YES )); } \
+        && [[ "$supplied_token" != "$token" ]]; then
         die_with "$EXIT_DECLINED" \
-            "Non-interactive destructive action refused. Run with --dry-run, then pass its confirmationToken with --confirm-token."
+            "Destructive action refused: confirmation is not authorization. Answer the prompt at a terminal without --yes, or run --dry-run and pass its confirmationToken with --confirm-token."
     fi
 }
 
@@ -482,6 +484,17 @@ device_vanished() {
     return 1
 }
 
+# Stop before the next write when the watched mount disappeared or now belongs
+# to another iPod. The ERR trap diagnoses failed writes after the fact; callers
+# use this before writes so a replacement device is never used as the fallback
+# destination for an operation that started on the original.
+assert_watched_device() {
+    if device_vanished; then
+        die_with "$EXIT_DEVICE_GONE" \
+            "The iPod stopped answering; it was unplugged or replaced mid-operation."
+    fi
+}
+
 # Whether a script is already on its way out.
 LEAVING=""
 
@@ -525,6 +538,9 @@ atomic_replace_lines() {
             ;;
         *) directory="." ;;
     esac
+    if [[ -n "$DEVICE_WATCH_MOUNT" && "$target" == "$DEVICE_WATCH_MOUNT"/* ]]; then
+        assert_watched_device
+    fi
     temporary="$(mktemp "$directory/.ipod-tmp.XXXXXX")" \
         || die "Could not create a temporary file beside $target."
     if ! printf '%s\n' "$@" > "$temporary"; then
@@ -891,6 +907,9 @@ rebuild_database() {
     local ipod="$1"
     shift
     require_db_tool
+    if [[ -n "$DEVICE_WATCH_MOUNT" && "$ipod" == "$DEVICE_WATCH_MOUNT" ]]; then
+        assert_watched_device
+    fi
     info "Rebuilding iTunesSD database"
     # Named on the stream from here rather than from each script: all three
     # rebuild, and the rebuild is the part of a short run that takes the time,

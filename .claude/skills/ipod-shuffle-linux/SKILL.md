@@ -22,7 +22,7 @@ Preserve all of these rules when changing a device operation:
 1. Resolve and validate the target iPod before mutation.
 2. Produce a non-mutating `--dry-run` JSON plan first for automated use.
 3. Bind the plan's `confirmationToken` to its action, normalized arguments, mount, and device identity.
-4. Refuse a non-interactive destructive run whose caller did not return the plan's `--confirm-token TOKEN`.
+4. Refuse a destructive run that carries `--yes`, or whose input is not a terminal, unless its caller returned the plan's `--confirm-token TOKEN`.
    Have that caller pass the plan's identity back as `--expect-device ID` as well, which is checked whenever the plan carries a non-empty identity; a volume that reports neither a UUID nor a `SysInfo` has none to pin.
 5. Treat `--yes` as confirmation, not as authorization that bypasses the plan token.
 6. Recheck device identity immediately before mutation and refuse a changed device.
