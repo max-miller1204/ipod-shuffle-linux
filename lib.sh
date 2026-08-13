@@ -189,6 +189,16 @@ emit_operation_plan() {
         "$action" "$mount" "$identity" "$destructive" "$token" "$@"
 }
 
+# Check the caller's approval, print the plan a dry run was asked for, and
+# otherwise let the run go on.
+#
+# A supplied token is compared whether or not the operation destroys anything,
+# because a caller that returns one is asking to run that exact plan: a sync
+# without --clear deletes nothing, but it still copies tracks and rebuilds the
+# database, and doing either under another plan's token would be an approval
+# nobody gave. Being wrong is therefore not the same as being absent, which is
+# refused only where no prompt can stand in for it: a destructive run carrying
+# --yes, or one whose input is not a terminal.
 prepare_operation() {
     local action="$1" mount="$2" identity="$3" destructive="$4"
     local expected="$5" supplied_token="$6" dry_run="$7"
