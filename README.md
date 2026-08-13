@@ -640,7 +640,7 @@ Run `python3 -m ipod_gui.cli --help` or a subcommand's `--help` for mutation arg
 It needs PyGObject because it enters through the package and its declared imports, but it does not need a display.
 
 Every run writes one `{schema, command, result}` document to stdout, or says what went wrong as a sentence on stderr and leaves `1`.
-[docs/machine-interface.md](docs/machine-interface.md) records what each command's `result` holds, and the one case that is both: a run that did part of what it was asked - a music folder that could not be read through, a cached preview that would not go - writes what it did do, marks it `complete: false`, and leaves non-zero.
+[docs/machine-interface.md](docs/machine-interface.md) records what each command's `result` holds, and the one case that is both: a run that did part of what it was asked - a place it could not read through, a cached preview that would not go - writes what it did do, marks it `complete: false`, and leaves non-zero.
 
 The running GTK application also exports `navigate`, `search`, `queue`, `refresh` and stateful `dump-state` application actions through its existing `org.gtk.Actions` D-Bus interface.
 They drive the single running window without synthetic input.
@@ -909,7 +909,7 @@ It also takes each of the two servers off `PATH` in turn and gives the wrapped c
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the `tools/shoot.py` line that retakes that shot from it.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
-`tests/headless-cli.py` covers `python3 -m ipod_gui.cli` the way another program meets it, running the real module against a library, playlist folder and preview cache of its own: it asserts each of the four shapes of run the command promises - a document and nothing else, a sentence on stderr with no document, an answer that is real but partial and still leaves non-zero, and a usage line from the argument parser that reaches none of the model at all.
+`tests/headless-cli.py` covers `python3 -m ipod_gui.cli` the way another program meets it, running the real module against a library, playlist folder, preview cache and iPod of its own: it asserts each of the four shapes of run the command promises - a document and nothing else, a sentence on stderr with no document, an answer that is real but partial and still leaves non-zero, and a usage line from the argument parser that reaches none of the model at all.
 What those commands promise is what is on disk afterwards, so it is read back there: a track named relatively stored in an M3U as the absolute path it meant, the artist folder taken with the last preview in it, and a music root kept as it was named rather than with its symlinks resolved.
 Its `search --youtube` runs against the same `yt-dlp` stand-in the suite uses, which is what lets both answers - videos that came back, and YouTube out of reach - be checked without a network.
 

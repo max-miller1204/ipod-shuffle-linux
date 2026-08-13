@@ -168,6 +168,7 @@ It comes from the argument parser rather than from the model, which is why it is
 A configured music folder that could not be read through - a root that has gone, a directory that will not open, a scan that ran out of time - leaves a real reading of everything else, and a cached preview that will not be deleted leaves every other one deleted.
 `library` reads two more places and answers for them the same way: the preview cache, and the connected iPod - one that has gone or stopped answering since the probe found it, and equally more than one plugged in at once, which is a device this cannot choose between rather than an iPod holding nothing.
 Throwing either away helps nobody, so the document is written, `complete` is false, and the run still leaves `1`, because a caller handed the part and told nothing would take it for the whole.
+The sentence stderr carries beside that document says which part is missing: a scan names the reading that was short - `a music folder`, `the preview cache`, `the connected iPod`, or several of them in the one line, since they are different places to go and look - while a prune or a clear counts the previews that would not go.
 It is carried by the three commands that can do part of their work - `library` and `search` for their scans, `cache` for a prune or a clear - so a reader that has the field can trust it and one that does not was never at risk.
 
 Editing a playlist follows the same rule from the other side.
