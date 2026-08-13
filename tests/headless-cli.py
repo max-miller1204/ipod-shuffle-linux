@@ -99,6 +99,17 @@ assert config["result"]["musicRoots"] == [str(music)]
 assert config["result"]["group"] == "artist"
 assert config["result"]["view"] == "list"
 
+# Nothing has been previewed on this machine, so there is no preview cache to
+# read. That is a place holding nothing rather than a place that would not be
+# read, and a fresh install has to answer whole rather than partial.
+assert not (home / "cache" / "ipod-shuffle-linux" / "previews").exists()
+fresh_install = run("library")
+assert fresh_install["result"]["complete"] is True
+assert fresh_install["result"]["counts"]["preview"] == 0
+assert [track["state"] for track in fresh_install["result"]["tracks"]] == [
+    "library"
+] * 3
+
 playlists = home / "Playlists"
 created = run("playlists", "--root", str(playlists), "create", "Road Trip", str(song))
 assert created["result"]["entries"] == [str(song)]
@@ -456,6 +467,28 @@ if os.geteuid() != 0:
         "the connected iPod could not be read through: this answer is partial"
     )
     (fresh / "iPod_Control").chmod(0o700)
+
+# The preview cache answers the same two ways, and a cache this user cannot
+# reach is the second of them: the run still writes its document, marks it
+# partial and names the cache, rather than ending in a traceback that says
+# nothing a caller can parse.
+if os.geteuid() != 0:
+    cache_home = preview.parent
+    cache_home.chmod(0o000)
+    try:
+        shut_cache = invoke("library")
+    finally:
+        cache_home.chmod(0o700)
+    assert shut_cache.returncode != 0, shut_cache.stdout
+    shut_document = json.loads(shut_cache.stdout)
+    assert shut_document["result"]["complete"] is False
+    assert shut_document["result"]["counts"]["preview"] == 0
+    assert [track["state"] for track in shut_document["result"]["tracks"]] == [
+        "library"
+    ] * 3
+    assert shut_cache.stderr.strip() == (
+        "the preview cache could not be read through: this answer is partial"
+    )
 
 # Ordinary machines mount vfat volumes this user may not look inside - /boot/efi
 # is one, and it is mounted for root only on the runner this suite runs on - so

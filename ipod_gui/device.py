@@ -17,6 +17,8 @@ from pathlib import Path
 
 from gi.repository import Gio, GLib
 
+from .config import folder_is_there
+
 
 class _DeviceIOLock:
     """Let device readers overlap while excluding mutations.
@@ -256,9 +258,9 @@ def music_folder(mount_point):
     a device that is no longer there.
     """
     music = Path(mount_point, "iPod_Control", "Music")
-    if music.is_dir():
+    if folder_is_there(music):
         return music
-    if not Path(mount_point, "iPod_Control").is_dir():
+    if not folder_is_there(Path(mount_point, "iPod_Control")):
         raise FileNotFoundError(
             errno.ENOENT, "the iPod stopped answering", str(mount_point)
         )

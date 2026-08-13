@@ -27,6 +27,7 @@ from .config import (
     STATE_IPOD,
     STATE_LIBRARY,
     STATE_PREVIEW,
+    folder_is_there,
     library_layout,
     music_roots,
     save_library_layout,
@@ -128,7 +129,15 @@ def _library():
     """
     index, unread = _local_library()
 
-    if PREVIEW_CACHE.is_dir():
+    try:
+        # No cache at all until something has been previewed, which is nothing
+        # to read rather than a reading that fell short: scanning the folder
+        # that is not there would mark every fresh install partial.
+        cached = folder_is_there(PREVIEW_CACHE)
+    except OSError:
+        cached = False
+        unread.append(PREVIEW_SOURCE)
+    if cached:
         records, read_through = scan_tracks(PREVIEW_CACHE)
         if not read_through:
             unread.append(PREVIEW_SOURCE)
