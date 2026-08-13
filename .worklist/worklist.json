@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 185,
+  "revision": 186,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -373,9 +373,10 @@
       "dependsOn": [
         "close-destructive-operation"
       ],
-      "status": "active",
+      "status": "done",
       "createdAt": "2026-08-12T22:14:08.620Z",
-      "updatedAt": "2026-08-13T01:14:49.176Z"
+      "updatedAt": "2026-08-13T04:26:24.244Z",
+      "completedAt": "2026-08-13T04:26:24.244Z"
     },
     {
       "id": "harden-headless-cache-deletion-and",
