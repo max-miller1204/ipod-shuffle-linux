@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 190,
+  "revision": 198,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -353,72 +353,91 @@
       "description": "Currently when im in a playlist and i try to look up a song to add it just goes straight to the queue, and not in my playlist. Also it gets confusing when adding songs to the playlist since there's no indicator if its in a playlist. Maybe add a new catagory next to each song when in the general tab showing the playlist it's in.",
       "status": "open",
       "createdAt": "2026-08-12T06:16:42.859Z",
-      "updatedAt": "2026-08-13T16:27:31.849Z"
+      "updatedAt": "2026-08-13T19:23:21.200Z",
+      "group": "Playlists"
     },
     {
       "id": "close-destructive-operation",
       "title": "Close destructive-operation authorization gaps",
-      "description": "Follow up PR 42. Revalidate the target device identity immediately before every mutation, including after an interactive confirmation delay, so swapping the mounted device aborts without changing data. Close the remaining PTY and --yes token-classification gap while preserving the dry-run plan, confirmation-token, expected-device, structured-progress, and human-output contracts. Add end-to-end coverage that pauses at confirmation, changes SysInfo identity, and proves the operation refuses the replacement device. PR: https://github.com/max-miller1204/ipod-shuffle-linux/pull/42",
+      "description": "Follow up PR 42. Revalidate the target device identity immediately before every mutation, including after an interactive confirmation delay, so swapping the mounted device aborts without changing data. Close the remaining PTY and --yes token-classification gap while preserving the dry-run plan, confirmation-token, expected-device, structured-progress, and human-output contracts. Add end-to-end coverage that pauses at confirmation, changes SysInfo identity, and proves the operation refuses the replacement device.",
       "group": "Audit follow-up",
       "status": "done",
       "createdAt": "2026-08-12T22:14:08.620Z",
-      "updatedAt": "2026-08-12T22:21:42.078Z",
-      "completedAt": "2026-08-12T22:21:42.078Z"
+      "updatedAt": "2026-08-13T19:22:46.477Z",
+      "completedAt": "2026-08-12T22:21:42.078Z",
+      "links": [
+        "https://github.com/max-miller1204/ipod-shuffle-linux/pull/42"
+      ]
     },
     {
       "id": "enforce-mcp-sync-authorization-tokens",
       "title": "Enforce MCP sync authorization tokens",
-      "description": "Follow up PR 47. Make the MCP execute_sync authorization contract real: an incorrect, stale, or mismatched confirmation token must never copy tracks or rebuild the database. Align the MCP schema, sync dry-run plan, expected-device binding, and script execution semantics so the exposed token is validated for every MCP mutation rather than only for --clear. Prove the behavior through the MCP stdio interface with valid and deliberately invalid tokens. PR: https://github.com/max-miller1204/ipod-shuffle-linux/pull/47",
+      "description": "Follow up PR 47. Make the MCP execute_sync authorization contract real: an incorrect, stale, or mismatched confirmation token must never copy tracks or rebuild the database. Align the MCP schema, sync dry-run plan, expected-device binding, and script execution semantics so the exposed token is validated for every MCP mutation rather than only for --clear. Prove the behavior through the MCP stdio interface with valid and deliberately invalid tokens.",
       "group": "Audit follow-up",
       "dependsOn": [
         "close-destructive-operation"
       ],
       "status": "done",
       "createdAt": "2026-08-12T22:14:08.620Z",
-      "updatedAt": "2026-08-13T04:26:24.244Z",
-      "completedAt": "2026-08-13T04:26:24.244Z"
+      "updatedAt": "2026-08-13T19:22:53.138Z",
+      "completedAt": "2026-08-13T04:26:24.244Z",
+      "links": [
+        "https://github.com/max-miller1204/ipod-shuffle-linux/pull/47"
+      ]
     },
     {
       "id": "harden-headless-cache-deletion-and",
       "title": "Harden headless cache deletion and library states",
-      "description": "Follow up PR 43. Restrict preview-cache clear and prune operations to a positively identified application-owned cache root so an arbitrary music directory can never be recursively treated as cache content. Make the headless library model report the same observable library, device, queued, and preview states and counts as the window instead of forcing every record into STATE_LIBRARY. Cover both contracts through python3 -m ipod_gui.cli, including rejection of an external directory containing audio files. PR: https://github.com/max-miller1204/ipod-shuffle-linux/pull/43",
+      "description": "Follow up PR 43. Restrict preview-cache clear and prune operations to a positively identified application-owned cache root so an arbitrary music directory can never be recursively treated as cache content. Make the headless library model report the same observable library, device, queued, and preview states and counts as the window instead of forcing every record into STATE_LIBRARY. Cover both contracts through python3 -m ipod_gui.cli, including rejection of an external directory containing audio files.",
       "group": "Audit follow-up",
-      "status": "active",
+      "status": "open",
       "createdAt": "2026-08-12T22:14:08.620Z",
-      "updatedAt": "2026-08-13T16:27:34.551Z"
+      "updatedAt": "2026-08-13T19:22:59.210Z",
+      "links": [
+        "https://github.com/max-miller1204/ipod-shuffle-linux/pull/43"
+      ]
     },
     {
       "id": "make-gio-actions-and-state-dumps",
       "title": "Make Gio actions and state dumps truthful",
-      "description": "Follow up PR 44. Keep dump-state aligned with the visible window after failures and asynchronous actions: report a visible failed sync bar after busy becomes false, preserve every rapid queue request instead of silently superseding earlier staging work, and expose the active inline error rather than search errors alone. Verify asynchronous transitions by polling the public Gio actions and dump-state interface. PR: https://github.com/max-miller1204/ipod-shuffle-linux/pull/44",
+      "description": "Follow up PR 44. Keep dump-state aligned with the visible window after failures and asynchronous actions: report a visible failed sync bar after busy becomes false, preserve every rapid queue request instead of silently superseding earlier staging work, and expose the active inline error rather than search errors alone. Verify asynchronous transitions by polling the public Gio actions and dump-state interface.",
       "group": "Audit follow-up",
       "dependsOn": [
         "harden-headless-cache-deletion-and"
       ],
       "status": "open",
       "createdAt": "2026-08-12T22:14:08.620Z",
-      "updatedAt": "2026-08-12T22:55:38.503Z"
+      "updatedAt": "2026-08-13T19:23:06.203Z",
+      "links": [
+        "https://github.com/max-miller1204/ipod-shuffle-linux/pull/44"
+      ]
     },
     {
       "id": "validate-custom-playlist-cover-contents",
       "title": "Validate custom playlist cover contents",
-      "description": "Follow up PR 41. Decode and validate custom JPEG, PNG, and WebP playlist covers before persisting them instead of trusting the filename suffix. Reject corrupt, mislabeled, or unsupported content with an actionable UI error, while preserving rename, deletion, revert-to-song-artwork, and local-only storage semantics. Prove that plain text with an image extension is rejected and never becomes stored playlist metadata. PR: https://github.com/max-miller1204/ipod-shuffle-linux/pull/41",
+      "description": "Follow up PR 41. Decode and validate custom JPEG, PNG, and WebP playlist covers before persisting them instead of trusting the filename suffix. Reject corrupt, mislabeled, or unsupported content with an actionable UI error, while preserving rename, deletion, revert-to-song-artwork, and local-only storage semantics. Prove that plain text with an image extension is rejected and never becomes stored playlist metadata.",
       "group": "Audit follow-up",
       "status": "open",
       "createdAt": "2026-08-12T22:14:08.620Z",
-      "updatedAt": "2026-08-12T22:55:37.307Z"
+      "updatedAt": "2026-08-13T19:23:11.982Z",
+      "links": [
+        "https://github.com/max-miller1204/ipod-shuffle-linux/pull/41"
+      ]
     },
     {
       "id": "refresh-canonical-screenshot-evidence",
       "title": "Refresh canonical screenshot evidence",
-      "description": "Follow up PR 46. Regenerate the committed canonical screenshots through the deterministic harness and replace or remove stale images whose bytes do not match fresh harness output. Document evidence provenance through the existing repository conventions so committed visual evidence can be reproduced exactly and is not mistaken for output from a different render path. PR: https://github.com/max-miller1204/ipod-shuffle-linux/pull/46",
+      "description": "Follow up PR 46. Regenerate the committed canonical screenshots through the deterministic harness and replace or remove stale images whose bytes do not match fresh harness output. Document evidence provenance through the existing repository conventions so committed visual evidence can be reproduced exactly and is not mistaken for output from a different render path.",
       "group": "Audit follow-up",
       "dependsOn": [
         "make-gio-actions-and-state-dumps"
       ],
       "status": "open",
       "createdAt": "2026-08-12T22:14:08.620Z",
-      "updatedAt": "2026-08-12T22:55:39.148Z"
+      "updatedAt": "2026-08-13T19:23:17.204Z",
+      "links": [
+        "https://github.com/max-miller1204/ipod-shuffle-linux/pull/46"
+      ]
     }
   ],
   "retiredIds": [
