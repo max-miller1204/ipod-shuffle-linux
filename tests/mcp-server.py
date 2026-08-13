@@ -420,8 +420,12 @@ assert not (mount / "iPod_Control" / "Music" / "Album" / "01 - Keep.mp3").exists
 assert (mount / "iPod_Control" / "Music" / "Album" / "02 - Also Keep.mp3").exists()
 
 # The device changed, so the plan is made again: what an execute is authorized
-# to do is what the dry run in front of it described.
+# to do is what the dry run in front of it described. This is also the run that
+# makes the database comparisons above evidence: the record moves for a sync
+# that is authorized, so the refused ones leaving it alone is a rebuild that did
+# not happen rather than two absent files agreeing with each other.
 sync_plan = plan("plan_sync", {"ipod": str(mount), "sources": [str(source)]})
+database_before_authorized = database_state()
 failed, text = session.call(
     "execute_sync",
     {
@@ -433,6 +437,9 @@ failed, text = session.call(
 )
 assert not failed, text
 assert (mount / "iPod_Control" / "Music" / "New Album" / "01 - New.mp3").read_text() == "new song\n"
+rebuilt = database_state()
+assert rebuilt is not None, "the authorized sync did not rebuild the database"
+assert rebuilt != database_before_authorized, "the authorized sync did not rebuild the database"
 
 wipe_plan = plan("plan_wipe", {"ipod": str(mount), "backup": str(backup)})
 failed, text = session.call(

@@ -257,7 +257,7 @@ The scripts say what went wrong as a number. These are theirs; the CLI above has
 | `4` | Several iPods are connected | Name which one with `--ipod` |
 | `5` | The iPod stopped answering part way through | Plug it back in and try again |
 | `6` | A dependency is missing | Run `./install.sh`, or `./install.sh --check` to find out which |
-| `7` | A prompt was declined, or a destructive run lacked the plan token it needed | Answer the prompt at a terminal without `--yes`, or run `--dry-run` and return its `confirmationToken` |
+| `7` | A prompt was declined, a destructive run lacked the plan token it needed, or any run supplied a token that is not its own plan's | Answer the prompt at a terminal without `--yes`, or run `--dry-run` and return its `confirmationToken` |
 
 Code `5` is the one worth explaining.
 Unplugging an iPod mid-copy is the failure this project sees most, and it arrives as whichever command happened to touch the volume next: a copy that cannot write, a walk that cannot descend, a database builder that cannot open its file.
