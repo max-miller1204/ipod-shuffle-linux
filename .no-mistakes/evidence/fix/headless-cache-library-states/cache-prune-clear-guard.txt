@@ -1,0 +1,179 @@
+================================================================
+  A person's own music folder, handed to the cache commands
+================================================================
+
+$ find ExternalMusic -type f -o -type d | sort
+ExternalMusic
+ExternalMusic/Bruce Springsteen
+ExternalMusic/Bruce Springsteen/Born to Run
+ExternalMusic/Bruce Springsteen/Born to Run/01 - Thunder Road.mp3
+ExternalMusic/Bruce Springsteen/Nebraska
+ExternalMusic/Bruce Springsteen/Nebraska/01 - Nebraska.mp3
+ExternalMusic/Bruce Springsteen/Nebraska/02 - Atlantic City.mp3
+
+--- Reading an arbitrary root is still allowed ------------------
+
+$ python3 -m ipod_gui.cli cache status --root /tmp/cache-guard-sandbox/ExternalMusic
+{
+  "schema": 1,
+  "command": "cache",
+  "result": {
+    "root": "/tmp/cache-guard-sandbox/ExternalMusic",
+    "sizeBytes": 25836,
+    "removed": [],
+    "entries": [
+      {
+        "path": "/tmp/cache-guard-sandbox/ExternalMusic/Bruce Springsteen/Nebraska/01 - Nebraska.mp3",
+        "size": 8612,
+        "mtime": 1786647277.6697874
+      },
+      {
+        "path": "/tmp/cache-guard-sandbox/ExternalMusic/Bruce Springsteen/Nebraska/02 - Atlantic City.mp3",
+        "size": 8612,
+        "mtime": 1786647277.7057874
+      },
+      {
+        "path": "/tmp/cache-guard-sandbox/ExternalMusic/Bruce Springsteen/Born to Run/01 - Thunder Road.mp3",
+        "size": 8612,
+        "mtime": 1786647277.7377875
+      }
+    ],
+    "complete": true
+  }
+}
+exit: 0
+
+--- Deleting from one is not ------------------------------------
+
+$ python3 -m ipod_gui.cli cache prune --root /tmp/cache-guard-sandbox/ExternalMusic --limit 0
+stderr: cache prune and clear may only modify the application preview cache: /tmp/cache-guard-sandbox/home/cache/ipod-shuffle-linux/previews
+exit: 1
+
+$ python3 -m ipod_gui.cli cache clear --root /tmp/cache-guard-sandbox/ExternalMusic
+stderr: cache prune and clear may only modify the application preview cache: /tmp/cache-guard-sandbox/home/cache/ipod-shuffle-linux/previews
+exit: 1
+
+--- The music is still there ------------------------------------
+
+$ find ExternalMusic -type f -o -type d | sort
+ExternalMusic
+ExternalMusic/Bruce Springsteen
+ExternalMusic/Bruce Springsteen/Born to Run
+ExternalMusic/Bruce Springsteen/Born to Run/01 - Thunder Road.mp3
+ExternalMusic/Bruce Springsteen/Nebraska
+ExternalMusic/Bruce Springsteen/Nebraska/01 - Nebraska.mp3
+ExternalMusic/Bruce Springsteen/Nebraska/02 - Atlantic City.mp3
+
+--- The configured cache, however it is spelled -----------------
+    (a caller passing back the root it read from cache status,
+     or a tilde, is still asking for the cache it is allowed to)
+
+$ python3 -m ipod_gui.cli cache status
+{
+  "schema": 1,
+  "command": "cache",
+  "result": {
+    "root": "/tmp/cache-guard-sandbox/home/cache/ipod-shuffle-linux/previews",
+    "sizeBytes": 8612,
+    "removed": [],
+    "entries": [
+      {
+        "path": "/tmp/cache-guard-sandbox/home/cache/ipod-shuffle-linux/previews/Sable Lane/Neon Harbour [abc123].mp3",
+        "size": 8612,
+        "mtime": 1786647277.7767873
+      }
+    ],
+    "complete": true
+  }
+}
+exit: 0
+
+$ python3 -m ipod_gui.cli cache prune --root /tmp/cache-guard-sandbox/home/cache/ipod-shuffle-linux/../ipod-shuffle-linux/previews --limit 0
+{
+  "schema": 1,
+  "command": "cache",
+  "result": {
+    "root": "/tmp/cache-guard-sandbox/home/cache/ipod-shuffle-linux/previews",
+    "sizeBytes": 0,
+    "removed": [
+      "/tmp/cache-guard-sandbox/home/cache/ipod-shuffle-linux/previews/Sable Lane/Neon Harbour [abc123].mp3"
+    ],
+    "entries": [],
+    "complete": true
+  }
+}
+exit: 0
+
+$ python3 -m ipod_gui.cli cache clear --root ~/cache/ipod-shuffle-linux/previews
+{
+  "schema": 1,
+  "command": "cache",
+  "result": {
+    "root": "/tmp/cache-guard-sandbox/home/cache/ipod-shuffle-linux/previews",
+    "sizeBytes": 0,
+    "removed": [
+      "/tmp/cache-guard-sandbox/home/cache/ipod-shuffle-linux/previews/Sable Lane/Neon Harbour [abc123].mp3"
+    ],
+    "entries": [],
+    "complete": true
+  }
+}
+exit: 0
+
+--- The configured preview cache still prunes and clears --------
+
+$ python3 -m ipod_gui.cli cache clear
+{
+  "schema": 1,
+  "command": "cache",
+  "result": {
+    "root": "/tmp/cache-guard-sandbox/home/cache/ipod-shuffle-linux/previews",
+    "sizeBytes": 0,
+    "removed": [
+      "/tmp/cache-guard-sandbox/home/cache/ipod-shuffle-linux/previews/Sable Lane/Neon Harbour [abc123].mp3"
+    ],
+    "entries": [],
+    "complete": true
+  }
+}
+exit: 0
+
+$ find previews -type f -o -type d | sort
+previews
+
+$ find ExternalMusic -type f -o -type d | sort
+ExternalMusic
+ExternalMusic/Bruce Springsteen
+ExternalMusic/Bruce Springsteen/Born to Run
+ExternalMusic/Bruce Springsteen/Born to Run/01 - Thunder Road.mp3
+ExternalMusic/Bruce Springsteen/Nebraska
+ExternalMusic/Bruce Springsteen/Nebraska/01 - Nebraska.mp3
+ExternalMusic/Bruce Springsteen/Nebraska/02 - Atlantic City.mp3
+
+================================================================
+  The same two commands against the code before this change
+================================================================
+
+$ python3 -m ipod_gui.cli cache clear --root /tmp/cache-guard-sandbox/ExternalMusic
+{
+  "schema": 1,
+  "command": "cache",
+  "result": {
+    "root": "/tmp/cache-guard-sandbox/ExternalMusic",
+    "sizeBytes": 0,
+    "removed": [
+      "/tmp/cache-guard-sandbox/ExternalMusic/Bruce Springsteen/Nebraska/01 - Nebraska.mp3",
+      "/tmp/cache-guard-sandbox/ExternalMusic/Bruce Springsteen/Nebraska/02 - Atlantic City.mp3",
+      "/tmp/cache-guard-sandbox/ExternalMusic/Bruce Springsteen/Born to Run/01 - Thunder Road.mp3"
+    ],
+    "entries": [],
+    "complete": true
+  }
+}
+exit: 0
+
+--- What is left of that music folder ---------------------------
+
+$ find ExternalMusic -type f -o -type d | sort
+ExternalMusic
+

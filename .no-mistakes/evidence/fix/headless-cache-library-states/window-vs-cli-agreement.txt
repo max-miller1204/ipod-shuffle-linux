@@ -1,0 +1,154 @@
+# The real GTK window and the display-free CLI, over one fixture
+
+Fixture: /tmp/shuffle-demo-evidence (tools/demo-library.py), with one
+cached preview added and one track staged from outside the music root.
+The window is the real Adw application on a private Xvfb display and
+session bus (tools/headless-run.py); its answer is the dump-state
+document a machine client reads. The CLI is a subprocess running
+python3 -m ipod_gui.cli library against the same HOME.
+
+Script: window-vs-cli.py (in this evidence directory)
+Command:
+  env HOME=/tmp/shuffle-demo-evidence/home \
+      XDG_CONFIG_HOME=$HOME/.config XDG_CACHE_HOME=$HOME/.cache \
+      FAKE_IPOD_MOUNT='/tmp/shuffle-demo-evidence/MAX SHUFFLE' \
+      PATH=$REPO/tests/bin:$PATH \
+      python3 window-vs-cli.py
+
+{
+  "fixture": "/tmp/shuffle-demo-evidence",
+  "windowVisibleCounts": {
+    "ipod": 2,
+    "queued": 0,
+    "library": 4,
+    "preview": 1
+  },
+  "cliCounts": {
+    "ipod": 2,
+    "queued": 0,
+    "library": 4,
+    "preview": 1
+  },
+  "windowTracks": [
+    [
+      "ipod",
+      "Elle Marchetti",
+      "Warm Ridge",
+      "Low Sun"
+    ],
+    [
+      "ipod",
+      "Elle Marchetti",
+      "Warm Ridge",
+      "Ridge Line"
+    ],
+    [
+      "library",
+      "Ana Petrov",
+      "Field Notes",
+      "Coastal Road"
+    ],
+    [
+      "library",
+      "Ana Petrov",
+      "Field Notes",
+      "Paper Boats"
+    ],
+    [
+      "library",
+      "Kova",
+      "Nightbus",
+      "Last Stop"
+    ],
+    [
+      "library",
+      "The Fen",
+      "Slow Copper",
+      "Slow Copper"
+    ],
+    [
+      "preview",
+      "Sable Lane",
+      "Preview",
+      "Neon Harbour"
+    ]
+  ],
+  "cliTracks": [
+    [
+      "ipod",
+      "Elle Marchetti",
+      "Warm Ridge",
+      "Low Sun"
+    ],
+    [
+      "ipod",
+      "Elle Marchetti",
+      "Warm Ridge",
+      "Ridge Line"
+    ],
+    [
+      "library",
+      "Ana Petrov",
+      "Field Notes",
+      "Coastal Road"
+    ],
+    [
+      "library",
+      "Ana Petrov",
+      "Field Notes",
+      "Paper Boats"
+    ],
+    [
+      "library",
+      "Kova",
+      "Nightbus",
+      "Last Stop"
+    ],
+    [
+      "library",
+      "The Fen",
+      "Slow Copper",
+      "Slow Copper"
+    ],
+    [
+      "preview",
+      "Sable Lane",
+      "Preview",
+      "Neon Harbour"
+    ]
+  ],
+  "cliComplete": true
+}
+{
+  "queue": {
+    "stagedPath": "/tmp/shuffle-demo-evidence/Elsewhere/01 - Highway.mp3",
+    "windowVisibleCountsAfterQueue": {
+      "ipod": 2,
+      "queued": 1,
+      "library": 4,
+      "preview": 1
+    },
+    "windowStagedTracks": [
+      {
+        "path": "/tmp/shuffle-demo-evidence/Elsewhere/01 - Highway.mp3",
+        "title": "Highway",
+        "artist": "Sable Lane",
+        "album": "Roadside",
+        "genre": "",
+        "duration": 1.0448979591836736,
+        "trackNumber": 0,
+        "art": null,
+        "size": 8673,
+        "state": "queued",
+        "onIpod": false
+      }
+    ],
+    "cliCountsAfterQueue": {
+      "ipod": 2,
+      "queued": 0,
+      "library": 4,
+      "preview": 1
+    }
+  }
+}
+window and CLI agree

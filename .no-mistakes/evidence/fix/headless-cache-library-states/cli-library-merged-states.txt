@@ -1,0 +1,59 @@
+================================================================
+  This change: the merged view the window paints
+================================================================
+
+iPod plugged in: MAX SHUFFLE
+  on device: /tmp/shuffle-demo-evidence/MAX SHUFFLE/iPod_Control/Music/Warm Ridge/02 - Ridge Line.mp3
+  on device: /tmp/shuffle-demo-evidence/MAX SHUFFLE/iPod_Control/Music/Warm Ridge/01 - Low Sun.mp3
+  cached preview: /tmp/shuffle-demo-evidence/home/.cache/ipod-shuffle-linux/previews/Sable Lane/Neon Harbour [abc123].mp3
+
+$ python3 -m ipod_gui.cli library
+counts:   {"ipod": 2, "queued": 0, "library": 4, "preview": 1}
+complete: true
+  ipod     onIpod=True  Elle Marchetti - Warm Ridge - Low Sun
+  ipod     onIpod=True  Elle Marchetti - Warm Ridge - Ridge Line
+  library  onIpod=False Ana Petrov - Field Notes - Coastal Road
+  library  onIpod=False Ana Petrov - Field Notes - Paper Boats
+  library  onIpod=False Kova - Nightbus - Last Stop
+  library  onIpod=False The Fen - Slow Copper - Slow Copper
+  preview  onIpod=False Sable Lane - Preview - Neon Harbour
+exit: 0
+
+--- A search is still this computer alone ----------------------
+    (the same iPod is plugged in; 'Low Sun' is on it and in the
+     music folder, so it answers as a library record)
+
+$ python3 -m ipod_gui.cli search "low sun"
+complete: true
+  library  onIpod=False Elle Marchetti - Warm Ridge - Low Sun
+
+--- Two iPods on the bus: partial rather than a confident zero --
+
+$ python3 -m ipod_gui.cli library
+counts:   {"ipod": 0, "queued": 0, "library": 6, "preview": 1}
+complete: false
+  library  onIpod=False Ana Petrov - Field Notes - Coastal Road
+  library  onIpod=False Ana Petrov - Field Notes - Paper Boats
+  library  onIpod=False Elle Marchetti - Warm Ridge - Low Sun
+  library  onIpod=False Elle Marchetti - Warm Ridge - Ridge Line
+  library  onIpod=False Kova - Nightbus - Last Stop
+  library  onIpod=False The Fen - Slow Copper - Slow Copper
+  preview  onIpod=False Sable Lane - Preview - Neon Harbour
+stderr: the connected iPod could not be read through: this answer is partial
+exit: 1
+
+================================================================
+  The same command against the code before this change
+================================================================
+
+$ python3 -m ipod_gui.cli library
+counts:   {"ipod": 0, "queued": 0, "library": 6, "preview": 0}
+complete: true
+  library  onIpod=False Ana Petrov - Field Notes - Coastal Road
+  library  onIpod=False Ana Petrov - Field Notes - Paper Boats
+  library  onIpod=False Elle Marchetti - Warm Ridge - Low Sun
+  library  onIpod=False Elle Marchetti - Warm Ridge - Ridge Line
+  library  onIpod=False Kova - Nightbus - Last Stop
+  library  onIpod=False The Fen - Slow Copper - Slow Copper
+exit: 0
+
