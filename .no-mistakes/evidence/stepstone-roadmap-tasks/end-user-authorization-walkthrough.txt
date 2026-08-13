@@ -1,0 +1,97 @@
+==============================================================================
+1. A PERSON AT A TERMINAL: answer the prompt, no token needed
+==============================================================================
+tracks before: ['Album/Keep.mp3']
+$ ./ipod-sync.sh --ipod IPOD --clear LIBRARY   (answering 'y' at the prompt)
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+==> iPod: /tmp/ipod-enduser-e72apbyx/person
+Delete 1 existing track(s) from the iPod? [y/N] y
+==> Removed 1 track(s)
+  + New Song.mp3 -> library/New Song.mp3
+==> Copied 1 file(s)
+==> Rebuilding iTunesSD database
+Writing database. This may take a while...
+Error calling mutagen. Possible invalid filename/ID3Tags (hyphen in filename?)
+Database written successfully:
+Tracks 1
+Albums 0
+Artists 0
+Playlists 0
+==> iPod now holds 1 track(s)
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject
+exit code: 0
+tracks after: ['library/New Song.mp3']
+
+==============================================================================
+2. THE SAME PERSON, iPOD SWAPPED WHILE THE PROMPT WAS ON SCREEN
+==============================================================================
+tracks before: ['Album/Keep.mp3']
+$ ./ipod-sync.sh --ipod IPOD --clear LIBRARY   (a different iPod is mounted, then 'y')
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+==> iPod: /tmp/ipod-enduser-e72apbyx/swapped
+Delete 1 existing track(s) from the iPod? [y/N] y
+error: The iPod stopped answering; it was unplugged or replaced mid-operation.
+exit code: 5   (5 = the iPod stopped answering)
+tracks after: ['Album/Keep.mp3']   replacement track byte-for-byte intact: True
+
+==============================================================================
+3. AN AUTOMATED CALLER: --yes alone is refused; the plan token authorizes
+==============================================================================
+tracks before: ['Album/Keep.mp3']
+$ ./ipod-wipe.sh --ipod IPOD --yes            (inside a pseudo-terminal)
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+error: Destructive action refused: confirmation is not authorization. Answer the prompt at a terminal without --yes, or run --dry-run and pass its confirmationToken with --confirm-token.
+exit code: 7   (7 = declined / missing plan token)
+tracks after: ['Album/Keep.mp3']
+
+$ ./ipod-wipe.sh --ipod IPOD --dry-run
+{
+  "action": "wipe",
+  "device": {
+    "mount": "/tmp/ipod-enduser-e72apbyx/caller",
+    "identity": "sysinfo:e5422701fdc99bcd47ce728accc017602723928a463f3574db35e8a0e8eb0639"
+  },
+  "destructive": true,
+  "arguments": [
+    "backup=",
+    "tracks=1",
+    "playlists=0",
+    "stale-state=iTunesDB iTunesSD iTunesStats iTunesPState iTunesPrefs iTunesPrefs.plist"
+  ],
+  "confirmationToken": "a0fe92d20729ee6aaf8a819159129eb83131749d20b9c182dfaf85d12a6993a0"
+}
+tracks after the dry run: ['Album/Keep.mp3']   (a plan changes nothing)
+
+$ ./ipod-wipe.sh --ipod IPOD --yes --expect-device WRONG --confirm-token $TOKEN
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+error: Expected device 'not-this-ipod', but 'sysinfo:e5422701fdc99bcd47ce728accc017602723928a463f3574db35e8a0e8eb0639' is mounted at /tmp/ipod-enduser-e72apbyx/caller.
+exit code: 1   (1 = another iPod answered)
+
+$ ./ipod-wipe.sh --ipod IPOD --yes --expect-device $ID --confirm-token $TOKEN --progress-json=3  3>progress.ndjson
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+==> iPod: /tmp/ipod-enduser-e72apbyx/caller
+==> Tracks currently on device: 1
+==> Removed 1 track(s)
+==> Cleared stale iTunes state and previous-owner library binding
+==> Rebuilding iTunesSD database
+Writing database. This may take a while...
+Database written successfully:
+Tracks 0
+Albums 0
+Artists 0
+Playlists 0
+==> Preserved: 0 Speakable prompt file(s)
+==> Wipe complete. The iPod is empty and ready for ./ipod-sync.sh
+warning: Unmount before unplugging:  ./ipod-sync.sh --rebuild-only --eject
+exit code: 0
+tracks after: ['(no tracks)']
+
+progress.ndjson (structured progress on its own descriptor):
+{"event": "start", "schema": 1, "script": "wipe"}
+{"event": "device", "ipod": "/tmp/ipod-enduser-e72apbyx/caller"}
+{"event": "stage", "name": "clear", "state": "start"}
+{"event": "stage", "name": "clear", "state": "done"}
+{"event": "stage", "name": "rebuild", "state": "start"}
+{"event": "stage", "name": "rebuild", "state": "done"}
+{"event": "result", "ok": true, "code": 0, "removed": 1, "playlists": 0, "tracks": 0}

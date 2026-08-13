@@ -1,0 +1,17 @@
+A sync of 400 tracks; the iPod is replaced once copying has started.
+
+$ ./ipod-sync.sh --ipod IPOD --progress-json=3 LIBRARY  3>progress.ndjson
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+==> iPod: /tmp/ipod-midrun-a22wkx49/ipod
+  + track-212.mp3 -> library/track-212.mp3
+  + track-396.mp3 -> library/track-396.mp3
+error: The iPod stopped answering; it was unplugged or replaced mid-operation.
+
+exit code: 5
+identity replaced once 2 track(s) had landed
+tracks on the device when the run stopped: 2 of 400
+
+last progress events (the stream still ends with a result):
+{"event": "file", "status": "copied", "name": "track-212.mp3", "dest": "library/track-212.mp3", "done": 1, "total": 400}
+{"event": "file", "status": "copied", "name": "track-396.mp3", "dest": "library/track-396.mp3", "done": 2, "total": 400}
+{"event": "result", "ok": false, "code": 5, "copied": 2, "duplicates": 0, "unsupported": 0, "broken": 0}

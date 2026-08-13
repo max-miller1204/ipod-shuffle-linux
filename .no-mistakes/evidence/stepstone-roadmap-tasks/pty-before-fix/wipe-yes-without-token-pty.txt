@@ -1,0 +1,15 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/base-yes-b558h5b1/ipod
+[36m==>[0m Tracks currently on device: 1
+[36m==>[0m Removed 1 track(s)
+[36m==>[0m Cleared stale iTunes state and previous-owner library binding
+[36m==>[0m Rebuilding iTunesSD database
+Writing database. This may take a while...
+Database written successfully:
+Tracks 0
+Albums 0
+Artists 0
+Playlists 0
+[36m==>[0m Preserved: 0 Speakable prompt file(s)
+[36m==>[0m Wipe complete. The iPod is empty and ready for ./ipod-sync.sh
+[33mwarning:[0m Unmount before unplugging:  ./ipod-sync.sh --rebuild-only --eject

@@ -1,0 +1,4 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/ipod-authorization-pty-m6ndh_yl/sync-swap
+Delete 1 existing track(s) from the iPod? [y/N] y
+[31merror:[0m The iPod stopped answering; it was unplugged or replaced mid-operation.
