@@ -262,7 +262,7 @@ Unplugging an iPod mid-copy is the failure this project sees most, and it arrive
 Rather than name a code at each of those and still miss the next one, the scripts remember what the volume called itself when they latched onto it, and on the way out of any failure they look at whether that volume is still there.
 A volume that has gone, or that has been replaced by a different one at the same path, turns the failure into `5`.
 A builder that fails while the iPod is still sitting there stays `1`.
-The same question is asked ahead of every change a run makes rather than only after something has failed, so `5` also arrives from a run in which nothing failed at all: a device swapped while a person was reading a prompt, or while the database was rebuilding, stops the run before the next write instead of after it.
+The same question is asked ahead of every change a run makes rather than only after something has failed, so `5` also arrives from a run in which nothing failed at all: a device swapped while a person was reading a prompt, or between one file and the next, stops the run before the next write instead of after it.
 Asking what the volume calls itself needs `python3`, and a machine without one is treated as a volume that will not say rather than as a failure of its own, since this question is asked on the way out of every other failure and has to come back with an answer.
 Such a machine still gets `6` from the work that genuinely needs the interpreter - the JSON report, the progress stream and the database builder - while a plain `--list`, which never needed it, still answers.
 
