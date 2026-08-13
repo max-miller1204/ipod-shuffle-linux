@@ -6,10 +6,12 @@ run so another program can act on any of it without reading prose.
 
 A run either writes one `{schema, command, result}` object to stdout, or says
 what went wrong as a sentence on stderr and leaves non-zero. The one case that
-does both is a run that did part of what it was asked - a music folder that
-could not be read through, a cached preview that would not be deleted - which
-writes its document, marks it `complete: false`, and still leaves non-zero
-rather than passing the part off as the whole.
+does both is a run that did part of what it was asked - a music folder, the
+preview cache or the connected iPod that could not be read through, a cached
+preview that would not be deleted - which writes its document, marks it
+`complete: false`, and still leaves non-zero rather than passing the part off
+as the whole. Which of them was short is the sentence on stderr, because they
+are different places to go and look.
 """
 
 import argparse
@@ -149,8 +151,16 @@ def _library():
 
     device_tracks = []
     probe = probe_device()
-    if len(probe.candidates) == 1:
-        if probe.readable and probe.mount_point is not None:
+    if probe.candidates:
+        # More than one iPod-shaped volume is a reading this cannot take - the
+        # window says which to unplug, and there is nobody here to say it to -
+        # so it is short of the device rather than a library with no device in
+        # it, which is what an empty bus writes and is a different answer.
+        if (
+            len(probe.candidates) == 1
+            and probe.readable
+            and probe.mount_point is not None
+        ):
             # None until the device has been synced once, which is an iPod
             # holding nothing rather than one that would not be read: scanning
             # the folder that is not there would answer "partial" for a device

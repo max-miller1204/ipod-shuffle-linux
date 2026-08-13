@@ -7,15 +7,16 @@ import sys
 
 
 # Several mounts are listed the way the real findmnt lists them, because a
-# machine with an iPod plugged in has other vfat volumes on it too. No variable
-# is an empty bus rather than an error, so a suite can put this double on PATH
-# for every one of its runs and name a volume only where it wants one: the
-# alternative is a check that reads whatever the developer happens to have
-# plugged in and fails on their machine alone.
+# machine with an iPod plugged in has other vfat volumes on it too.
+#
+# Set to nothing is an empty bus, which is how a suite that puts this double on
+# PATH for every one of its runs asks for no device without reading whatever
+# the developer happens to have plugged in. Never set at all is still the
+# KeyError it always was: a harness that stopped exporting the variable would
+# otherwise go on rendering and asserting against "No iPod connected" rather
+# than saying its fixture had gone.
 mount_points = [
-    path
-    for path in os.environ.get("FAKE_IPOD_MOUNT", "").split(os.pathsep)
-    if path
+    path for path in os.environ["FAKE_IPOD_MOUNT"].split(os.pathsep) if path
 ]
 if "--json" in sys.argv:
     print(json.dumps({"filesystems": [{"target": path} for path in mount_points]}))

@@ -143,6 +143,7 @@ Every run writes one document and nothing else:
 
 `library` carries `tracks`, `albums` - the collections, which `--group artist` makes artists instead - `counts` per state, and `complete`.
 Its records are the same merged view the window displays: configured music folders, cached previews, and tracks from one readable connected iPod, with matching local copies marked `ipod` rather than duplicated and unmatched device tracks retained.
+Exactly one iPod, that is: a bus with two on it carries no device records and is `complete: false`, the same as one that stopped answering, because which of them the answer is about is not a question this can settle.
 The headless process has no live window queue, so `queued` is zero; the other `counts` tally the states in `tracks`.
 `search` carries `local`, `complete`, and with `--youtube` also `youtube` and `reachedYoutube`.
 Its `local` is the configured music folders and nothing else - `library` records, whatever is plugged in - because a query is a question about this computer: reading the iPod for one would put a walk over USB behind every keystroke a client sends, and `device` and `library` are what a caller asks about the iPod with.
@@ -165,7 +166,7 @@ It comes from the argument parser rather than from the model, which is why it is
 
 `complete` is what that third row is, and it is why the field exists.
 A configured music folder that could not be read through - a root that has gone, a directory that will not open, a scan that ran out of time - leaves a real reading of everything else, and a cached preview that will not be deleted leaves every other one deleted.
-`library` reads two more places and answers for them the same way: the preview cache, and a single detected iPod that has gone or stopped answering since the probe found it, which is short of a reading rather than an iPod holding nothing.
+`library` reads two more places and answers for them the same way: the preview cache, and the connected iPod - one that has gone or stopped answering since the probe found it, and equally more than one plugged in at once, which is a device this cannot choose between rather than an iPod holding nothing.
 Throwing either away helps nobody, so the document is written, `complete` is false, and the run still leaves `1`, because a caller handed the part and told nothing would take it for the whole.
 It is carried by the three commands that can do part of their work - `library` and `search` for their scans, `cache` for a prune or a clear - so a reader that has the field can trust it and one that does not was never at risk.
 

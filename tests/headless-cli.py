@@ -22,17 +22,18 @@ home = Path(tempfile.mkdtemp(prefix="headless-cli-home-")).resolve()
 # resolves the searcher, so `search --youtube` answers without a network.
 #
 # The findmnt double is on PATH for every run rather than for the device checks
-# alone, because `library` and `search` read the iPod as well as the folders
-# now: left to the real findmnt, each of them would fold whatever this
-# developer has plugged in into the answer and fail on their machine only. The
-# double lists nothing until a run names a volume in FAKE_IPOD_MOUNT, so the
-# checks that want an empty bus get one.
+# alone, because `library` reads the iPod as well as the folders now: left to
+# the real findmnt, it would fold whatever this developer has plugged in into
+# the answer and fail on their machine only. FAKE_IPOD_MOUNT is set to nothing
+# here rather than left out, which is how the double is asked for an empty bus:
+# unset is the error it stays for every other harness that names a volume.
 env = dict(
     os.environ,
     HOME=str(home),
     XDG_CONFIG_HOME=str(home / "config"),
     XDG_CACHE_HOME=str(home / "cache"),
     PATH=os.pathsep.join([str(repo / "tests" / "bin"), os.environ["PATH"]]),
+    FAKE_IPOD_MOUNT="",
     PYTHONPATH=str(repo),
     IPOD_VENV_YT_DLP=str(repo / "tests" / "bin" / "yt-dlp"),
 )
@@ -467,6 +468,50 @@ if os.geteuid() != 0:
         "the connected iPod could not be read through: this answer is partial"
     )
     (fresh / "iPod_Control").chmod(0o700)
+
+# A music folder that is a link to itself is the same answer arrived at without
+# a permission bit, and it is the case that pins the rule rather than the
+# interpreter's mood: every Python answers "not a directory" to a loop like
+# this one, and only asking the filesystem in errnos tells it apart from a
+# device that simply holds nothing. Root meets it too, which is why this is
+# outside the checks above.
+looped = fresh / "iPod_Control" / "Music"
+looped.symlink_to(looped)
+try:
+    circular = invoke("library", FAKE_IPOD_MOUNT=str(fresh))
+finally:
+    looped.unlink()
+assert circular.returncode != 0, circular.stdout
+circular_document = json.loads(circular.stdout)
+assert circular_document["result"]["complete"] is False
+assert circular_document["result"]["counts"]["ipod"] == 0
+assert circular.stderr.strip() == (
+    "the connected iPod could not be read through: this answer is partial"
+)
+
+# Two iPods on the bus is a third way to be short of the device: the window
+# asks which one to unplug, and there is nobody here to ask, so the answer says
+# it is short rather than writing the zero an empty bus writes. What this
+# computer holds is still read and still handed over.
+crowded = invoke(
+    "library",
+    FAKE_IPOD_MOUNT=os.pathsep.join([str(shuffle), str(fresh)]),
+)
+assert crowded.returncode != 0, crowded.stdout
+crowded_document = json.loads(crowded.stdout)
+assert crowded_document["result"]["complete"] is False
+assert crowded_document["result"]["counts"]["ipod"] == 0
+assert {
+    track["title"]: track["state"] for track in crowded_document["result"]["tracks"]
+} == {
+    "Song": "library",
+    "Other": "library",
+    "Third": "library",
+    "Preview": "preview",
+}
+assert crowded.stderr.strip() == (
+    "the connected iPod could not be read through: this answer is partial"
+)
 
 # The preview cache answers the same two ways, and a cache this user cannot
 # reach is the second of them: the run still writes its document, marks it
