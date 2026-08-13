@@ -1,0 +1,101 @@
+=== product scripts: token, exit codes, progress, human output ===
+repo under test: /home/max/.no-mistakes/worktrees/f62f10c43f33/01KZWBKRGXQ6JHT2C59G36PBCF
+
+--- 1. dry run: the plan, on stdout, changing nothing ---
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+$ ipod-sync.sh --ipod MOUNT --dry-run -- 'New Album'   (exit 0)
+{"action":"sync","device":{"mount":"/tmp/cli-token-evidence-g4qPpj/token","identity":"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"},"destructive":false,"arguments":["clear=0","eject=0","rebuild-only=0","forget-options=0","existing-tracks=0","existing-playlists=0","/tmp/cli-token-evidence-g4qPpj/New Album"],"confirmationToken":"b78b1b0ffe24d6a3093d4ebd9d21031b1133c47a93682503cef6da23de552449"}
+    [tracks on device] ./Album/01 - Keep.mp3 
+    [database builder invocations] 0
+
+--- 2. a token that is not this plan's: refused with exit 7 ---
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+error: Destructive action refused: confirmation is not authorization. Answer the prompt at a terminal without --yes, or run --dry-run and pass its confirmationToken with --confirm-token.
+$ ipod-sync.sh --ipod MOUNT --yes --expect-device ID --confirm-token deadbeef -- 'New Album'
+  exit 7
+    [tracks on device] ./Album/01 - Keep.mp3 
+    [database builder invocations] 0
+
+--- 3. a device that is not the planned one: refused with exit 1 ---
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+error: Expected device 'sysinfo:another-ipod', but 'uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc' is mounted at /tmp/cli-token-evidence-g4qPpj/token.
+  exit 1
+    [tracks on device] ./Album/01 - Keep.mp3 
+    [database builder invocations] 0
+
+--- 4. this plan's own token: the sync runs ---
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+==> iPod: /tmp/cli-token-evidence-g4qPpj/token
+  + 01 - New.mp3 -> New Album/01 - New.mp3
+==> Copied 1 file(s)
+==> Rebuilding iTunesSD database
+==> iPod now holds 2 track(s)
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject
+  exit 0
+    [tracks on device] ./Album/01 - Keep.mp3 ./New Album/01 - New.mp3 
+    [database builder invocations] 1
+
+--- 5. an ordinary non-destructive sync with no token at all still runs ---
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+==> iPod: /tmp/cli-token-evidence-g4qPpj/ordinary
+  + 01 - New.mp3 -> New Album/01 - New.mp3
+==> Copied 1 file(s)
+==> Rebuilding iTunesSD database
+==> iPod now holds 2 track(s)
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject
+  exit 0  (no --confirm-token, stdin not a terminal)
+    [tracks on device] ./Album/01 - Keep.mp3 ./New Album/01 - New.mp3 
+    [database builder invocations] 2
+
+--- 6. a destructive removal with no token: refused with exit 7 ---
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+error: Destructive action refused: confirmation is not authorization. Answer the prompt at a terminal without --yes, or run --dry-run and pass its confirmationToken with --confirm-token.
+  exit 7
+    [tracks on device] ./Album/01 - Keep.mp3 ./New Album/01 - New.mp3 
+    [database builder invocations] 2
+
+--- 7. structured progress on the descriptor the caller opened ---
+warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+  exit 0; human output on stdout:
+    warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+    ==> iPod: /tmp/cli-token-evidence-g4qPpj/progress
+      + 01 - New.mp3 -> New Album/01 - New.mp3
+    ==> Copied 1 file(s)
+    ==> Rebuilding iTunesSD database
+    ==> iPod now holds 2 track(s)
+    warning: Unmount before unplugging, or the database may be corrupted:
+    warning:   ./ipod-sync.sh --rebuild-only --eject
+  NDJSON on descriptor 3:
+    {"event": "start", "schema": 1, "script": "sync"}
+    {"event": "device", "ipod": "/tmp/cli-token-evidence-g4qPpj/progress"}
+    {"event": "plan", "total": 1}
+    {"event": "stage", "name": "copy", "state": "start"}
+    {"event": "file", "status": "copied", "name": "01 - New.mp3", "dest": "New Album/01 - New.mp3", "done": 1, "total": 1}
+    {"event": "stage", "name": "copy", "state": "done"}
+    {"event": "stage", "name": "rebuild", "state": "start"}
+    {"event": "stage", "name": "rebuild", "state": "done"}
+    {"event": "result", "ok": true, "code": 0, "copied": 1, "duplicates": 0, "unsupported": 0, "broken": 0, "tracks": 2}
+    [tracks on device] ./Album/01 - Keep.mp3 ./New Album/01 - New.mp3 
+    [database builder invocations] 3
+
+--- 8. descriptor 3 closed: the run refuses rather than reporting nowhere ---
+$ ipod-sync.sh --ipod MOUNT --progress-json --rebuild-only  3>&-
+  exit 1
+    error: --progress-json needs descriptor 3 open for writing, e.g. 3>progress.ndjson.
+
+--- 9. the same command with descriptor 3 inherited open: it proceeds ---
+    (this is why the end-to-end case closes fd 3 explicitly: without 3>&-
+     a harness that leaks a descriptor turns the check above into a sync)
+$ ipod-sync.sh --ipod MOUNT --progress-json --rebuild-only  3>inherited.ndjson
+  exit 0
+    warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+    ==> iPod: /tmp/cli-token-evidence-g4qPpj/progress
+    ==> Rebuilding iTunesSD database
+    ==> iPod now holds 2 track(s)
+    warning: Unmount before unplugging, or the database may be corrupted:
+    warning:   ./ipod-sync.sh --rebuild-only --eject
+  NDJSON written: 8 line(s), last event:
+    {"event": "result", "ok": true, "code": 0, "copied": 0, "duplicates": 0, "unsupported": 0, "broken": 0, "tracks": 2}
+

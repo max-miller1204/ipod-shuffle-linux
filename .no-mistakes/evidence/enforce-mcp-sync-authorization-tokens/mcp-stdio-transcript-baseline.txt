@@ -1,0 +1,108 @@
+=== BASELINE (base commit 020353e, before the fix): MCP execute_sync authorization over stdio ===
+repo under test: /tmp/mcp-token-baseline
+
+--> {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "evidence", "version": "1"}}}
+<-- {"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}}, "serverInfo": {"name": "ipod-shuffle-linux", "version": "1"}}}
+
+--> {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}
+<-- {"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "read_library", "description": "Read library state. Read-only.", "inputSchema": {"type": "object", "properties": {}, "required": [], "additionalProperties": false}}, {"name": "read_device", "description": "Read device state. Read-only.", "inputSchema": {"type": "object", "properties": {}, "required": [], "additionalProperties": false}}, {"name": "read_playlists", "description": "Read playlists state. Read-only.", "inputSchema": {"type": "object", "properties": {}, "required": [], "additionalProperties": false}}, {"name": "read_cache", "description": "Read cache state. Read-only.", "inputSchema": {"type": "object", "properties": {}, "required": [], "additionalProperties": false}}, {"name": "read_search", "description": "Search the local library and optionally YouTube. Read-only.", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "youtube": {"type": "boolean"}}, "required": ["query"], "additionalProperties": false}}, {"name": "plan_sync", "description": "DRY RUN: return the exact device-changing plan and confirmation token; changes nothing.", "inputSchema": {"type": "object", "properties": {"ipod": {"type": "string", "description": "Absolute path"}, "sources": {"type": "array", "items": {"type": "string", "description": "Absolute path"}}}, "required": ["ipod"], "additionalProperties": false}}, {"name": "execute_sync", "description": "DESTRUCTIVE: execute only the exact dry-run plan authorized by expectedDevice and confirmationToken.", "inputSchema": {"type": "object", "properties": {"ipod": {"type": "string", "description": "Absolute path"}, "expectedDevice": {"type": "string"}, "confirmationToken": {"type": "string"}, "sources": {"type": "array", "items": {"type": "string", "description": "Absolute path"}}}, "required": ["ipod", "expectedDevice", "confirmationToken"], "additionalProperties": false}}, {"name": "plan_remove", "description": "DRY RUN: return the exact device-changing plan and confirmation token; changes nothing.", "inputSchema": {"type": "object", "properties": {"ipod": {"type": "string", "description": "Absolute path"}, "targets": {"type": "array", "items": {"type": "string"}}}, "required": ["ipod"], "additionalProperties": false}}, {"name": "execute_remove", "description": "DESTRUCTIVE: execute only the exact dry-run plan authorized by expectedDevice and confirmationToken.", "inputSchema": {"type": "object", "properties": {"ipod": {"type": "string", "description": "Absolute path"}, "expectedDevice": {"type": "string"}, "confirmationToken": {"type": "string"}, "targets": {"type": "array", "items": {"type": "string"}}}, "required": ["ipod", "expectedDevice", "confirmationToken"], "additionalProperties": false}}, {"name": "plan_wipe", "description": "DRY RUN: return the exact device-changing plan and confirmation token; changes nothing.", "inputSchema": {"type": "object", "properties": {"ipod": {"type": "string", "description": "Absolute path"}, "backup": {"type": "string", "description": "Absolute path"}}, "required": ["ipod"], "additionalProperties": false}}, {"name": "execute_wipe", "description": "DESTRUCTIVE: execute only the exact dry-run plan authorized by expectedDevice and confirmationToken.", "inputSchema": {"type": "object", "properties": {"ipod": {"type": "string", "description": "Absolute path"}, "expectedDevice": {"type": "string"}, "confirmationToken": {"type": "string"}, "backup": {"type": "string", "description": "Absolute path"}}, "required": ["ipod", "expectedDevice", "confirmationToken"], "additionalProperties": false}}]}}
+
+execute_sync approval fields as a client sees them:
+  description: DESTRUCTIVE: execute only the exact dry-run plan authorized by expectedDevice and confirmationToken.
+  expectedDevice: required=True description=None
+  confirmationToken: required=True description=None
+
+--- 1. dry-run plan changes nothing and hands back the token ---
+--> {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "plan_sync", "arguments": {"ipod": "/tmp/mcp-token-evidence-5qn9wpi3/target", "sources": ["/tmp/mcp-token-evidence-5qn9wpi3/New Album"]}}}
+<-- isError=False
+    {"action":"sync","device":{"mount":"/tmp/mcp-token-evidence-5qn9wpi3/target","identity":"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"},"destructive":false,"arguments":["clear=0","eject=0","rebuild-only=0","forget-options=0","existing-tracks=0","existing-playlists=0","--playlist-voiceover","/tmp/mcp-token-evidence-5qn9wpi3/New Album"],"confirmationToken":"4772119ae9c83e7e2741d7671978de28c07d68036b9b2868b8788c2fe9ed89de"}
+    [device] 11 paths, tracks under Music: 01 - Keep.mp3
+    [database] builder invocations recorded: 0
+    [dry run left the volume byte-identical]
+
+--- 2. an invalid token must not copy tracks or rebuild the database ---
+--> {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "execute_sync", "arguments": {"ipod": "/tmp/mcp-token-evidence-5qn9wpi3/target", "sources": ["/tmp/mcp-token-evidence-5qn9wpi3/New Album"], "expectedDevice": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc", "confirmationToken": "not-a-plan-token"}}}
+<-- isError=False
+    ==> Reusing saved options: --playlist-voiceover
+    ==> iPod: /tmp/mcp-token-evidence-5qn9wpi3/target
+      + 01 - New.mp3 -> New Album/01 - New.mp3
+    ==> Copied 1 file(s)
+    ==> Rebuilding iTunesSD database
+    ==> iPod now holds 2 track(s)
+    [device] 14 paths, tracks under Music: 01 - Keep.mp3, 01 - New.mp3
+    [database] builder invocations recorded: 1
+    [device unchanged: False, database unchanged: False]
+
+--- 3. the plan's own token does not authorize different sources ---
+--> {"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "execute_sync", "arguments": {"ipod": "/tmp/mcp-token-evidence-5qn9wpi3/target", "sources": ["/tmp/mcp-token-evidence-5qn9wpi3/New Album/01 - New.mp3"], "expectedDevice": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc", "confirmationToken": "4772119ae9c83e7e2741d7671978de28c07d68036b9b2868b8788c2fe9ed89de"}}}
+<-- isError=False
+    ==> Reusing saved options: --playlist-voiceover
+    ==> iPod: /tmp/mcp-token-evidence-5qn9wpi3/target
+    ==> Copied 0 file(s)
+    ==> Skipped 1 file(s) already on the iPod
+    ==> Rebuilding iTunesSD database
+    ==> iPod now holds 2 track(s)
+    [device] 14 paths, tracks under Music: 01 - Keep.mp3, 01 - New.mp3
+    [database] builder invocations recorded: 2
+    [device unchanged: True, database unchanged: False]
+
+--- 4. saved options changed after planning: the same request is now stale ---
+--> {"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "execute_sync", "arguments": {"ipod": "/tmp/mcp-token-evidence-5qn9wpi3/target", "sources": ["/tmp/mcp-token-evidence-5qn9wpi3/New Album"], "expectedDevice": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc", "confirmationToken": "4772119ae9c83e7e2741d7671978de28c07d68036b9b2868b8788c2fe9ed89de"}}}
+<-- isError=False
+    ==> Reusing saved options: --track-voiceover
+    ==> iPod: /tmp/mcp-token-evidence-5qn9wpi3/target
+    ==> Copied 0 file(s)
+    ==> Skipped 1 file(s) already on the iPod
+    ==> Rebuilding iTunesSD database
+    ==> iPod now holds 2 track(s)
+    [device] 14 paths, tracks under Music: 01 - Keep.mp3, 01 - New.mp3
+    [database] builder invocations recorded: 3
+    [device unchanged: False, database unchanged: False]
+
+--- 5. an empty approval is refused as a protocol error, nothing is run ---
+--> {"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "execute_sync", "arguments": {"ipod": "/tmp/mcp-token-evidence-5qn9wpi3/target", "sources": ["/tmp/mcp-token-evidence-5qn9wpi3/New Album"], "expectedDevice": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc", "confirmationToken": ""}}}
+<-- {"jsonrpc": "2.0", "id": 7, "error": {"code": -32602, "message": "confirmationToken must be a non-empty string"}}
+--> {"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "execute_sync", "arguments": {"ipod": "/tmp/mcp-token-evidence-5qn9wpi3/target", "sources": ["/tmp/mcp-token-evidence-5qn9wpi3/New Album"], "expectedDevice": "", "confirmationToken": "4772119ae9c83e7e2741d7671978de28c07d68036b9b2868b8788c2fe9ed89de"}}}
+<-- {"jsonrpc": "2.0", "id": 8, "error": {"code": -32602, "message": "expectedDevice must be a non-empty string"}}
+    [device] 14 paths, tracks under Music: 01 - Keep.mp3, 01 - New.mp3
+    [database] builder invocations recorded: 3
+    [device unchanged: True]
+
+--- 6. a token from another plan, and a device that is not the planned one ---
+--> {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "plan_wipe", "arguments": {"ipod": "/tmp/mcp-token-evidence-5qn9wpi3/target", "backup": "/tmp/mcp-token-evidence-5qn9wpi3/backup"}}}
+<-- isError=False
+    {"action":"wipe","device":{"mount":"/tmp/mcp-token-evidence-5qn9wpi3/target","identity":"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"},"destructive":true,"arguments":["backup=/tmp/mcp-token-evidence-5qn9wpi3/backup","tracks=2","playlists=0","stale-state=iTunesDB iTunesSD iTunesStats iTunesPState iTunesPrefs iTunesPrefs.plist"],"confirmationToken":"9c85a5252bed70278246c20088a9465a2cd757832f19dc18d8c5c2a7e2e16ad5"}
+--> {"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {"name": "execute_sync", "arguments": {"ipod": "/tmp/mcp-token-evidence-5qn9wpi3/target", "sources": ["/tmp/mcp-token-evidence-5qn9wpi3/New Album"], "expectedDevice": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc", "confirmationToken": "9c85a5252bed70278246c20088a9465a2cd757832f19dc18d8c5c2a7e2e16ad5"}}}
+<-- isError=False
+    ==> Reusing saved options: --playlist-voiceover
+    ==> iPod: /tmp/mcp-token-evidence-5qn9wpi3/target
+    ==> Copied 0 file(s)
+    ==> Skipped 1 file(s) already on the iPod
+    ==> Rebuilding iTunesSD database
+    ==> iPod now holds 2 track(s)
+--> {"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": {"name": "execute_sync", "arguments": {"ipod": "/tmp/mcp-token-evidence-5qn9wpi3/target", "sources": ["/tmp/mcp-token-evidence-5qn9wpi3/New Album"], "expectedDevice": "sysinfo:some-other-ipod", "confirmationToken": "4772119ae9c83e7e2741d7671978de28c07d68036b9b2868b8788c2fe9ed89de"}}}
+<-- isError=True
+    ==> Reusing saved options: --playlist-voiceover
+    warning: No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+    error: Expected device 'sysinfo:some-other-ipod', but 'uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc' is mounted at /tmp/mcp-token-evidence-5qn9wpi3/target.
+    [device] 14 paths, tracks under Music: 01 - Keep.mp3, 01 - New.mp3
+    [database] builder invocations recorded: 4
+    [device unchanged: False]
+
+--- 7. the plan's own token, unchanged arguments: the sync is allowed to run ---
+--> {"jsonrpc": "2.0", "id": 12, "method": "tools/call", "params": {"name": "plan_sync", "arguments": {"ipod": "/tmp/mcp-token-evidence-5qn9wpi3/target", "sources": ["/tmp/mcp-token-evidence-5qn9wpi3/New Album"]}}}
+<-- isError=False
+    {"action":"sync","device":{"mount":"/tmp/mcp-token-evidence-5qn9wpi3/target","identity":"uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc"},"destructive":false,"arguments":["clear=0","eject=0","rebuild-only=0","forget-options=0","existing-tracks=0","existing-playlists=0","--playlist-voiceover","/tmp/mcp-token-evidence-5qn9wpi3/New Album"],"confirmationToken":"4772119ae9c83e7e2741d7671978de28c07d68036b9b2868b8788c2fe9ed89de"}
+--> {"jsonrpc": "2.0", "id": 13, "method": "tools/call", "params": {"name": "execute_sync", "arguments": {"ipod": "/tmp/mcp-token-evidence-5qn9wpi3/target", "sources": ["/tmp/mcp-token-evidence-5qn9wpi3/New Album"], "expectedDevice": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc", "confirmationToken": "4772119ae9c83e7e2741d7671978de28c07d68036b9b2868b8788c2fe9ed89de"}}}
+<-- isError=False
+    ==> Reusing saved options: --playlist-voiceover
+    ==> iPod: /tmp/mcp-token-evidence-5qn9wpi3/target
+    ==> Copied 0 file(s)
+    ==> Skipped 1 file(s) already on the iPod
+    ==> Rebuilding iTunesSD database
+    ==> iPod now holds 2 track(s)
+    [device] 14 paths, tracks under Music: 01 - Keep.mp3, 01 - New.mp3
+    [database] builder invocations recorded: 5
+    [track copied: True, database rebuilt: True]
+
+server exited 0, stderr: ''

@@ -1,0 +1,30 @@
+MCP execute_sync over stdio: what the same client calls did, before and after the fix
+======================================================================================
+
+1. dry-run plan changes nothing and hands back the token
+  baseline (020353e)   dry run left the volume byte-identical
+  fixed (9f8fb88)      dry run left the volume byte-identical
+
+2. an invalid token must not copy tracks or rebuild the database
+  baseline (020353e)   device unchanged: False, database unchanged: False
+  fixed (9f8fb88)      device unchanged: True, database unchanged: True
+
+3. the plan's own token does not authorize different sources
+  baseline (020353e)   device unchanged: True, database unchanged: False
+  fixed (9f8fb88)      device unchanged: True, database unchanged: True
+
+4. saved options changed after planning: the same request is now stale
+  baseline (020353e)   device unchanged: False, database unchanged: False
+  fixed (9f8fb88)      device unchanged: True, database unchanged: True
+
+5. an empty approval is refused as a protocol error, nothing is run
+  baseline (020353e)   device unchanged: True
+  fixed (9f8fb88)      device unchanged: True
+
+6. a token from another plan, and a device that is not the planned one
+  baseline (020353e)   device unchanged: False
+  fixed (9f8fb88)      device unchanged: True
+
+7. the plan's own token, unchanged arguments: the sync is allowed to run
+  baseline (020353e)   track copied: True, database rebuilt: True
+  fixed (9f8fb88)      track copied: True, database rebuilt: True

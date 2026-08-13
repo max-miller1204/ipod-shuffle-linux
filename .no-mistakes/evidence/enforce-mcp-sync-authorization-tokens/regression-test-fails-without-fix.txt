@@ -1,0 +1,14 @@
+# tests/mcp-server.py from the target commit, run against a tree whose lib.sh is the base commit's
+# (only the authorization rule reverted; everything else is the fix's code)
+$ python3 tests/mcp-server.py
+Traceback (most recent call last):
+  File "/tmp/mcp-token-libsh-only/tests/mcp-server.py", line 359, in <module>
+    assert failed, text
+           ^^^^^^
+AssertionError: ==> Reusing saved options: --playlist-voiceover
+==> iPod: /tmp/mcp-server-4xx5zq06/target
+  + 01 - New.mp3 -> New Album/01 - New.mp3
+==> Copied 1 file(s)
+==> Rebuilding iTunesSD database
+==> iPod now holds 3 track(s)
+exit 1

@@ -1,0 +1,27 @@
+product-e2e.sh, run against the real upstream database builder at ~/ipod-tools/IPod-Shuffle-4g
+(EVIDENCE_DIR=/tmp/ipod-e2e-evidence bash tests/product-e2e.sh -> exit 0, 95 PASS lines)
+
+The case the change makes deterministic - fd 3 explicitly closed:
+  ipod-sync.sh --ipod MOUNT --progress-json --rebuild-only > out 2>&1 3>&-
+  exit 1, and the run said:
+    error: --progress-json needs descriptor 3 open for writing, e.g. 3>progress.ndjson.
+
+Progress and authorization PASS lines from that run:
+  PASS: playlist flags used explicit upstream values and persisted across rebuild
+  PASS: a dry run of each script printed its plan and left the device byte for byte
+  PASS: a guessed token, another plan's token and a changed plan were each refused
+  PASS: every device-changing script refused an iPod swapped in behind the plan
+  PASS: every device-changing script refused a swap at its prompt, and --yes without a plan token
+  PASS: GUI refused to choose between two connected iPods
+  PASS: removal refused paths outside the music folder and the folder itself
+  PASS: playlist entries kept their order, decoded file URIs, and dropped streams and misses
+  PASS: no iPod, several iPods, a vanished one, a missing dependency and a refusal each got their own code
+  PASS: names holding a quote, a backslash and a newline survived the stream
+  PASS: the same run without the stream printed exactly the same output
+  PASS: the count reached the total, and the total followed unplanned work
+  PASS: a run with no iPod still said so on the stream, with the code it exited
+  PASS: a run that found nothing mounted reported once, from the shell that owned the stream
+  PASS: a descriptor nobody opened was refused instead of quietly reporting nowhere
+  PASS: an empty descriptor was refused by every script that takes the flag
+  PASS: a run refused after the stream opened still ended with a result
+  PASS: a unit separator in a track name reached the stream without ending it
