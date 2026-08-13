@@ -291,6 +291,16 @@ assert "missing argument: confirmationToken" in session.refuse(
 assert "ipod must be a non-empty string" in session.refuse("plan_wipe", {"ipod": ""})
 assert "youtube must be a boolean" in session.refuse("read_search", {"query": "x", "youtube": "yes"})
 assert "unknown tool" in session.refuse("execute_everything", {})
+# An empty approval is the one spelling that would reach a script as no
+# approval at all, since both halves of the handshake are a token the scripts
+# compare only when it is not empty. Required is therefore not enough on its
+# own, and each half is held here rather than left to the other's error.
+assert "confirmationToken must be a non-empty string" in session.refuse(
+    "execute_sync", {"ipod": "/nowhere", "expectedDevice": "sysinfo:some-ipod", "confirmationToken": ""}
+)
+assert "expectedDevice must be a non-empty string" in session.refuse(
+    "execute_sync", {"ipod": "/nowhere", "expectedDevice": "", "confirmationToken": "x"}
+)
 
 # A device the scripts would ask a question about. The server has no answer to
 # give and must not go looking for one on the client's pipe: the run is
