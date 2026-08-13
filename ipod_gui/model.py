@@ -154,12 +154,25 @@ class Track:
         )
 
 
-
 def merge_library_states(index, device_tracks, queued=(), pending_records=None):
     """Merge local, queued and device tracks into one truthful library model.
 
-    Device filenames do not preserve their source paths, so copies are matched
-    by track identity. Each device copy may be claimed only once.
+    Matched on tags rather than path: the device stores every track under a
+    scrambled four-letter name, so nothing about its location survives.
+
+    Queued is decided here too, and only here, because a track's state is what
+    every marker, pill and count is drawn from: worked out again beside each of
+    them, the queue would be a rule four views had to agree on rather than one
+    this function already runs. It is one function rather than one per surface
+    for the same reason - the window and the display-free CLI answer the same
+    readers, and a state decided twice is one they disagree about.
+
+    And a staged track that no music folder holds is built here as well,
+    because this is the only place that would: the scan reads the roots, and a
+    download is queued the moment it arrives rather than when a rescan next
+    finds it - if a root covers where it landed at all. The grid gets it from
+    the queue or not at all. A caller with no live queue - the headless run has
+    none - passes none and gets none.
     """
     on_device = {}
     for track in device_tracks:
@@ -167,6 +180,18 @@ def merge_library_states(index, device_tracks, queued=(), pending_records=None):
     matched = set()
 
     def claim(track):
+        """Give this track the device's copy of itself, if there is one.
+
+        One rule for both loops below, which make the same claim and had
+        drifted apart once: the copy over there is what the file here would
+        become, so the row reads "On iPod" and carries the device's path, and
+        that copy is marked claimed rather than left to stand alone in
+        `device_only` and put the same song in the grid twice.
+
+        Popped rather than read, so two local files of one song claim two
+        different copies and the second is only "On iPod" if the device really
+        holds it twice.
+        """
         matches = on_device.get(track.identity(), [])
         if not matches:
             return False
@@ -182,12 +207,19 @@ def merge_library_states(index, device_tracks, queued=(), pending_records=None):
     for track in index.tracks:
         track.relpath = track.path
         if not claim(track):
+            # Assigned rather than only demoted from STATE_IPOD, because a
+            # track leaves the queue as readily as it joins it and the state it
+            # goes back to is the one this decides either way.
             track.state = STATE_QUEUED if track.path in queued else STATE_LIBRARY
             track.on_ipod = False
 
     pending_index = dict(library_by_path)
     queued_only = []
     records = pending_records or {}
+    # Sorted rather than taken in whatever order the set iterates, because
+    # these tracks are rows now: two staged copies of one song claim the
+    # device's copy in a fixed order, so a repaint that changed nothing cannot
+    # swap which of them reads "On iPod".
     for path in sorted(queued):
         if path in pending_index or Path(path).suffix.lower() not in AUDIO_EXTENSIONS:
             continue
@@ -197,16 +229,27 @@ def merge_library_states(index, device_tracks, queued=(), pending_records=None):
             record["size"] = Path(path).stat().st_size
         except OSError:
             record["size"] = 0
+        # Queued by construction: nothing but the queue names these, and they
+        # are here because no music folder does.
         track = Track(path, record, STATE_QUEUED)
         claim(track)
         pending_index[path] = track
         queued_only.append(track)
 
+    # The library a caller draws or writes down is what the sync is about to
+    # act on, so these belong in it: without them the Queued pill reads 0
+    # beside a sidebar saying "+120 MB queued to sync" and a button offering to
+    # sync 30 changes, and the staged tracks are in no view at all.
     index.queued_only = queued_only
+    # Device tracks with no local counterpart still belong in the library, or
+    # music copied from another machine would simply not appear. Held
+    # separately from the scan results rather than appended to them, which
+    # would re-add the same tracks on every refresh.
     index.device_only = [
         track for track in device_tracks if id(track) not in matched
     ]
     return library_by_path, pending_index
+
 
 def track_document(track):
     """One track in the shape every machine surface of this project writes.

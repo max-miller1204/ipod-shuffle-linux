@@ -32,7 +32,7 @@ from .config import (
     save_library_layout,
     save_music_roots,
 )
-from .device import probe_device
+from .device import music_folder, probe_device
 from .model import (
     LibraryIndex,
     Track,
@@ -63,6 +63,13 @@ from .youtube import search_youtube
 
 SCHEMA = 1
 
+# The three readings a library answer is made of, named the way the sentence on
+# stderr has to name them: a partial answer sends its reader somewhere to look,
+# and "a music folder" for a cache or an iPod sends them to the wrong place.
+MUSIC_SOURCE = "a music folder"
+PREVIEW_SOURCE = "the preview cache"
+DEVICE_SOURCE = "the connected iPod"
+
 # `python3 -m ipod_gui.cli` imports the package before it runs this module, and
 # the package imports every one of its modules eagerly - it has to, since that
 # is where the GTK versions are pinned - so runpy finds this one already
@@ -78,13 +85,28 @@ warnings.filterwarnings(
 
 
 def _library():
-    """Build the same merged library model the window displays."""
+    """Build the same merged library model the window displays.
+
+    The scan of the roots is keyed by path, the way the window keys its own,
+    because the configured roots may overlap - ~/Music and the ~/Music/youtube
+    that downloads land in is the ordinary case - and a file under both of them
+    is one track rather than two.
+
+    The second answer is which of the three sources fell short, empty when
+    none did. It is scan_tracks' own answer carried out rather than dropped: a
+    scan that timed out, or that met a folder it could not read, returns the
+    records it did get, and a caller handed those without being told is one
+    reading a truncated library as the library. Which source is named, rather
+    than only that one was, because they are three different places to go and
+    look.
+    """
     index = LibraryIndex()
     tracks = {}
-    complete = True
+    unread = []
     for root in index.roots:
         records, read_through = scan_tracks(root)
-        complete = complete and read_through
+        if not read_through and MUSIC_SOURCE not in unread:
+            unread.append(MUSIC_SOURCE)
         for record in records:
             track = Track(Path(root, record["path"]), record, STATE_LIBRARY)
             tracks[track.path] = track
@@ -92,7 +114,8 @@ def _library():
 
     if PREVIEW_CACHE.is_dir():
         records, read_through = scan_tracks(PREVIEW_CACHE)
-        complete = complete and read_through
+        if not read_through:
+            unread.append(PREVIEW_SOURCE)
         index.previews = [
             Track(PREVIEW_CACHE / record["path"], record, STATE_PREVIEW)
             for record in records
@@ -103,9 +126,14 @@ def _library():
     probe = probe_device()
     if len(probe.candidates) == 1:
         if probe.readable and probe.mount_point is not None:
-            music = Path(probe.mount_point, "iPod_Control", "Music")
-            records, read_through = scan_tracks(music)
-            complete = complete and read_through
+            # None until the device has been synced once, which is an iPod
+            # holding nothing rather than one that would not be read: scanning
+            # the folder that is not there would answer "partial" for a device
+            # every other reader of it counts as empty.
+            music = music_folder(probe.mount_point)
+            records, read_through = ([], True) if music is None else scan_tracks(music)
+            if not read_through:
+                unread.append(DEVICE_SOURCE)
             device_tracks = [
                 Track(
                     music / record["path"],
@@ -116,9 +144,18 @@ def _library():
                 for record in records
             ]
         else:
-            complete = False
+            unread.append(DEVICE_SOURCE)
     merge_library_states(index, device_tracks)
-    return index, complete
+    return index, unread
+
+
+def _scan_sentence(unread):
+    """What to say on stderr about a library reading that fell short."""
+    if len(unread) > 1:
+        named = f"{', '.join(unread[:-1])} and {unread[-1]}"
+    else:
+        named = "".join(unread)
+    return f"{named} could not be read through: this answer is partial"
 
 
 def _partial_exit(complete, sentence):
@@ -312,7 +349,7 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.command == "library":
-        index, complete = _library()
+        index, unread = _library()
         collections = index.collections(args.group == "artist")
         _emit(
             "library",
@@ -328,34 +365,28 @@ def main(argv=None):
                     for collection in collections
                 ],
                 "counts": index.track_counts(),
-                "complete": complete,
+                "complete": not unread,
             },
         )
-        return _partial_exit(
-            complete,
-            "a music folder could not be read through: this answer is partial",
-        )
+        return _partial_exit(not unread, _scan_sentence(unread))
     if args.command == "device":
         _emit("device", _device(probe_device()))
         return 0
     if args.command == "search":
-        index, complete = _library()
+        index, unread = _library()
         result = {
             "local": [
                 track_document(track)
                 for track in local_search_matches(index.all_tracks(), args.query)
             ],
-            "complete": complete,
+            "complete": not unread,
         }
         if args.youtube:
             videos, reached = search_youtube(args.query)
             result["youtube"] = [_video(video) for video in videos]
             result["reachedYoutube"] = reached
         _emit("search", result)
-        return _partial_exit(
-            complete,
-            "a music folder could not be read through: this answer is partial",
-        )
+        return _partial_exit(not unread, _scan_sentence(unread))
     if args.command == "playlists":
         root = args.root or PLAYLIST_LIBRARY
         if args.playlist_action == "list":

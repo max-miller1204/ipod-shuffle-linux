@@ -364,6 +364,62 @@ assert all(
     for track in merged_tracks
 )
 
+# An iPod that has never been synced has no iPod_Control/Music at all, which is
+# nothing there rather than something that could not be read - the answer
+# count_files_present gives it in the scripts, and the one the device probe's
+# own track count gives it. The library reads it the same way: a whole answer,
+# with a zero in it, rather than a partial one that a caller has to distrust.
+fresh = home / "NEW IPOD"
+(fresh / "iPod_Control").mkdir(parents=True)
+unsynced = run(
+    "library",
+    PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
+    FAKE_IPOD_MOUNT=str(fresh),
+)
+assert unsynced["result"]["complete"] is True
+assert unsynced["result"]["counts"]["ipod"] == 0
+assert {track["title"] for track in unsynced["result"]["tracks"]} == {
+    "Song",
+    "Other",
+    "Third",
+    "Preview",
+}
+
+# A reading that really did fall short says which of the three it was, because
+# a music folder, the preview cache and the iPod are three different places to
+# go and look.
+if os.geteuid() != 0:
+    shut = fresh / "iPod_Control" / "Music"
+    shut.mkdir()
+    shut.chmod(0o000)
+    device_short = invoke(
+        "library",
+        PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
+        FAKE_IPOD_MOUNT=str(fresh),
+    )
+    assert device_short.returncode != 0, device_short.stdout
+    assert json.loads(device_short.stdout)["result"]["complete"] is False
+    assert device_short.stderr.strip() == (
+        "the connected iPod could not be read through: this answer is partial"
+    )
+    # Two of them short is both of them named, rather than the first one found
+    # standing in for the rest.
+    run("config", "--music-root", str(music), "--music-root", str(home / "Gone"))
+    both_short = invoke(
+        "search",
+        "Song",
+        PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
+        FAKE_IPOD_MOUNT=str(fresh),
+    )
+    assert both_short.returncode != 0, both_short.stdout
+    assert both_short.stderr.strip() == (
+        "a music folder and the connected iPod could not be read through:"
+        " this answer is partial"
+    )
+    run("config", "--music-root", str(music))
+    shut.chmod(0o700)
+    shut.rmdir()
+
 # Ordinary machines mount vfat volumes this user may not look inside - /boot/efi
 # is one, and it is mounted for root only on the runner this suite runs on - so
 # detection has to pass over one rather than die on it and take every command

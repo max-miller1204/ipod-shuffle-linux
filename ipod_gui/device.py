@@ -238,6 +238,19 @@ def unmounted_vfat_devices():
     return devices
 
 
+def music_folder(mount_point):
+    """Where the device keeps its tracks, or None until it has any.
+
+    An iPod that has never been synced has no iPod_Control/Music at all, which
+    is the same answer lib.sh's count_files_present gives for it: nothing is
+    there, rather than something that could not be read. Every reader wants
+    that distinction and each one that rebuilt the path itself had to
+    rediscover it, so the rule is here, once, with the path.
+    """
+    music = Path(mount_point, "iPod_Control", "Music")
+    return music if music.is_dir() else None
+
+
 def count_tracks(mount_point, cancelled=None):
     """How many files the device holds, walking it over USB.
 
@@ -246,8 +259,8 @@ def count_tracks(mount_point, cancelled=None):
     superseded by a newer one should stop competing for the bus rather than
     finish a count nothing will read.
     """
-    music = Path(mount_point, "iPod_Control", "Music")
-    if not music.is_dir():
+    music = music_folder(mount_point)
+    if music is None:
         return 0
     total = 0
     for path in music.rglob("*"):
@@ -260,8 +273,8 @@ def count_tracks(mount_point, cancelled=None):
 
 def list_tracks(mount_point, limit=None):
     """Relative paths of the tracks on the device, sorted."""
-    music = Path(mount_point, "iPod_Control", "Music")
-    if not music.is_dir():
+    music = music_folder(mount_point)
+    if music is None:
         return []
     files = sorted(p for p in music.rglob("*") if p.is_file())
     if limit is not None:
