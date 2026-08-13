@@ -24,6 +24,7 @@ Preserve all of these rules when changing a device operation:
 3. Bind the plan's `confirmationToken` to its action, normalized arguments, mount, and device identity.
 4. Refuse a destructive run that carries `--yes`, or whose input is not a terminal, unless its caller returned the plan's `--confirm-token TOKEN`.
    Have that caller pass the plan's identity back as `--expect-device ID` as well, which is checked whenever the plan carries a non-empty identity; a volume that reports neither a UUID nor a `SysInfo` has none to pin.
+   Validate every non-empty `--confirm-token` against that run's own plan even when the run destroys nothing, so a wrong or stale token never reaches a copy or a database rebuild; only an omitted token is left to the destructive rule above.
 5. Treat `--yes` as confirmation, not as authorization that bypasses the plan token.
 6. Recheck device identity immediately before mutation and refuse a changed device.
 7. Keep human-readable output on stdout and stderr while structured progress uses its explicitly opened descriptor.

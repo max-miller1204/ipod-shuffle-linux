@@ -2523,7 +2523,7 @@ test -f "$CLOSED_IPOD/iPod_Control/Music/Odd Album/01 - Plain.mp3"
 # whose progress quietly goes nowhere.
 progress_bad_fd_status=0
 "$ROOT/ipod-sync.sh" --ipod "$PROGRESS_IPOD" --progress-json --rebuild-only \
-    > "$EVIDENCE_DIR/progress-descriptor-closed.txt" 2>&1 \
+    > "$EVIDENCE_DIR/progress-descriptor-closed.txt" 2>&1 3>&- \
     || progress_bad_fd_status=$?
 test "$progress_bad_fd_status" -eq 1
 grep -Fq 'needs descriptor 3 open for writing' \

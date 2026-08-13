@@ -153,6 +153,12 @@ def device_state(mount):
     return state
 
 
+def database_state():
+    """The bytes the database-builder double has recorded, when it has run."""
+    record = Path(env["FAKE_DB_RECORD"])
+    return record.read_bytes() if record.exists() else None
+
+
 session = Session()
 
 answer = session.request(
@@ -186,6 +192,12 @@ for operation, field in (("sync", "sources"), ("remove", "targets"), ("wipe", "b
     assert set(plan_schema["properties"]) == {"ipod", field}, plan_schema
     assert set(execute_schema["required"]) == {"ipod", "expectedDevice", "confirmationToken"}, execute_schema
     assert set(execute_schema["properties"]) == {"ipod", "expectedDevice", "confirmationToken", field}, execute_schema
+    assert execute_schema["properties"]["expectedDevice"]["description"] == (
+        f"Exact device.identity returned by plan_{operation} for this execution."
+    )
+    assert execute_schema["properties"]["confirmationToken"]["description"] == (
+        f"Exact confirmationToken returned by plan_{operation} for this execution."
+    )
     assert plan_schema["additionalProperties"] is False
     assert execute_schema["additionalProperties"] is False
 
@@ -279,6 +291,16 @@ assert "missing argument: confirmationToken" in session.refuse(
 assert "ipod must be a non-empty string" in session.refuse("plan_wipe", {"ipod": ""})
 assert "youtube must be a boolean" in session.refuse("read_search", {"query": "x", "youtube": "yes"})
 assert "unknown tool" in session.refuse("execute_everything", {})
+# An empty approval is the one spelling that would reach a script as no
+# approval at all, since both halves of the handshake are a token the scripts
+# compare only when it is not empty. Required is therefore not enough on its
+# own, and each half is held here rather than left to the other's error.
+assert "confirmationToken must be a non-empty string" in session.refuse(
+    "execute_sync", {"ipod": "/nowhere", "expectedDevice": "sysinfo:some-ipod", "confirmationToken": ""}
+)
+assert "expectedDevice must be a non-empty string" in session.refuse(
+    "execute_sync", {"ipod": "/nowhere", "expectedDevice": "", "confirmationToken": "x"}
+)
 
 # A device the scripts would ask a question about. The server has no answer to
 # give and must not go looking for one on the client's pipe: the run is
@@ -324,6 +346,50 @@ assert not backup.exists(), "a dry run made a backup"
 identity = remove_plan["device"]["identity"]
 removal = {"ipod": str(mount), "targets": ["Album/01 - Keep.mp3"]}
 
+sync = {"ipod": str(mount), "sources": [str(source)]}
+
+# Supplying a token opts every sync into the exact dry-run plan, even though a
+# normal interactive sync is not destructive and may run without one.
+sync_before = device_state(mount)
+database_before = database_state()
+failed, text = session.call(
+    "execute_sync",
+    {**sync, "expectedDevice": identity, "confirmationToken": "not-a-plan-token"},
+)
+assert failed, text
+assert "Destructive action refused: confirmation is not authorization" in text, text
+assert device_state(mount) == sync_before, "a sync with an invalid token wrote to the device"
+assert database_state() == database_before, "a sync with an invalid token rebuilt the database"
+
+failed, text = session.call(
+    "execute_sync",
+    {
+        "ipod": str(mount),
+        "sources": [str(source / "01 - New.mp3")],
+        "expectedDevice": identity,
+        "confirmationToken": sync_plan["confirmationToken"],
+    },
+)
+assert failed, text
+assert "Destructive action refused: confirmation is not authorization" in text, text
+assert device_state(mount) == sync_before, "a sync with changed sources wrote to the device"
+assert database_state() == database_before, "a sync with changed sources rebuilt the database"
+
+# Saved options are effective sync arguments. A plan made before they change
+# is stale even when the MCP request itself is byte-for-byte identical.
+options_file = mount / "iPod_Control" / ".sync-options"
+options_file.write_text("--track-voiceover\n")
+stale_before = device_state(mount)
+failed, text = session.call(
+    "execute_sync",
+    {**sync, "expectedDevice": identity, "confirmationToken": sync_plan["confirmationToken"]},
+)
+assert failed, text
+assert "Destructive action refused: confirmation is not authorization" in text, text
+assert device_state(mount) == stale_before, "a sync with a stale options token wrote to the device"
+assert database_state() == database_before, "a sync with a stale options token rebuilt the database"
+options_file.write_text("--playlist-voiceover\n")
+
 failed, text = session.call(
     "execute_remove",
     {**removal, "expectedDevice": "sysinfo:some-other-ipod", "confirmationToken": remove_plan["confirmationToken"]},
@@ -364,8 +430,12 @@ assert not (mount / "iPod_Control" / "Music" / "Album" / "01 - Keep.mp3").exists
 assert (mount / "iPod_Control" / "Music" / "Album" / "02 - Also Keep.mp3").exists()
 
 # The device changed, so the plan is made again: what an execute is authorized
-# to do is what the dry run in front of it described.
+# to do is what the dry run in front of it described. This is also the run that
+# makes the database comparisons above evidence: the record moves for a sync
+# that is authorized, so the refused ones leaving it alone is a rebuild that did
+# not happen rather than two absent files agreeing with each other.
 sync_plan = plan("plan_sync", {"ipod": str(mount), "sources": [str(source)]})
+database_before_authorized = database_state()
 failed, text = session.call(
     "execute_sync",
     {
@@ -377,6 +447,9 @@ failed, text = session.call(
 )
 assert not failed, text
 assert (mount / "iPod_Control" / "Music" / "New Album" / "01 - New.mp3").read_text() == "new song\n"
+rebuilt = database_state()
+assert rebuilt is not None, "the authorized sync did not rebuild the database"
+assert rebuilt != database_before_authorized, "the authorized sync did not rebuild the database"
 
 wipe_plan = plan("plan_wipe", {"ipod": str(mount), "backup": str(backup)})
 failed, text = session.call(

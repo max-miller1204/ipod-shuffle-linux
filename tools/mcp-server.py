@@ -61,8 +61,14 @@ for _operation in OPERATIONS:
             "inputSchema": schema(
                 {
                     "ipod": PATH,
-                    "expectedDevice": {"type": "string"},
-                    "confirmationToken": {"type": "string"},
+                    "expectedDevice": {
+                        "type": "string",
+                        "description": f"Exact device.identity returned by plan_{_operation} for this execution.",
+                    },
+                    "confirmationToken": {
+                        "type": "string",
+                        "description": f"Exact confirmationToken returned by plan_{_operation} for this execution.",
+                    },
                     **_fields,
                 },
                 ("ipod", "expectedDevice", "confirmationToken"),
