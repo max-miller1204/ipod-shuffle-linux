@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 186,
+  "revision": 190,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -353,7 +353,7 @@
       "description": "Currently when im in a playlist and i try to look up a song to add it just goes straight to the queue, and not in my playlist. Also it gets confusing when adding songs to the playlist since there's no indicator if its in a playlist. Maybe add a new catagory next to each song when in the general tab showing the playlist it's in.",
       "status": "open",
       "createdAt": "2026-08-12T06:16:42.859Z",
-      "updatedAt": "2026-08-12T22:55:36.194Z"
+      "updatedAt": "2026-08-13T16:27:31.849Z"
     },
     {
       "id": "close-destructive-operation",
@@ -383,9 +383,9 @@
       "title": "Harden headless cache deletion and library states",
       "description": "Follow up PR 43. Restrict preview-cache clear and prune operations to a positively identified application-owned cache root so an arbitrary music directory can never be recursively treated as cache content. Make the headless library model report the same observable library, device, queued, and preview states and counts as the window instead of forcing every record into STATE_LIBRARY. Cover both contracts through python3 -m ipod_gui.cli, including rejection of an external directory containing audio files. PR: https://github.com/max-miller1204/ipod-shuffle-linux/pull/43",
       "group": "Audit follow-up",
-      "status": "open",
+      "status": "active",
       "createdAt": "2026-08-12T22:14:08.620Z",
-      "updatedAt": "2026-08-12T22:55:36.720Z"
+      "updatedAt": "2026-08-13T16:27:34.551Z"
     },
     {
       "id": "make-gio-actions-and-state-dumps",
