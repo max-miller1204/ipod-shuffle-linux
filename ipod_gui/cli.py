@@ -84,21 +84,25 @@ warnings.filterwarnings(
 )
 
 
-def _library():
-    """Build the same merged library model the window displays.
+def _local_library():
+    """The configured music folders, and which sources fell short of a read.
 
-    The scan of the roots is keyed by path, the way the window keys its own,
-    because the configured roots may overlap - ~/Music and the ~/Music/youtube
-    that downloads land in is the ordinary case - and a file under both of them
-    is one track rather than two.
+    Keyed by path across the roots, the way the window keys its own scan
+    results, because the configured roots may overlap - ~/Music and the
+    ~/Music/youtube that downloads land in is the ordinary case - and a file
+    under both of them is one track rather than two.
 
-    The second answer is which of the three sources fell short, empty when
-    none did. It is scan_tracks' own answer carried out rather than dropped: a
-    scan that timed out, or that met a folder it could not read, returns the
-    records it did get, and a caller handed those without being told is one
-    reading a truncated library as the library. Which source is named, rather
-    than only that one was, because they are three different places to go and
-    look.
+    The second answer is the sources that could not be read through, empty
+    when none was. It is scan_tracks' own answer carried out rather than
+    dropped: a scan that timed out, or that met a folder it could not read,
+    returns the records it did get, and a caller handed those without being
+    told is one reading a truncated library as the library. Which source is
+    named, rather than only that one was, because they are different places to
+    go and look.
+
+    This is the whole of what a search reads. A query is answered from the
+    folders on this computer, so asking one costs no walk over USB and no
+    reading of the cache, and the records it hands back are the library's.
     """
     index = LibraryIndex()
     tracks = {}
@@ -111,6 +115,18 @@ def _library():
             track = Track(Path(root, record["path"]), record, STATE_LIBRARY)
             tracks[track.path] = track
     index.tracks = list(tracks.values())
+    return index, unread
+
+
+def _library():
+    """Build the same merged library model the window displays.
+
+    The folders on this computer, the downloads waiting in the preview cache
+    and the tracks on one readable connected iPod, merged by the rule the
+    window merges them with, so `library` answers what the window shows rather
+    than a third reading of the same three places.
+    """
+    index, unread = _local_library()
 
     if PREVIEW_CACHE.is_dir():
         records, read_through = scan_tracks(PREVIEW_CACHE)
@@ -129,9 +145,17 @@ def _library():
             # None until the device has been synced once, which is an iPod
             # holding nothing rather than one that would not be read: scanning
             # the folder that is not there would answer "partial" for a device
-            # every other reader of it counts as empty.
-            music = music_folder(probe.mount_point)
-            records, read_through = ([], True) if music is None else scan_tracks(music)
+            # every other reader of it counts as empty. An iPod that went away
+            # between the probe and here raises instead, and is the device this
+            # answer is short of.
+            try:
+                music = music_folder(probe.mount_point)
+            except OSError:
+                music, read_through, records = None, False, []
+            else:
+                records, read_through = (
+                    ([], True) if music is None else scan_tracks(music)
+                )
             if not read_through:
                 unread.append(DEVICE_SOURCE)
             device_tracks = [
@@ -373,7 +397,7 @@ def main(argv=None):
         _emit("device", _device(probe_device()))
         return 0
     if args.command == "search":
-        index, unread = _library()
+        index, unread = _local_library()
         result = {
             "local": [
                 track_document(track)

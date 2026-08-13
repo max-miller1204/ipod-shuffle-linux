@@ -1563,29 +1563,38 @@ class UnsyncedWindow(FakeWindow):
         pass
 
 
+def device_scan_window(mount_point):
+    window = UnsyncedWindow()
+    window.mount_point = str(mount_point)
+    window._busy_widgets = []
+    for attr in (
+        "sync_button",
+        "new_playlist_button",
+        "rebuild_button",
+        "wipe_button",
+        "eject_button",
+        "sidebar_eject",
+    ):
+        setattr(window, attr, FakeWidget())
+    window._device_snapshot_ready = False
+    return window
+
+
+def read_device_tracks(window):
+    scan_thread, scan_idle = gui.threading.Thread, gui.GLib.idle_add
+    gui.threading.Thread = ImmediateThread
+    gui.GLib.idle_add = lambda callback, *args: callback(*args)
+    try:
+        gui.IpodWindow._load_device_tracks_async(window)
+    finally:
+        gui.threading.Thread = scan_thread
+        gui.GLib.idle_add = scan_idle
+
+
 unsynced_volume = Path(tempfile.mkdtemp(prefix="unsynced-ipod-"))
 (unsynced_volume / "iPod_Control").mkdir()
-unsynced_window = UnsyncedWindow()
-unsynced_window.mount_point = str(unsynced_volume)
-unsynced_window._busy_widgets = []
-for attr in (
-    "sync_button",
-    "new_playlist_button",
-    "rebuild_button",
-    "wipe_button",
-    "eject_button",
-    "sidebar_eject",
-):
-    setattr(unsynced_window, attr, FakeWidget())
-unsynced_window._device_snapshot_ready = False
-scan_thread, scan_idle = gui.threading.Thread, gui.GLib.idle_add
-gui.threading.Thread = ImmediateThread
-gui.GLib.idle_add = lambda callback, *args: callback(*args)
-try:
-    gui.IpodWindow._load_device_tracks_async(unsynced_window)
-finally:
-    gui.threading.Thread = scan_thread
-    gui.GLib.idle_add = scan_idle
+unsynced_window = device_scan_window(unsynced_volume)
+read_device_tracks(unsynced_window)
 assert unsynced_window.toasts == [], unsynced_window.toasts
 assert unsynced_window.device_tracks == [], unsynced_window.device_tracks
 assert unsynced_window.track_names == {}, unsynced_window.track_names
@@ -1593,6 +1602,40 @@ assert unsynced_window.track_names == {}, unsynced_window.track_names
 # leave it ready or the queue would sit behind a scan that will never finish.
 assert unsynced_window._device_snapshot_ready is True
 assert not unsynced_window._device_scan_active
+
+# The same volume with its iPod_Control shut is the other answer: a device that
+# will not say what it holds. That is the failure the toast exists for, and it
+# has to arrive as one - a scan that instead ends the worker thread would leave
+# the spinner turning and the sync button waiting on accounting that never
+# comes, with nothing on screen to say why.
+if os.geteuid() != 0:
+    (unsynced_volume / "iPod_Control").chmod(0o000)
+    silent_window = device_scan_window(unsynced_volume)
+    try:
+        read_device_tracks(silent_window)
+    finally:
+        (unsynced_volume / "iPod_Control").chmod(0o700)
+    assert silent_window.toasts == [
+        "Could not finish reading tracks from this iPod"
+    ], silent_window.toasts
+    assert not silent_window._device_scan_active
+    assert silent_window._device_snapshot_ready is False
+
+# The three answers both of those come from, taken at the boundary the window
+# and the display-free CLI read the device through: the folder when there is
+# one, nothing when the device has never been synced, and a failure when the
+# volume that held it has gone - which is not an iPod holding nothing, and a
+# zero written down for it would be a confident lie about a device nobody can
+# see any more.
+assert gui.music_folder(synced_volume) == synced_volume / "iPod_Control" / "Music"
+assert gui.music_folder(unsynced_volume) is None
+gone_volume = Path(tempfile.mkdtemp(prefix="gone-ipod-"))
+try:
+    gui.music_folder(gone_volume)
+except OSError:
+    pass
+else:
+    raise AssertionError("a volume with no iPod_Control read as an empty iPod")
 
 
 def stub_yt_dlp(script):

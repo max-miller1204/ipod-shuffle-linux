@@ -209,6 +209,21 @@ preview = home / "cache" / "ipod-shuffle-linux" / "previews"
 (preview / "New Artist" / "new.mp3").write_bytes(b"newer")
 os.utime(preview / "Old Artist" / "old.mp3", (1, 1))
 os.utime(preview / "New Artist" / "new.mp3", (2, 2))
+# The configured cache named on the command line is the configured cache
+# whatever it is spelled as, because what a mutation is allowed to delete is
+# decided on the folder rather than on the characters: a caller passing the
+# root it read back from `cache status` gets the prune it asked for.
+spelt = str(preview / ".." / preview.name)
+assert spelt != str(preview)
+for named_root in (spelt, "~/cache/ipod-shuffle-linux/previews"):
+    named = run("cache", "prune", "--root", named_root, "--limit", "5")
+    assert named["result"]["root"] == str(preview)
+    assert named["result"]["removed"] == [str(preview / "Old Artist" / "old.mp3")]
+    assert not (preview / "Old Artist").exists()
+    (preview / "Old Artist").mkdir()
+    (preview / "Old Artist" / "old.mp3").write_bytes(b"old")
+    os.utime(preview / "Old Artist" / "old.mp3", (1, 1))
+
 pruned = run("cache", "prune", "--limit", "5")
 assert [Path(entry["path"]).name for entry in pruned["result"]["entries"]] == ["new.mp3"]
 assert pruned["result"]["removed"] == [str(preview / "Old Artist" / "old.mp3")]
@@ -364,6 +379,19 @@ assert all(
     for track in merged_tracks
 )
 
+# A search is the other half of that: the same iPod is plugged in and the same
+# preview is cached, and neither is in the answer. What a query reads is the
+# configured music folders, so a copy that is also on the device is still a
+# `library` record here, and a track only the device or the cache holds is not
+# a result at all.
+searched = run("search", "Song", FAKE_IPOD_MOUNT=str(shuffle))
+assert [track["path"] for track in searched["result"]["local"]] == [str(song)]
+assert searched["result"]["local"][0]["state"] == "library"
+assert searched["result"]["local"][0]["onIpod"] is False
+assert searched["result"]["complete"] is True
+for query in ("Device Only", "Preview"):
+    assert run("search", query, FAKE_IPOD_MOUNT=str(shuffle))["result"]["local"] == []
+
 # An iPod that has never been synced has no iPod_Control/Music at all, which is
 # nothing there rather than something that could not be read - the answer
 # count_files_present gives it in the scripts, and the one the device probe's
@@ -397,15 +425,37 @@ if os.geteuid() != 0:
     # Two of them short is both of them named, rather than the first one found
     # standing in for the rest.
     run("config", "--music-root", str(music), "--music-root", str(home / "Gone"))
-    both_short = invoke("search", "Song", FAKE_IPOD_MOUNT=str(fresh))
+    both_short = invoke("library", FAKE_IPOD_MOUNT=str(fresh))
     assert both_short.returncode != 0, both_short.stdout
     assert both_short.stderr.strip() == (
         "a music folder and the connected iPod could not be read through:"
         " this answer is partial"
     )
+    # The same run as a search names the folder alone, because the iPod is not
+    # one of the places a search reads and cannot be one it is short of.
+    search_short = invoke("search", "Song", FAKE_IPOD_MOUNT=str(fresh))
+    assert search_short.returncode != 0, search_short.stdout
+    assert search_short.stderr.strip() == (
+        "a music folder could not be read through: this answer is partial"
+    )
     run("config", "--music-root", str(music))
     shut.chmod(0o700)
     shut.rmdir()
+
+# An iPod that will not answer is short of a reading rather than an iPod
+# holding nothing: the probe cannot see inside it, so the library says so
+# instead of writing down a confident zero.
+if os.geteuid() != 0:
+    (fresh / "iPod_Control").chmod(0o000)
+    silent = invoke("library", FAKE_IPOD_MOUNT=str(fresh))
+    assert silent.returncode != 0, silent.stdout
+    silent_document = json.loads(silent.stdout)
+    assert silent_document["result"]["complete"] is False
+    assert silent_document["result"]["counts"]["ipod"] == 0
+    assert silent.stderr.strip() == (
+        "the connected iPod could not be read through: this answer is partial"
+    )
+    (fresh / "iPod_Control").chmod(0o700)
 
 # Ordinary machines mount vfat volumes this user may not look inside - /boot/efi
 # is one, and it is mounted for root only on the runner this suite runs on - so

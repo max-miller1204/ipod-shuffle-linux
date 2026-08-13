@@ -201,6 +201,13 @@ for operation, field in (("sync", "sources"), ("remove", "targets"), ("wipe", "b
     assert plan_schema["additionalProperties"] is False
     assert execute_schema["additionalProperties"] is False
 
+failed, text = session.call("read_search", {"query": "Song"})
+assert not failed, text
+found = json.loads(text)["result"]
+assert [track["path"] for track in found["local"]] == [str(library_track)], found
+# The flag is not sent, so the command must not have gone looking for YouTube.
+assert "youtube" not in found, found
+
 failed, text = session.call("read_playlists", {})
 assert not failed, text
 stored = json.loads(text)["result"]
@@ -215,12 +222,12 @@ assert cache["root"] == str(preview.parents[1]), cache
 assert [entry["path"] for entry in cache["entries"]] == [str(preview)], cache
 assert cache["sizeBytes"] == preview.stat().st_size, cache
 
-# The remaining answers are not this machine's to give: the library and the
-# search read whatever iPod is plugged in as well as this computer, both
-# through findmnt, and the YouTube half of the search calls yt-dlp, so all of
-# them are exercised against the doubles the rest of the suite uses, reached by
-# putting tests/bin first on PATH. A second server rather than the one above,
-# because that PATH would reach every script the device operations below run.
+# The remaining answers are not this machine's to give: the library reads
+# whatever iPod is plugged in as well as this computer, through findmnt, and
+# the YouTube half of the search calls yt-dlp, so both are exercised against
+# the doubles the rest of the suite uses, reached by putting tests/bin first on
+# PATH. A second server rather than the one above, because that PATH would
+# reach every script the device operations below run.
 attached = make_mount("attached")
 (attached / "Favourites.m3u").write_text("iPod_Control/Music/Album/01 - Keep.mp3\n")
 attached_before = device_state(attached)
@@ -270,12 +277,12 @@ assert merged["result"]["counts"] == {
     "preview": 1,
 }, merged
 
-failed, text = doubled.call("read_search", {"query": "Song"})
+# A search with that same iPod plugged in answers about this computer only:
+# the tracks it holds and this one does not are what read_library and
+# read_device are for, and a query pays for neither.
+failed, text = doubled.call("read_search", {"query": "Keep"})
 assert not failed, text
-found = json.loads(text)["result"]
-assert [track["path"] for track in found["local"]] == [str(library_track)], found
-# The flag is not sent, so the command must not have gone looking for YouTube.
-assert "youtube" not in found, found
+assert json.loads(text)["result"]["local"] == [], text
 
 failed, text = doubled.call("read_search", {"query": "Song", "youtube": True})
 assert not failed, text

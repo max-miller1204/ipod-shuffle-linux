@@ -4,6 +4,7 @@ Device-facing operations here talk to a mounted device or to udisks, so they
 can be slow enough to matter on the main loop.
 """
 
+import errno
 import hashlib
 import json
 import os
@@ -246,9 +247,22 @@ def music_folder(mount_point):
     there, rather than something that could not be read. Every reader wants
     that distinction and each one that rebuilt the path itself had to
     rediscover it, so the rule is here, once, with the path.
+
+    Only while the volume around it is still answering, though - the other
+    half of that same rule. A folder that has gone along with the iPod_Control
+    holding it is an iPod that was unplugged, not one holding nothing, and a
+    volume that will not answer at all is neither; both raise OSError here, so
+    a caller reports the device rather than writing down a confident zero for
+    a device that is no longer there.
     """
     music = Path(mount_point, "iPod_Control", "Music")
-    return music if music.is_dir() else None
+    if music.is_dir():
+        return music
+    if not Path(mount_point, "iPod_Control").is_dir():
+        raise FileNotFoundError(
+            errno.ENOENT, "the iPod stopped answering", str(mount_point)
+        )
+    return None
 
 
 def count_tracks(mount_point, cancelled=None):

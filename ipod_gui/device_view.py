@@ -673,7 +673,6 @@ class DeviceViewMixin:
             self.sync_button.set_label("Checking iPod…")
 
         def worker():
-            music = music_folder(mount_point)
             batch = []
 
             def publish(record):
@@ -688,15 +687,20 @@ class DeviceViewMixin:
                         ready,
                     )
 
-            if music is None:
-                complete = True
+            try:
+                music = music_folder(mount_point)
+            except OSError:
+                complete = False
             else:
-                with DEVICE_IO_LOCK.read():
-                    _records, complete = scan_tracks(
-                        music,
-                        on_record=publish,
-                        cancelled=lambda: generation != self.tag_generation,
-                    )
+                if music is None:
+                    complete = True
+                else:
+                    with DEVICE_IO_LOCK.read():
+                        _records, complete = scan_tracks(
+                            music,
+                            on_record=publish,
+                            cancelled=lambda: generation != self.tag_generation,
+                        )
             if generation != self.tag_generation:
                 return
             if not complete:
