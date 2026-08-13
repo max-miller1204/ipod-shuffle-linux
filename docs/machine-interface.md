@@ -142,11 +142,14 @@ Every run writes one document and nothing else:
 | `result` | The answer, shaped by that command |
 
 `library` carries `tracks`, `albums` - the collections, which `--group artist` makes artists instead - `counts` per state, and `complete`.
+Its records are the same merged view the window displays: configured music folders, cached previews, and tracks from one readable connected iPod, with matching local copies marked `ipod` rather than duplicated and unmatched device tracks retained.
+The headless process has no live window queue, so `queued` is zero; the other `counts` tally the states in `tracks`.
 `search` carries `local`, `complete`, and with `--youtube` also `youtube` and `reachedYoutube`.
 `device` is one probe of whatever is plugged in: its `candidates`, `mountPoint`, `identity`, `readable`, `trackCount`, `playlists` and `storage`, the same reading the window takes.
 `playlists` answers with the lists themselves, or with what an edit did: `added`, `removed`, or `moved`.
 A track named on the command line is written into the M3U as an absolute path, whatever shape it was typed in, because a playlist is read back against its own folder rather than against whoever wrote it - a relative line would name a file beside the playlist, which is where nothing is.
 `cache` carries the cache `root`, its `sizeBytes`, what a prune or clear `removed`, the `entries` left, and `complete`.
+`cache status --root PATH` may inspect any cache-shaped folder, but `prune` and `clear` refuse every root except the configured application preview cache; omit `--root` for those mutations.
 `config` carries the `file` it wrote, the `musicRoots` now stored - always absolute, since the window reads this same file from a working directory of its own - and the `group` and `view` the library is left showing.
 
 | Code | What it means |
@@ -160,9 +163,9 @@ A track named on the command line is written into the M3U as an absolute path, w
 It comes from the argument parser rather than from the model, which is why it is separate from `1` - nothing was read, nothing was written, and the message is a usage line rather than a sentence about the library.
 
 `complete` is what that third row is, and it is why the field exists.
-A music folder that could not be read through - a root that has gone, a directory that will not open, a scan that ran out of time - leaves a real reading of everything else, and a cached preview that will not be deleted leaves every other one deleted.
+A configured music folder, preview cache, or single detected iPod that could not be read through - a root that has gone, a directory that will not open, a scan that ran out of time - leaves a real reading of everything else, and a cached preview that will not be deleted leaves every other one deleted.
 Throwing either away helps nobody, so the document is written, `complete` is false, and the run still leaves `1`, because a caller handed the part and told nothing would take it for the whole.
-It is carried by the three commands that can do part of their work - `library` and `search` for the scan, `cache` for a prune or a clear - so a reader that has the field can trust it and one that does not was never at risk.
+It is carried by the three commands that can do part of their work - `library` and `search` for their scans, `cache` for a prune or a clear - so a reader that has the field can trust it and one that does not was never at risk.
 
 Editing a playlist follows the same rule from the other side.
 An edit that found nothing to do is a count of zero and a `0`, while a playlist that has gone since it was listed, a row at a position the file does not have, and a folder that refused the rewrite are each a sentence of their own and a `1` - three different places to go and look, rather than one `false` a caller has to guess at.

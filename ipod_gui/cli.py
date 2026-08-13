@@ -24,14 +24,22 @@ from .config import (
     PLAYLIST_LIBRARY,
     PREVIEW_CACHE,
     PREVIEW_CACHE_LIMIT,
+    STATE_IPOD,
     STATE_LIBRARY,
+    STATE_PREVIEW,
     library_layout,
     music_roots,
     save_library_layout,
     save_music_roots,
 )
 from .device import probe_device
-from .model import LibraryIndex, Track, local_search_matches, track_document
+from .model import (
+    LibraryIndex,
+    Track,
+    local_search_matches,
+    merge_library_states,
+    track_document,
+)
 from .playlists import (
     PLAYLIST_GONE,
     TARGET_GONE,
@@ -70,18 +78,7 @@ warnings.filterwarnings(
 
 
 def _library():
-    """The index the window builds, and whether it is the whole of it.
-
-    Keyed by path across the roots, the way the window keys its own scan
-    results, because the configured roots may overlap - ~/Music and the
-    ~/Music/youtube that downloads land in is the ordinary case - and a file
-    under both of them is one track rather than two.
-
-    `complete` is scan_tracks' own answer carried out rather than dropped. A
-    scan that timed out, or that met a folder it could not read, returns the
-    records it did get, and a caller handed those without being told is one
-    reading a truncated library as the library.
-    """
+    """Build the same merged library model the window displays."""
     index = LibraryIndex()
     tracks = {}
     complete = True
@@ -92,6 +89,35 @@ def _library():
             track = Track(Path(root, record["path"]), record, STATE_LIBRARY)
             tracks[track.path] = track
     index.tracks = list(tracks.values())
+
+    if PREVIEW_CACHE.is_dir():
+        records, read_through = scan_tracks(PREVIEW_CACHE)
+        complete = complete and read_through
+        index.previews = [
+            Track(PREVIEW_CACHE / record["path"], record, STATE_PREVIEW)
+            for record in records
+            if not any(part.startswith(".") for part in Path(record["path"]).parts)
+        ]
+
+    device_tracks = []
+    probe = probe_device()
+    if len(probe.candidates) == 1:
+        if probe.readable and probe.mount_point is not None:
+            music = Path(probe.mount_point, "iPod_Control", "Music")
+            records, read_through = scan_tracks(music)
+            complete = complete and read_through
+            device_tracks = [
+                Track(
+                    music / record["path"],
+                    record,
+                    STATE_IPOD,
+                    relpath=record["path"],
+                )
+                for record in records
+            ]
+        else:
+            complete = False
+    merge_library_states(index, device_tracks)
     return index, complete
 
 
@@ -197,6 +223,17 @@ def _absolute(value):
     playlist.entries` - would never appear.
     """
     return os.path.abspath(os.path.expanduser(str(value)))
+
+
+def _mutable_preview_cache(root):
+    """Return the configured cache root, refusing every other deletion root."""
+    root = Path(_absolute(root))
+    configured = Path(_absolute(PREVIEW_CACHE))
+    if root != configured:
+        raise SystemExit(
+            f"cache prune and clear may only modify the application preview cache: {configured}"
+        )
+    return root
 
 
 def _remove_previews(paths, root):
@@ -359,6 +396,8 @@ def main(argv=None):
         _emit("playlists", result)
         return 0
     if args.command == "cache":
+        if args.action != "status":
+            args.root = _mutable_preview_cache(args.root)
         entries = preview_cache_entries(args.root)
         if args.action == "prune":
             wanted = prunable_previews(entries, args.limit)

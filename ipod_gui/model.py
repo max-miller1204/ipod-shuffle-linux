@@ -154,6 +154,60 @@ class Track:
         )
 
 
+
+def merge_library_states(index, device_tracks, queued=(), pending_records=None):
+    """Merge local, queued and device tracks into one truthful library model.
+
+    Device filenames do not preserve their source paths, so copies are matched
+    by track identity. Each device copy may be claimed only once.
+    """
+    on_device = {}
+    for track in device_tracks:
+        on_device.setdefault(track.identity(), []).append(track)
+    matched = set()
+
+    def claim(track):
+        matches = on_device.get(track.identity(), [])
+        if not matches:
+            return False
+        device_track = matches.pop(0)
+        track.state = STATE_IPOD
+        track.on_ipod = True
+        track.relpath = device_track.relpath
+        matched.add(id(device_track))
+        return True
+
+    library_by_path = {track.path: track for track in index.tracks}
+    queued = set(queued)
+    for track in index.tracks:
+        track.relpath = track.path
+        if not claim(track):
+            track.state = STATE_QUEUED if track.path in queued else STATE_LIBRARY
+            track.on_ipod = False
+
+    pending_index = dict(library_by_path)
+    queued_only = []
+    records = pending_records or {}
+    for path in sorted(queued):
+        if path in pending_index or Path(path).suffix.lower() not in AUDIO_EXTENSIONS:
+            continue
+        record = dict(records.get(path, {}))
+        record.setdefault("title", Path(path).stem)
+        try:
+            record["size"] = Path(path).stat().st_size
+        except OSError:
+            record["size"] = 0
+        track = Track(path, record, STATE_QUEUED)
+        claim(track)
+        pending_index[path] = track
+        queued_only.append(track)
+
+    index.queued_only = queued_only
+    index.device_only = [
+        track for track in device_tracks if id(track) not in matched
+    ]
+    return library_by_path, pending_index
+
 def track_document(track):
     """One track in the shape every machine surface of this project writes.
 

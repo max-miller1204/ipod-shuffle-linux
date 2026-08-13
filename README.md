@@ -634,7 +634,8 @@ python3 -m ipod_gui.cli cache status
 python3 -m ipod_gui.cli config
 ```
 
-It uses the same library index, device probe, search, M3U store, preview cache and configuration as the GTK window.
+It uses the same merged library index, device probe, search, M3U store, preview cache and configuration as the GTK window.
+Library results include local, preview and connected-device states; cache pruning and clearing are restricted to the application's configured preview cache.
 Run `python3 -m ipod_gui.cli --help` or a subcommand's `--help` for mutation arguments.
 It needs PyGObject because it enters through the package and its declared imports, but it does not need a display.
 

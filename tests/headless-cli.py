@@ -171,25 +171,43 @@ if os.geteuid() != 0:
     assert str(other) not in Path(locked["result"]["path"]).read_text()
     Path(locked["result"]["path"]).unlink()
 
-preview = home / "preview"
+external_cache = home / "preview"
+(external_cache / "Old Artist").mkdir(parents=True)
+(external_cache / "New Artist").mkdir(parents=True)
+(external_cache / "Old Artist" / "old.mp3").write_bytes(b"old")
+(external_cache / "New Artist" / "new.mp3").write_bytes(b"newer")
+os.utime(external_cache / "Old Artist" / "old.mp3", (1, 1))
+os.utime(external_cache / "New Artist" / "new.mp3", (2, 2))
+status = run("cache", "status", "--root", str(external_cache))
+assert status["result"]["sizeBytes"] == 8
+assert status["result"]["removed"] == []
+assert status["result"]["complete"] is True
+assert run("cache", "status", "--root", "~/preview")["result"] == status["result"]
+
+# An arbitrary music directory remains available to read as cache-shaped
+# status, but neither mutating action may turn it into recursively deleted
+# preview content.
+for action in ("prune", "clear"):
+    refused("cache", action, "--root", str(external_cache), "--limit", "0")
+    assert sorted(path.name for path in external_cache.rglob("*.mp3")) == [
+        "new.mp3",
+        "old.mp3",
+    ]
+
+preview = home / "cache" / "ipod-shuffle-linux" / "previews"
 (preview / "Old Artist").mkdir(parents=True)
 (preview / "New Artist").mkdir(parents=True)
 (preview / "Old Artist" / "old.mp3").write_bytes(b"old")
 (preview / "New Artist" / "new.mp3").write_bytes(b"newer")
 os.utime(preview / "Old Artist" / "old.mp3", (1, 1))
 os.utime(preview / "New Artist" / "new.mp3", (2, 2))
-status = run("cache", "status", "--root", str(preview))
-assert status["result"]["sizeBytes"] == 8
-assert status["result"]["removed"] == []
-assert status["result"]["complete"] is True
-assert run("cache", "status", "--root", "~/preview")["result"] == status["result"]
-pruned = run("cache", "prune", "--root", str(preview), "--limit", "5")
+pruned = run("cache", "prune", "--limit", "5")
 assert [Path(entry["path"]).name for entry in pruned["result"]["entries"]] == ["new.mp3"]
 assert pruned["result"]["removed"] == [str(preview / "Old Artist" / "old.mp3")]
 # The artist folder goes with the last preview in it, the way the window's own
 # prune takes it, rather than leaving the cache full of empty directories.
 assert not (preview / "Old Artist").exists()
-cleared = run("cache", "clear", "--root", str(preview))
+cleared = run("cache", "clear")
 assert cleared["result"]["entries"] == []
 assert cleared["result"]["removed"] == [str(preview / "New Artist" / "new.mp3")]
 assert cleared["result"]["complete"] is True
@@ -200,14 +218,17 @@ assert preview.is_dir()
 # did go is still written, marked, and the run leaves non-zero - the same rule
 # a music folder that could not be read through follows.
 if os.geteuid() != 0:
-    stuck = home / "stuck"
+    stuck = preview
     (stuck / "Artist").mkdir(parents=True)
-    (stuck / "Artist" / "kept.mp3").write_bytes(b"kept")
+    kept = stuck / "Artist" / "kept.mp3"
+    kept.write_bytes(b"kept")
     (stuck / "Artist").chmod(0o500)
-    unremovable = partial("cache", "clear", "--root", str(stuck))
+    unremovable = partial("cache", "clear")
     assert unremovable["result"]["removed"] == []
     assert [Path(entry["path"]).name for entry in unremovable["result"]["entries"]] == ["kept.mp3"]
     (stuck / "Artist").chmod(0o700)
+    kept.unlink()
+    (stuck / "Artist").rmdir()
 
 library = run("library")
 assert library["result"]["complete"] is True
@@ -285,7 +306,7 @@ assert set(device["result"]) == {"candidates", "mountPoint", "identity", "readab
 # reading has to be that folder rather than the shape of one.
 shuffle = home / "ALEX IPOD"
 (shuffle / "iPod_Control" / "Music" / "F00").mkdir(parents=True)
-for name in ("Song.mp3", "Other.mp3"):
+for name in ("Song.mp3", "Other.mp3", "Device Only.mp3"):
     (shuffle / "iPod_Control" / "Music" / "F00" / name).write_bytes(b"audio")
 (shuffle / "Road Trip.m3u").write_text(
     "#EXTM3U\niPod_Control/Music/F00/Song.mp3\n", encoding="utf-8"
@@ -299,9 +320,10 @@ assert mounted["result"]["candidates"] == [str(shuffle)]
 assert mounted["result"]["mountPoint"] == str(shuffle)
 assert mounted["result"]["readable"] is True
 assert mounted["result"]["identity"]
-# Two files under iPod_Control/Music, and the playlist at the volume root named
-# relative to the music folder, which is how the window lists what is on it.
-assert mounted["result"]["trackCount"] == 2
+# Three files under iPod_Control/Music, and the playlist at the volume root
+# named relative to the music folder, which is how the window lists what is on
+# it.
+assert mounted["result"]["trackCount"] == 3
 assert mounted["result"]["playlists"] == [
     {"name": "Road Trip", "entries": ["F00/Song.mp3"], "spoken": False}
 ]
@@ -309,6 +331,38 @@ assert mounted["result"]["storage"]["totalBytes"] > 0
 assert mounted["result"]["storage"]["usedBytes"] + mounted["result"]["storage"][
     "freeBytes"
 ] <= mounted["result"]["storage"]["totalBytes"]
+
+# The display-free library is the window's merged model: matching local copies
+# claim device tracks, device-only and preview tracks remain visible, and every
+# state count describes the records in the same document.
+preview_track = preview / "Preview Artist" / "Preview.mp3"
+preview_track.parent.mkdir(parents=True)
+preview_track.write_bytes(b"preview")
+merged = run(
+    "library",
+    PATH=os.pathsep.join([str(repo / "tests" / "bin"), env["PATH"]]),
+    FAKE_IPOD_MOUNT=str(shuffle),
+)
+merged_tracks = merged["result"]["tracks"]
+assert len(merged_tracks) == 5
+assert merged["result"]["counts"] == {
+    "ipod": 3,
+    "queued": 0,
+    "library": 1,
+    "preview": 1,
+}
+states = {track["title"]: track["state"] for track in merged_tracks}
+assert states == {
+    "Device Only": "ipod",
+    "Other": "ipod",
+    "Preview": "preview",
+    "Song": "ipod",
+    "Third": "library",
+}
+assert all(
+    track["onIpod"] == (track["state"] == "ipod")
+    for track in merged_tracks
+)
 
 # Ordinary machines mount vfat volumes this user may not look inside - /boot/efi
 # is one, and it is mounted for root only on the runner this suite runs on - so
@@ -325,7 +379,7 @@ if os.geteuid() != 0:
     )
     assert beside["result"]["candidates"] == [str(shuffle)]
     assert beside["result"]["mountPoint"] == str(shuffle)
-    assert beside["result"]["trackCount"] == 2
+    assert beside["result"]["trackCount"] == 3
     forbidden.chmod(0o700)
 
 # The searcher is asked for, so both answers it can give are checked: results
