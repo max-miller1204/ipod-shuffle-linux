@@ -1,3 +1,4 @@
+---
 commands:
   lint: |
     shellcheck -x ./*.sh tests/product-e2e.sh &&
@@ -14,7 +15,8 @@ commands:
         echo "lint: no interpreter with the GTK4 bindings; using $python" >&2
       fi
       "$python" tools/mixin-contract.py
-      "$python" -m py_compile ipod-gui.py ipod-report.py ipod_gui/*.py tests/*.py tools/*.py
+      "$python" -m py_compile \
+        ipod-gui.py ipod-report.py ipod_gui/*.py tests/*.py tools/*.py
     '
 
 ignore_patterns:
