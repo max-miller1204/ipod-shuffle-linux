@@ -727,16 +727,17 @@ system_python() {
 
 # Interpreter used to run the database builder.
 #
-# Prefers install.sh's venv, which is the only one guaranteed to have mutagen.
-# Falls back to whatever python3 is on PATH so the scripts still work without
-# the venv, just without artist and album metadata in the database.
+# Prefers install.sh's environment, which is the only one guaranteed to have
+# mutagen. If installation stopped before creating it, use the same distro
+# Python install.sh validated rather than an unrelated PATH-managed runtime.
 db_python() {
+    local python
     if [[ -x "$VENV_PYTHON" ]]; then
         printf '%s' "$VENV_PYTHON"
     else
-        command -v python3 >/dev/null \
+        python="$(system_python)" \
             || die_with "$EXIT_MISSING_DEPENDENCY" "python3 not found."
-        printf 'python3'
+        printf '%s' "$python"
     fi
 }
 
@@ -850,10 +851,10 @@ find_gui_python() {
     local candidate
     for candidate in \
         "$VENV_PYTHON" \
-        python3 \
         /usr/bin/python3 \
         /usr/bin/python3.12 \
-        /usr/bin/python3.13
+        /usr/bin/python3.13 \
+        python3
     do
         command -v "$candidate" >/dev/null 2>&1 || continue
         if "$candidate" - <<'PROBE' >/dev/null 2>&1

@@ -1,4 +1,10 @@
 ---
+# The iPod's device-changing paths justify one automatic repair pass before
+# and one after an intent-sensitive review decision. Keep this repository-local:
+# every attempt is another complete diff review.
+auto_fix:
+  review: 2
+
 commands:
   lint: |
     shellcheck -x ./*.sh tests/product-e2e.sh &&

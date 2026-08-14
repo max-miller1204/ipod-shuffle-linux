@@ -909,6 +909,22 @@ PY
 ) > "$EVIDENCE_DIR/js-runtime-versions.txt"
 grep -Fxq "versions validated" "$EVIDENCE_DIR/js-runtime-versions.txt"
 
+# A PATH-managed Python can have GTK too, but install.sh validates the distro
+# interpreter and builds the project environment from it. Both fallbacks must
+# preserve that contract instead of letting PATH choose a different runtime.
+PATH_PYTHON="$TEST_ROOT/path-python"
+mkdir -p "$PATH_PYTHON"
+printf '#!/bin/sh\ncat >/dev/null\nexit 0\n' > "$PATH_PYTHON/python3"
+chmod +x "$PATH_PYTHON/python3"
+IPOD_VENV_PYTHON="$TEST_ROOT/missing-python" \
+    PATH="$PATH_PYTHON:$BASE_PATH" \
+    bash -c '
+        source "$1/lib.sh"
+        test "$(find_gui_python)" = /usr/bin/python3
+        test "$(db_python)" = /usr/bin/python3
+    ' _ "$ROOT"
+echo "PASS: GUI and database fallbacks preferred the validated distro Python"
+
 # gst_available probes through whichever interpreter find_gui_python names, so
 # stand-in interpreters decide the answer here. GStreamer is optional and is
 # not installed in CI, and a check that only ever saw one answer would pass
