@@ -663,7 +663,7 @@ grep -Fxq "absent" "$EVIDENCE_DIR/js-runtime-absent.txt"
 # cannot install or download anything.
 INSTALLER_PATH="$TEST_ROOT/installer-path"
 mkdir -p "$INSTALLER_PATH"
-for command in bash cp dirname git mkdir python3 readlink touch; do
+for command in bash cp dirname git mkdir python3 readlink touch uv; do
     ln -s "$(command -v "$command")" "$INSTALLER_PATH/$command"
 done
 INSTALL_BLOCKER="$TEST_ROOT/install-blocker"
@@ -2936,10 +2936,9 @@ test ! -s "$EVIDENCE_DIR/install-check-json-stderr.txt"
 # The last thing an install does is print that same report, now that the
 # install has had its turn, so a person watching one finish and a caller that
 # asked --check are told the same thing. Every other installer run here stops
-# early on purpose and never reaches it, so this one has to finish: two
-# stand-ins take the place of the network, a local repository for the database
-# builder and a virtualenv whose pip has no index to reach, and the shipped
-# script does the rest.
+# early on purpose and never reaches it, so this one has to finish: local
+# stand-ins take the place of the network for both the database repository and
+# uv, and the shipped script does the rest.
 FULL_TOOLS="$TEST_ROOT/full-install-tools"
 FULL_XDG="$TEST_ROOT/full-install-xdg"
 UPSTREAM_STUB="$TEST_ROOT/upstream-db-tool"
@@ -2957,40 +2956,73 @@ git -C "$UPSTREAM_STUB" \
 # working tree afterwards.
 git clone --quiet "$UPSTREAM_STUB" "$FULL_TOOLS/IPod-Shuffle-4g"
 
-mkdir -p "$FULL_TOOLS/venv/bin" "$FULL_TOOLS/venv/site"
-cat > "$FULL_TOOLS/venv/bin/python" <<'STUB'
+FULL_BIN="$TEST_ROOT/full-install-bin"
+mkdir -p "$FULL_BIN"
+cat > "$FULL_BIN/uv" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+
+case "${1:-}" in
+    venv)
+        target="${!#}"
+        rm -rf -- "$target"
+        mkdir -p "$target/bin" "$target/site"
+        printf '%s\n' "$*" > "$target/uv-venv-invocation.txt"
+        cat > "$target/bin/python" <<'PYTHON'
 #!/bin/sh
-# The virtualenv's interpreter: the system one, seeing only what pip has put
-# in the site directory beside it.
 PYTHONPATH="$(dirname "$0")/../site"
 export PYTHONPATH
 exec /usr/bin/python3 "$@"
-STUB
-cat > "$FULL_TOOLS/venv/bin/pip" <<'STUB'
-#!/bin/sh
-# No index to reach, but it does for mutagen what the real one does: puts it
-# where the interpreter beside it will find it, and not a moment before it is
-# asked to. That is what tells a report taken after the install from one
-# taken before it.
-here="$(dirname "$0")"
-printf '%s\n' "$*" > "$here/../pip-invocation.txt"
-printf '%s\n' 'version_string = "1.47.0-stand-in"' > "$here/../site/mutagen.py"
-STUB
-cat > "$FULL_TOOLS/venv/bin/yt-dlp" <<'STUB'
+PYTHON
+        chmod +x "$target/bin/python"
+        ;;
+    pip)
+        [[ "${2:-}" == sync ]]
+        shift 2
+        python=""
+        requirements=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --python)
+                    python="$2"
+                    shift 2
+                    ;;
+                --quiet)
+                    shift
+                    ;;
+                *)
+                    requirements="$1"
+                    shift
+                    ;;
+            esac
+        done
+        [[ -n "$python" && -n "$requirements" ]]
+        environment="$(dirname "$(dirname "$python")")"
+        printf '%s\n' "$requirements" > "$environment/uv-sync-source.txt"
+        printf '%s\n' 'version_string = "1.47.0-stand-in"' \
+            > "$environment/site/mutagen.py"
+        cat > "$environment/bin/yt-dlp" <<'YTDLP'
 #!/bin/sh
 case "$1" in
     --version) printf '%s\n' '2025.11.12' ;;
     --help)    printf '%s\n' '  --js-runtimes RUNTIMES  Runtimes to use' ;;
 esac
+YTDLP
+        chmod +x "$environment/bin/yt-dlp"
+        ;;
+    *)
+        exit 2
+        ;;
+esac
 STUB
-chmod +x "$FULL_TOOLS/venv/bin/python" "$FULL_TOOLS/venv/bin/pip" \
-    "$FULL_TOOLS/venv/bin/yt-dlp"
+chmod +x "$FULL_BIN/uv"
 
 # The suite's own builder and interpreter are dropped for these runs, so the
 # installer works on the tools directory it was pointed at, the way it does on
 # a real machine.
 full_install() {
     env -u IPOD_DB_TOOL -u IPOD_VENV_PYTHON -u IPOD_VENV_YT_DLP \
+        PATH="$FULL_BIN:$BASE_PATH" \
         IPOD_TOOLS_DIR="$FULL_TOOLS" XDG_DATA_HOME="$FULL_XDG" \
         "$ROOT/install.sh" "$@"
 }
@@ -3002,10 +3034,14 @@ test "$full_before_status" -eq 6
 test ! -e "$FULL_TOOLS/venv/site/mutagen.py"
 
 full_install --no-system > "$EVIDENCE_DIR/install-complete.txt" 2>&1
-grep -Fq -- "-r $ROOT_REAL/requirements.txt" "$FULL_TOOLS/venv/pip-invocation.txt"
+grep -Fq -- "--system-site-packages $FULL_TOOLS/venv" \
+    "$FULL_TOOLS/venv/uv-venv-invocation.txt"
+grep -Fxq "$ROOT_REAL/requirements.txt" "$FULL_TOOLS/venv/uv-sync-source.txt"
 grep -Fq 'mutagen 1.47.0-stand-in' "$EVIDENCE_DIR/install-complete.txt"
 grep -Fq 'yt-dlp 2025.11.12' "$EVIDENCE_DIR/install-complete.txt"
 grep -Fq 'Done.' "$EVIDENCE_DIR/install-complete.txt"
+grep -Fq "graphical interface  ok ($FULL_TOOLS/venv/bin/python)" \
+    "$EVIDENCE_DIR/install-complete.txt"
 
 full_after_status=0
 full_install --check \

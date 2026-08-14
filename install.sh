@@ -2,7 +2,8 @@
 #
 # Set up the dependencies needed to manage an iPod shuffle 4G.
 #
-# Python dependencies go into a private virtualenv. Compatible distribution
+# Pure Python dependencies go into a uv-managed environment based on the
+# distro Python, with distro site packages visible for GTK. Compatible native
 # packages are offered through the system package manager, which is the only
 # step needing privileges. A missing JavaScript runtime is reported for manual
 # installation instead. Run with --no-system to skip the package-manager step.
@@ -23,10 +24,10 @@ usage() {
     cat <<'EOF'
 Usage: ./install.sh [options]
 
-Installs the database builder and a virtualenv with its Python dependencies,
-offers compatible missing system packages, installs the GUI's desktop entry
-when its dependencies are available, and reports a missing JavaScript runtime
-for manual installation.
+Installs the database builder and a uv-managed Python environment, offers
+compatible missing system packages, installs the GUI's desktop entry when its
+dependencies are available, and reports a missing JavaScript runtime for
+manual installation.
 
 Options:
   -c, --check       Report what is installed and exit, changing nothing
@@ -59,7 +60,6 @@ done
 # The apt names behind each capability, named once so the offer the installer
 # makes and the report --check prints cannot list different packages for the
 # same missing thing.
-readonly VENV_PACKAGES=(python3-venv)
 readonly GUI_PACKAGES=(python3-gi gir1.2-gtk-4.0 gir1.2-adw-1)
 # One working set rather than four choices: plugins-base carries the player,
 # plugins-good the MP3 and WAV decoders and the connection to the sound card,
@@ -86,17 +86,20 @@ capability() {
 }
 
 probe_capabilities() {
-    local runtime gui_python ytdlp
+    local capability_python runtime gui_python ytdlp
     CAPABILITIES=()
 
     if [[ -x "$VENV_PYTHON" ]]; then
         capability python-virtualenv 1 "python virtualenv" "$VENV_PYTHON" ""
-    elif python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then
+    elif ! command -v uv >/dev/null 2>&1; then
         capability python-virtualenv 0 "python virtualenv" \
-            "not created yet at $VENV_PYTHON" ""
+            "uv not found; install it from https://docs.astral.sh/uv/" ""
+    elif capability_python="$(system_python 2>/dev/null)"; then
+        capability python-virtualenv 0 "python virtualenv" \
+            "not created yet at $VENV_PYTHON (base $capability_python)" ""
     else
         capability python-virtualenv 0 "python virtualenv" \
-            "python3 cannot create one" "${VENV_PACKAGES[*]}"
+            "no distro Python interpreter found" ""
     fi
 
     if [[ -f "$DB_TOOL" ]]; then
@@ -221,9 +224,13 @@ fi
 
 # ---------------------------------------------------------------- prerequisites
 
-command -v python3 >/dev/null || die "python3 is required but not installed."
-command -v git >/dev/null     || die "git is required but not installed."
-info "python3: $(python3 --version)"
+command -v git >/dev/null || die "git is required but not installed."
+command -v uv >/dev/null \
+    || die "uv is required - install it from https://docs.astral.sh/uv/."
+base_python="$(system_python)" \
+    || die "A distro Python interpreter is required but not installed."
+readonly base_python
+info "Python environment base: $base_python ($("$base_python" --version))"
 
 readonly APP_ID="io.github.max_miller1204.IpodShuffle"
 apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
@@ -235,10 +242,6 @@ desktop_file="$apps_dir/$APP_ID.desktop"
 # on any distribution even though the install command below assumes apt.
 declare -a needed=()
 
-if [[ ! -x "$VENV_PYTHON" ]] \
-    && ! python3 -c 'import ensurepip, venv' >/dev/null 2>&1; then
-    needed+=("${VENV_PACKAGES[@]}")
-fi
 
 if find_gui_python >/dev/null 2>&1; then
     info "GUI: GTK4 bindings present"
@@ -449,18 +452,22 @@ else
     info "Database builder cloned"
 fi
 
-python3 -m py_compile "$DB_TOOL" \
+"$base_python" -m py_compile "$DB_TOOL" \
     || die "Database builder failed to compile under this Python version."
 
-if [[ ! -x "$VENV_PYTHON" ]]; then
-    info "Creating virtualenv at $TOOLS_DIR/venv"
-    python3 -m venv "$TOOLS_DIR/venv" \
-        || die "Could not create virtualenv. Re-run without --no-system to install python3-venv."
-fi
+info "Creating uv environment at $TOOLS_DIR/venv"
+uv venv \
+    --quiet \
+    --clear \
+    --no-managed-python \
+    --python "$base_python" \
+    --system-site-packages \
+    "$TOOLS_DIR/venv" \
+    || die "Could not create the uv environment from $base_python."
 
-info "Installing Python dependencies"
-"$TOOLS_DIR/venv/bin/pip" install -q --disable-pip-version-check -r "$REQUIREMENTS" \
-    || die "Failed to install Python dependencies."
+info "Synchronizing Python dependencies"
+uv pip sync --quiet --python "$VENV_PYTHON" "$REQUIREMENTS" \
+    || die "Failed to synchronize Python dependencies."
 info "  $("$VENV_PYTHON" -c 'import mutagen; print("mutagen", mutagen.version_string)')"
 info "  yt-dlp $("$VENV_YT_DLP" --version 2>/dev/null || echo "unavailable")"
 

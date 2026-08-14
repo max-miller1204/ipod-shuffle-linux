@@ -1,0 +1,13 @@
+commands:
+  lint: |
+    shellcheck -x ./*.sh tests/product-e2e.sh &&
+    bash -c '
+      set -euo pipefail
+      source ./lib.sh
+      gui_python="$(find_gui_python)"
+      "$gui_python" tools/mixin-contract.py
+      "$gui_python" -m py_compile ipod-gui.py ipod-report.py ipod_gui/*.py tests/*.py tools/*.py
+    '
+
+ignore_patterns:
+  - ".no-mistakes/**"

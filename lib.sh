@@ -33,17 +33,15 @@ readonly REPORT_TOOL
 readonly TOOLS_DIR="${IPOD_TOOLS_DIR:-${HOME}/ipod-tools}"
 readonly DB_TOOL="${IPOD_DB_TOOL:-${TOOLS_DIR}/IPod-Shuffle-4g/ipod-shuffle-4g.py}"
 
-# Dedicated virtualenv holding mutagen.
+# Project-owned virtualenv holding mutagen and yt-dlp.
 #
-# Distros increasingly ship an externally managed Python (PEP 668), and the
-# interpreter first on PATH is not necessarily the one apt installs into. A
-# uv- or pyenv-managed python3, for example, cannot see /usr/lib/python3/
-# dist-packages at all, so "apt install python3-mutagen" would appear to
-# succeed while the builder still reported no metadata support. Owning a venv
-# sidesteps the question entirely.
+# install.sh creates it with uv from the distro Python and exposes the distro's
+# site packages. The GUI, database builder, and download helper can therefore
+# share one interpreter without rebuilding PyGObject or modifying the
+# externally managed system environment.
 readonly VENV_PYTHON="${IPOD_VENV_PYTHON:-${TOOLS_DIR}/venv/bin/python}"
 
-# yt-dlp, used by ipod-fetch.sh. Same virtualenv, for the same reasons.
+# yt-dlp, used by ipod-fetch.sh, is installed into that same environment.
 readonly VENV_YT_DLP="${IPOD_VENV_YT_DLP:-${TOOLS_DIR}/venv/bin/yt-dlp}"
 
 # What the shuffle firmware will actually play, and so what is worth copying.
@@ -712,6 +710,21 @@ confirm() {
     [[ "$reply" =~ ^[Yy]$ ]]
 }
 
+# Distro Python used as the base for the project environment.
+#
+# Prefer conventional system locations over PATH because uv, pyenv, or conda
+# may put a separately managed interpreter first. The PATH fallback keeps the
+# resolver useful on distributions whose system Python lives elsewhere.
+system_python() {
+    local candidate
+    for candidate in /usr/bin/python3 /usr/bin/python3.12 /usr/bin/python3.13 python3; do
+        command -v "$candidate" >/dev/null 2>&1 || continue
+        command -v "$candidate"
+        return 0
+    done
+    return 1
+}
+
 # Interpreter used to run the database builder.
 #
 # Prefers install.sh's venv, which is the only one guaranteed to have mutagen.
@@ -828,14 +841,20 @@ js_runtime() {
 
 # Interpreter capable of running the GTK4 GUI.
 #
-# PyGObject comes from the distro, so it belongs to the system interpreter,
-# which is often not the python3 first on PATH. Rather than hardcode a path
-# that only holds on Debian derivatives, try the plausible ones and let the
-# import decide. Prints the interpreter and returns 0, or returns 1 if none
-# can drive GTK4.
+# Prefer install.sh's environment, where uv combines the distro interpreter
+# and its GTK bindings with the project's Python dependencies. Before install,
+# probe the plausible system interpreters so the launcher and capability report
+# still work. Prints the interpreter and returns 0, or returns 1 if none can
+# drive GTK4.
 find_gui_python() {
     local candidate
-    for candidate in python3 /usr/bin/python3 /usr/bin/python3.12 /usr/bin/python3.13; do
+    for candidate in \
+        "$VENV_PYTHON" \
+        python3 \
+        /usr/bin/python3 \
+        /usr/bin/python3.12 \
+        /usr/bin/python3.13
+    do
         command -v "$candidate" >/dev/null 2>&1 || continue
         if "$candidate" - <<'PROBE' >/dev/null 2>&1
 import gi
