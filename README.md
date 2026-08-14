@@ -799,6 +799,7 @@ bash tests/product-e2e.sh
 ```
 
 The suite runs against a synthetic iPod directory tree with a stand-in for the database builder, so it needs no hardware, no audio, and a few seconds.
+It does need `uv`, and says so before it starts rather than partway through: its installer sections run the shipped `install.sh`, which builds the project's environment with it.
 The playlist checks are the exception: they also run the real upstream builder against the rewritten lists a sync produces, because only it can vouch that every entry resolves.
 That part uses the copy `install.sh` keeps, or `IPOD_REAL_DB_TOOL`; CI fetches the builder itself so the check always runs there, and a local run without it says so rather than passing silently.
 That same run writes the spoken playlist names, and `tests/gui-spoken-names.py` reads them back the way the window does, because the builder alone decides what those recordings are called: a stand-in agreeing with the window's idea of the name would agree with it wrong just as readily.

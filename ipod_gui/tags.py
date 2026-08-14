@@ -1,8 +1,8 @@
-"""The tag reader that runs in another interpreter, and the scan around it.
+"""The tag reader that runs in a subprocess, and the scan around it.
 
-Nothing here imports mutagen. It lives in install.sh's virtualenv while
-PyGObject belongs to the system Python, so a scan starts that interpreter and
-reads records back a line at a time as they arrive.
+Nothing here imports mutagen. It lives in install.sh's environment, which the
+window normally runs in but need not, so a scan starts whichever interpreter
+has mutagen and reads records back a line at a time as they arrive.
 """
 
 import json
@@ -20,9 +20,10 @@ from .config import ART_CACHE, AUDIO_EXTENSIONS
 def _tag_interpreter():
     """Pick an interpreter that can import mutagen, or None.
 
-    PyGObject belongs to the system Python while mutagen lives in
-    install.sh's virtualenv, so tag reading has to cross over to it unless
-    this interpreter happens to have mutagen itself.
+    install.sh's environment holds mutagen beside the distro's GTK bindings,
+    so the window usually already has it. One running on a bare system
+    interpreter, or before an install, has to cross over to that environment
+    instead.
     """
     try:
         import mutagen  # noqa: F401

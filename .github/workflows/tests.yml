@@ -17,7 +17,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
 
-
       # The GUI smoke tests import the ipod_gui package, which imports
       # PyGObject at module level, so the bindings are needed even though most
       # of them never open a window. They come from the distribution because

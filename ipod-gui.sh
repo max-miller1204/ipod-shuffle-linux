@@ -2,9 +2,9 @@
 #
 # Launch the GTK4 GUI.
 #
-# PyGObject is installed by the distro and therefore belongs to the system
-# interpreter, which is frequently not the python3 first on PATH. This picks
-# one that can actually import GTK rather than assuming.
+# PyGObject comes from the distro, so the python3 first on PATH frequently
+# cannot import GTK at all. find_gui_python in lib.sh decides which interpreter
+# this runs in, and why; nothing here assumes one.
 
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"

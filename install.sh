@@ -281,7 +281,6 @@ desktop_file="$apps_dir/$APP_ID.desktop"
 # on any distribution even though the install command below assumes apt.
 declare -a needed=()
 
-
 if find_gui_python >/dev/null 2>&1; then
     info "GUI: GTK4 bindings present"
 else
