@@ -14,6 +14,26 @@ command -v uv >/dev/null 2>&1 || {
 }
 REAL_UV="$(command -v uv)"
 
+# And the GTK4 bindings, for the same reason. The launcher fallback and the
+# report an install ends with are both checked here against the distro
+# interpreter, and neither has a right answer on a machine where that
+# interpreter cannot really drive GTK4. Stand-in bindings decide the optional
+# GStreamer answers further down, but they cannot stand in here: what those
+# two checks are reading is a real environment built with the distro's site
+# packages, which is the whole of what the bindings reach the project through.
+if ! /usr/bin/python3 - <<'GTK_PROBE' >/dev/null 2>&1
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gtk
+GTK_PROBE
+then
+    echo "the GTK4 bindings are required to run this suite; install" \
+        "python3-gi, gir1.2-gtk-4.0 and gir1.2-adw-1 for /usr/bin/python3" >&2
+    exit 1
+fi
+
 # Defaults to a temporary directory so the suite can be run with no setup.
 # Set EVIDENCE_DIR to keep the artefacts somewhere durable for inspection.
 EVIDENCE_DIR="${EVIDENCE_DIR:-$(mktemp -d)}"
