@@ -1,0 +1,20 @@
+### docs/machine-interface.md says to launch tools/mcp-server.py with the interpreter
+### install.sh builds. Done here against the demo fixture, with IPOD_VENV_PYTHON pointed
+### at nothing, so the only mutagen in reach is the one uv put in that environment.
+
+$ printf '<initialize>\n<tools/call read_library>\n' | /tmp/uv-env-transcript/tools/venv/bin/python tools/mcp-server.py
+  Ana Petrov       Field Notes    Paper Boats
+  Ana Petrov       Field Notes    Coastal Road
+  Elle Marchetti   Warm Ridge     Low Sun
+  Elle Marchetti   Warm Ridge     Ridge Line
+  Kova             Nightbus       Last Stop
+  The Fen          Slow Copper    Slow Copper
+
+### The same server started with /usr/bin/python3, which has the GTK bindings but no
+### mutagen, for contrast: same fixture, no tags.
+  Unknown artist   Unknown album  01 - Paper Boats
+  Unknown artist   Unknown album  02 - Coastal Road
+  Unknown artist   Unknown album  01 - Low Sun
+  Unknown artist   Unknown album  02 - Ridge Line
+  Unknown artist   Unknown album  01 - Last Stop
+  Unknown artist   Unknown album  01 - Slow Copper

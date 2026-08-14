@@ -1,0 +1,184 @@
+### 1. ./install.sh --check on a machine with no environment yet
+
+$ ./install.sh --check
+==> Dependencies
+warning:   python virtualenv    unavailable (not created yet at /tmp/uv-env-transcript/tools/venv/bin/python (base /usr/bin/python3))
+warning:   database builder     unavailable (not installed at /tmp/uv-env-transcript/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py)
+warning:   metadata support     unavailable (mutagen is not in the virtualenv)
+==>   graphical interface  ok (/usr/bin/python3)
+==>   preview playback     ok
+==>   voiceover            ok
+==>   audio conversion     ok
+==>   javascript runtime   ok (bun)
+warning:   youtube downloads    unavailable (no yt-dlp)
+[exit 6]
+
+### 2. ./install.sh --no-system builds the uv environment
+
+$ ./install.sh --no-system
+==> Python environment base: /usr/bin/python3 (Python 3.12.3)
+==> GUI: GTK4 bindings present
+==> Preview playback: GStreamer present
+==> Voiceover: speech engine present
+==> Conversion: ffmpeg present
+==> YouTube downloads: bun present
+==> All system dependencies satisfied
+==> Desktop entry installed (look for iPod Shuffle in the app grid)
+==> Installing database builder into /tmp/uv-env-transcript/tools
+==> Database builder cloned
+==> Creating uv environment at /tmp/uv-env-transcript/tools/venv
+==> Synchronizing Python dependencies
+==>   mutagen 1.48.1
+==>   yt-dlp 2026.07.04
+
+==> Verifying
+==>   python virtualenv    ok (/tmp/uv-env-transcript/tools/venv/bin/python)
+==>   database builder     ok (/tmp/uv-env-transcript/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py)
+==>   metadata support     ok
+==>   graphical interface  ok (/tmp/uv-env-transcript/tools/venv/bin/python)
+==>   preview playback     ok
+==>   voiceover            ok
+==>   audio conversion     ok
+==>   javascript runtime   ok (bun)
+==>   youtube downloads    ok (/tmp/uv-env-transcript/tools/venv/bin/yt-dlp)
+
+==> Done.
+==>   GUI:  ./ipod-gui.sh
+==>   CLI:  ./ipod-sync.sh ~/Music/somefolder
+[exit 0]
+
+### 3. One interpreter: distro GTK bindings plus uv-synchronized packages
+
+$ cat /tmp/uv-env-transcript/tools/venv/pyvenv.cfg
+home = /usr/bin
+implementation = CPython
+uv = 0.11.28
+version_info = 3.12.3
+include-system-site-packages = true
+
+$ /tmp/uv-env-transcript/tools/venv/bin/python -c "<import gi, Gtk, mutagen>"
+interpreter      : /tmp/uv-env-transcript/tools/venv/bin/python
+base interpreter : /usr/bin/python3.12
+gi   (distro)    : /usr/lib/python3/dist-packages/gi/__init__.py
+GTK              : 4.14.5
+mutagen (uv)     : /tmp/uv-env-transcript/tools/venv/lib/python3.12/site-packages/mutagen/__init__.py 1.48.1
+
+$ ls /tmp/uv-env-transcript/tools/venv/bin  # no pip of its own; uv owns the environment
+activate
+activate.bat
+activate.csh
+activate.fish
+activate.nu
+activate.ps1
+activate_this.py
+deactivate.bat
+mid3cp
+mid3iconv
+mid3v2
+moggsplit
+mutagen-inspect
+mutagen-pony
+pydoc.bat
+python
+python3
+python3.12
+yt-dlp
+
+### 4. What lib.sh resolves for the GUI, the database builder and the base
+
+$ source ./lib.sh && find_gui_python / db_python / system_python
+find_gui_python : /tmp/uv-env-transcript/tools/venv/bin/python
+db_python       : /tmp/uv-env-transcript/tools/venv/bin/python
+system_python   : /usr/bin/python3
+PATH python3    : /home/max/.local/share/uv/python-bin/python3
+
+### 5. Re-running the installer reuses the environment instead of rebuilding it
+
+$ ./install.sh --no-system
+==> Python environment base: /usr/bin/python3 (Python 3.12.3)
+==> GUI: GTK4 bindings present
+==> Preview playback: GStreamer present
+==> Voiceover: speech engine present
+==> Conversion: ffmpeg present
+==> YouTube downloads: bun present
+==> All system dependencies satisfied
+==> Desktop entry installed (look for iPod Shuffle in the app grid)
+==> Installing database builder into /tmp/uv-env-transcript/tools
+==> Database builder updated
+==> Reusing uv environment at /tmp/uv-env-transcript/tools/venv
+==> Synchronizing Python dependencies
+==>   mutagen 1.48.1
+==>   yt-dlp 2026.07.04
+
+==> Verifying
+==>   python virtualenv    ok (/tmp/uv-env-transcript/tools/venv/bin/python)
+==>   database builder     ok (/tmp/uv-env-transcript/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py)
+==>   metadata support     ok
+==>   graphical interface  ok (/tmp/uv-env-transcript/tools/venv/bin/python)
+==>   preview playback     ok
+==>   voiceover            ok
+==>   audio conversion     ok
+==>   javascript runtime   ok (bun)
+==>   youtube downloads    ok (/tmp/uv-env-transcript/tools/venv/bin/yt-dlp)
+
+==> Done.
+==>   GUI:  ./ipod-gui.sh
+==>   CLI:  ./ipod-sync.sh ~/Music/somefolder
+[exit 0]
+
+### 6. ipod-fetch.sh --update upgrades yt-dlp through uv
+
+$ uv pip install --python /tmp/uv-env-transcript/tools/venv/bin/python yt-dlp==2025.11.12   # pin an old copy first
+yt-dlp before: 2025.11.12
+
+$ ./ipod-fetch.sh --update
+==> Updating yt-dlp
+==> yt-dlp 2026.07.04
+[exit 0]
+yt-dlp after : 2026.07.04
+
+### 7. A machine without uv is told so, by every entry point
+
+$ PATH=/usr/bin:/bin ./install.sh --check   # on a machine with no environment yet
+==> Dependencies
+warning:   python virtualenv    unavailable (uv not found; install it from https://docs.astral.sh/uv/)
+warning:   database builder     unavailable (not installed at /tmp/uv-env-transcript/no-uv-tools/IPod-Shuffle-4g/ipod-shuffle-4g.py)
+[exit 6]
+
+$ PATH=/usr/bin:/bin ./install.sh --no-system
+error: uv is required - install it from https://docs.astral.sh/uv/.
+[exit 1]
+
+$ PATH=/usr/bin:/bin ./ipod-fetch.sh --update
+error: uv is required to update yt-dlp - install it from https://docs.astral.sh/uv/.
+[exit 6]
+
+### 8. install.sh --check --json, the documented capability report
+
+$ ./install.sh --check --json
+schema: 1
+satisfied: True
+missing_packages: []
+  python-virtualenv      ok           /tmp/uv-env-transcript/tools/venv/bin/python
+  database-builder       ok           /tmp/uv-env-transcript/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py
+  metadata               ok           
+  graphical-interface    ok           /tmp/uv-env-transcript/tools/venv/bin/python
+  preview-playback       ok           
+  voiceover              ok           
+  audio-conversion       ok           
+  javascript-runtime     ok           bun
+  youtube-downloads      ok           /tmp/uv-env-transcript/tools/venv/bin/yt-dlp
+
+### 9. A real sync: the upstream database builder run under that interpreter
+
+$ ./ipod-sync.sh --expect-device ... --confirm-token ... --ipod /tmp/sync-demo/device /tmp/sync-demo/library
+Warning: RHVoice not found, Russian voicever won't be generated.
+Writing database. This may take a while...
+Database written successfully:
+Tracks 6
+Albums 4
+Artists 4
+Playlists 0
+==> iPod now holds 6 track(s)
+warning: Unmount before unplugging, or the database may be corrupted:
+warning:   ./ipod-sync.sh --rebuild-only --eject

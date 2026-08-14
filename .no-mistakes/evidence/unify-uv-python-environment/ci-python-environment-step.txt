@@ -1,0 +1,28 @@
+### The workflow's 'Python environment' step, taken out of .github/workflows/tests.yml
+### by parsing the YAML, and run here exactly as written.
+
+uv venv \
+  --python /usr/bin/python3 \
+  --system-site-packages \
+  "${RUNNER_TEMP}/tag-venv"
+uv pip sync \
+  --python "${RUNNER_TEMP}/tag-venv/bin/python" \
+  requirements.txt
+$ RUNNER_TEMP=/tmp/ci-runner-temp2 bash -euo pipefail -c "$STEP"
+Using CPython 3.12.3 interpreter at: /usr/bin/python3
+Creating virtual environment at: /tmp/ci-runner-temp2/tag-venv
+Activate with: source /tmp/ci-runner-temp2/tag-venv/bin/activate
+Using Python 3.12.3 environment at: /tmp/ci-runner-temp2/tag-venv
+Resolved 2 packages in 2ms
+Installed 2 packages in 39ms
+ + mutagen==1.48.1
+ + yt-dlp==2026.7.4
+
+### What that step left behind, which is what the screenshot step then uses as
+### IPOD_VENV_PYTHON: distro GTK bindings and this project's packages, one interpreter.
+interpreter      : /tmp/ci-runner-temp2/tag-venv/bin/python
+base interpreter : /usr/bin/python3.12
+gi   (distro)    : /usr/lib/python3/dist-packages/gi/__init__.py
+GTK              : 4.14.5
+mutagen (uv)     : 1.48.1
+yt-dlp           : 2026.07.04
