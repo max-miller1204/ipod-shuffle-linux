@@ -218,9 +218,15 @@ capabilities_satisfied() {
 #
 # Asked of the interpreter itself rather than read out of pyvenv.cfg, so an
 # environment whose base interpreter is gone answers by failing to run.
+#
+# Takes the base interpreter as an argument rather than reading the global,
+# which is not assigned until the prerequisite checks below - and those run
+# after the whole --check path, so a later caller from the capability report
+# would otherwise abort the script on an unbound variable.
 environment_matches_contract() {
+    local base="$1"
     [[ -x "$VENV_PYTHON" ]] || return 1
-    "$VENV_PYTHON" - "$base_python" <<'PROBE' >/dev/null 2>&1
+    "$VENV_PYTHON" - "$base" <<'PROBE' >/dev/null 2>&1
 import os
 import site
 import sys
@@ -493,7 +499,7 @@ fi
 "$base_python" -m py_compile "$DB_TOOL" \
     || die "Database builder failed to compile under this Python version."
 
-if environment_matches_contract; then
+if environment_matches_contract "$base_python"; then
     info "Reusing uv environment at $TOOLS_DIR/venv"
 else
     info "Creating uv environment at $TOOLS_DIR/venv"
