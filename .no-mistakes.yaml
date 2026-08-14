@@ -4,9 +4,17 @@ commands:
     bash -c '
       set -euo pipefail
       source ./lib.sh
-      gui_python="$(find_gui_python)"
-      "$gui_python" tools/mixin-contract.py
-      "$gui_python" -m py_compile ipod-gui.py ipod-report.py ipod_gui/*.py tests/*.py tools/*.py
+      # The installed environment when there is one, so these read the modules
+      # the application runs. Neither check needs GTK - one walks the source
+      # with ast and the other compiles without importing - so a checkout with
+      # no bindings yet says so and carries on rather than failing silently.
+      if ! python="$(find_gui_python 2>/dev/null)"; then
+        python="$(system_python)" \
+          || { echo "lint needs a python3 interpreter" >&2; exit 1; }
+        echo "lint: no interpreter with the GTK4 bindings; using $python" >&2
+      fi
+      "$python" tools/mixin-contract.py
+      "$python" -m py_compile ipod-gui.py ipod-report.py ipod_gui/*.py tests/*.py tools/*.py
     '
 
 ignore_patterns:

@@ -4,6 +4,16 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASE_PATH="$PATH"
 
+# Everything else the installer sections reach for is a coreutil that is
+# always there. uv is not, and it is what builds the environment install.sh
+# installs into, so say so here rather than a thousand lines in as a symlink
+# to nothing.
+command -v uv >/dev/null 2>&1 || {
+    echo "uv is required to run this suite; see https://docs.astral.sh/uv/" >&2
+    exit 1
+}
+REAL_UV="$(command -v uv)"
+
 # Defaults to a temporary directory so the suite can be run with no setup.
 # Set EVIDENCE_DIR to keep the artefacts somewhere durable for inspection.
 EVIDENCE_DIR="${EVIDENCE_DIR:-$(mktemp -d)}"
@@ -2958,57 +2968,75 @@ git clone --quiet "$UPSTREAM_STUB" "$FULL_TOOLS/IPod-Shuffle-4g"
 
 FULL_BIN="$TEST_ROOT/full-install-bin"
 mkdir -p "$FULL_BIN"
+# The environment itself is built by the real uv, which reaches nothing over
+# the network and is what the installer's own contract check has to read: an
+# environment faked out of a shell script would be rebuilt on every run, which
+# is the behaviour being checked here. Only the package steps are stood in
+# for, those being the ones that would go to an index.
+export IPOD_TEST_REAL_UV="$REAL_UV"
 cat > "$FULL_BIN/uv" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
 
+write_yt_dlp() {
+    cat > "$1" <<YTDLP
+#!/bin/sh
+case "\$1" in
+    --version) printf '%s\n' '$2' ;;
+    --help)    printf '%s\n' '  --js-runtimes RUNTIMES  Runtimes to use' ;;
+esac
+YTDLP
+    chmod +x "$1"
+}
+
 case "${1:-}" in
     venv)
+        "$IPOD_TEST_REAL_UV" "$@"
         target="${!#}"
-        rm -rf -- "$target"
-        mkdir -p "$target/bin" "$target/site"
         printf '%s\n' "$*" > "$target/uv-venv-invocation.txt"
-        cat > "$target/bin/python" <<'PYTHON'
-#!/bin/sh
-PYTHONPATH="$(dirname "$0")/../site"
-export PYTHONPATH
-exec /usr/bin/python3 "$@"
-PYTHON
-        chmod +x "$target/bin/python"
         ;;
     pip)
-        [[ "${2:-}" == sync ]]
+        subcommand="${2:-}"
         shift 2
         python=""
-        requirements=""
+        packages=()
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --python)
                     python="$2"
                     shift 2
                     ;;
-                --quiet)
+                --quiet|--upgrade)
                     shift
                     ;;
                 *)
-                    requirements="$1"
+                    packages+=("$1")
                     shift
                     ;;
             esac
         done
-        [[ -n "$python" && -n "$requirements" ]]
+        [[ -n "$python" && ${#packages[@]} -eq 1 ]]
         environment="$(dirname "$(dirname "$python")")"
-        printf '%s\n' "$requirements" > "$environment/uv-sync-source.txt"
-        printf '%s\n' 'version_string = "1.47.0-stand-in"' \
-            > "$environment/site/mutagen.py"
-        cat > "$environment/bin/yt-dlp" <<'YTDLP'
-#!/bin/sh
-case "$1" in
-    --version) printf '%s\n' '2025.11.12' ;;
-    --help)    printf '%s\n' '  --js-runtimes RUNTIMES  Runtimes to use' ;;
-esac
-YTDLP
-        chmod +x "$environment/bin/yt-dlp"
+        case "$subcommand" in
+            sync)
+                if [[ -n "${IPOD_TEST_UV_SYNC_FAILS:-}" ]]; then
+                    echo "stand-in uv: no index to reach" >&2
+                    exit 1
+                fi
+                printf '%s\n' "${packages[0]}" > "$environment/uv-sync-source.txt"
+                printf '%s\n' 'version_string = "1.47.0-stand-in"' \
+                    > "$("$python" -c \
+                        'import sysconfig; print(sysconfig.get_path("purelib"))')/mutagen.py"
+                write_yt_dlp "$environment/bin/yt-dlp" '2025.11.12'
+                ;;
+            install)
+                [[ "${packages[0]}" == yt-dlp ]]
+                write_yt_dlp "$environment/bin/yt-dlp" '2026.02.04'
+                ;;
+            *)
+                exit 2
+                ;;
+        esac
         ;;
     *)
         exit 2
@@ -3031,7 +3059,7 @@ full_before_status=0
 full_install --check \
     > "$EVIDENCE_DIR/install-complete-before.txt" 2>&1 || full_before_status=$?
 test "$full_before_status" -eq 6
-test ! -e "$FULL_TOOLS/venv/site/mutagen.py"
+test ! -e "$FULL_TOOLS/venv"
 
 full_install --no-system > "$EVIDENCE_DIR/install-complete.txt" 2>&1
 grep -Fq -- "--system-site-packages $FULL_TOOLS/venv" \
@@ -3104,6 +3132,47 @@ assert verdict(verifying, "metadata support") == "ok", verifying
 for installed in ("python virtualenv", "database builder"):
     assert verdict(verifying, installed) == "ok", verifying
 PY
+
+# Re-running the installer is how this project is updated and how a missing
+# mutagen is repaired, so a synchronization that cannot reach an index has to
+# leave the machine with what it already had. An environment cleared before
+# that step would take mutagen and yt-dlp with it and leave nothing.
+sync_failure_status=0
+export IPOD_TEST_UV_SYNC_FAILS=1
+full_install --no-system \
+    > "$EVIDENCE_DIR/install-sync-failure.txt" 2>&1 || sync_failure_status=$?
+unset IPOD_TEST_UV_SYNC_FAILS
+test "$sync_failure_status" -ne 0
+grep -Fq 'Failed to synchronize Python dependencies' \
+    "$EVIDENCE_DIR/install-sync-failure.txt"
+test -x "$FULL_TOOLS/venv/bin/yt-dlp"
+"$FULL_TOOLS/venv/bin/python" -c \
+    'import mutagen; assert mutagen.version_string == "1.47.0-stand-in"'
+
+# An environment from before this contract is rebuilt rather than kept, since
+# one without the distro's site packages cannot import the GTK bindings and
+# the window would have nothing to run in. The marker goes with it.
+rm -rf "$FULL_TOOLS/venv"
+uv venv --quiet --no-managed-python --python /usr/bin/python3 "$FULL_TOOLS/venv"
+printf 'from before the contract\n' > "$FULL_TOOLS/venv/stale-environment.txt"
+if "$FULL_TOOLS/venv/bin/python" -c 'import gi' 2>/dev/null; then
+    echo "the stand-in for an old environment could already see the distro" >&2
+    exit 1
+fi
+full_install --no-system > "$EVIDENCE_DIR/install-migrated.txt" 2>&1
+test ! -e "$FULL_TOOLS/venv/stale-environment.txt"
+grep -Fq 'mutagen 1.47.0-stand-in' "$EVIDENCE_DIR/install-migrated.txt"
+grep -Fq "graphical interface  ok ($FULL_TOOLS/venv/bin/python)" \
+    "$EVIDENCE_DIR/install-migrated.txt"
+
+# yt-dlp breaks whenever YouTube changes something, so --update is what the
+# window and the README both point at. It updates the environment install.sh
+# built, which has no pip of its own for it to reach through.
+env -u IPOD_DB_TOOL -u IPOD_VENV_PYTHON -u IPOD_VENV_YT_DLP \
+    PATH="$FULL_BIN:$BASE_PATH" IPOD_TOOLS_DIR="$FULL_TOOLS" \
+    "$ROOT/ipod-fetch.sh" --update > "$EVIDENCE_DIR/fetch-update.txt" 2>&1
+grep -Fq 'yt-dlp 2026.02.04' "$EVIDENCE_DIR/fetch-update.txt"
+test "$("$FULL_TOOLS/venv/bin/yt-dlp" --version)" = 2026.02.04
 
 exit_code_is 1 install-json-without-check.txt "$ROOT/install.sh" --json
 grep -Fq -- '--json only reports' "$EVIDENCE_DIR/install-json-without-check.txt"
@@ -3195,6 +3264,9 @@ printf '%s\n' \
     "PASS: a machine without python3 got the dependency code once, and still listed" \
     "PASS: --check reported what is installed without installing, and its code matched its document" \
     "PASS: an install that finished ended with the report --check prints, taken after it" \
+    "PASS: a failed dependency synchronization left the installed environment intact" \
+    "PASS: an environment predating the distro-Python contract was rebuilt from it" \
+    "PASS: --update upgraded yt-dlp in an environment that holds no pip" \
     "PASS: a sync reported every file, playlist and stage as JSON while it ran" \
     "PASS: names holding a quote, a backslash and a newline survived the stream" \
     "PASS: the same run without the stream printed exactly the same output" \

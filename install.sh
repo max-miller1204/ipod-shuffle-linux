@@ -204,6 +204,45 @@ capabilities_satisfied() {
     return 0
 }
 
+# Whether the environment at $TOOLS_DIR/venv is already the one built below.
+#
+# Re-running the installer is how this project is updated and how a missing
+# mutagen is repaired, so it must not be able to leave a working machine with
+# less than it had: clearing the environment before a synchronization that
+# then cannot reach an index would take yt-dlp and mutagen with it. A
+# conforming environment is therefore synchronized in place, and only one that
+# does not match is rebuilt - an old virtualenv without the distro's site
+# packages, one built from an interpreter a distribution upgrade has since
+# replaced, or one built from a uv- or pyenv-managed python that was first on
+# PATH at the time.
+#
+# Asked of the interpreter itself rather than read out of pyvenv.cfg, so an
+# environment whose base interpreter is gone answers by failing to run.
+environment_matches_contract() {
+    [[ -x "$VENV_PYTHON" ]] || return 1
+    "$VENV_PYTHON" - "$base_python" <<'PROBE' >/dev/null 2>&1
+import os
+import site
+import sys
+
+base = os.path.realpath(sys.argv[1])
+prefix = os.path.realpath(sys.prefix)
+
+if prefix == os.path.realpath(sys.base_prefix):
+    raise SystemExit("not a virtual environment")
+if os.path.realpath(getattr(sys, "_base_executable", sys.executable)) != base:
+    raise SystemExit("built from a different interpreter")
+# With the distro's site packages exposed, the base interpreter's directories
+# are on the path beside the environment's own; without them, every site
+# directory lies inside it.
+if all(
+    os.path.realpath(path).startswith(prefix + os.sep)
+    for path in site.getsitepackages()
+):
+    raise SystemExit("distro site packages are not visible")
+PROBE
+}
+
 # Nothing is installed, nothing is written, and with --json nothing but the
 # document reaches stdout - which is why this comes before the prerequisite
 # checks below, whose first act is to print the Python version.
@@ -455,15 +494,19 @@ fi
 "$base_python" -m py_compile "$DB_TOOL" \
     || die "Database builder failed to compile under this Python version."
 
-info "Creating uv environment at $TOOLS_DIR/venv"
-uv venv \
-    --quiet \
-    --clear \
-    --no-managed-python \
-    --python "$base_python" \
-    --system-site-packages \
-    "$TOOLS_DIR/venv" \
-    || die "Could not create the uv environment from $base_python."
+if environment_matches_contract; then
+    info "Reusing uv environment at $TOOLS_DIR/venv"
+else
+    info "Creating uv environment at $TOOLS_DIR/venv"
+    uv venv \
+        --quiet \
+        --clear \
+        --no-managed-python \
+        --python "$base_python" \
+        --system-site-packages \
+        "$TOOLS_DIR/venv" \
+        || die "Could not create the uv environment from $base_python."
+fi
 
 info "Synchronizing Python dependencies"
 uv pip sync --quiet --python "$VENV_PYTHON" "$REQUIREMENTS" \

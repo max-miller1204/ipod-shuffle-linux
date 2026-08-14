@@ -81,14 +81,22 @@ done
 
 # yt-dlp breaks whenever YouTube changes something, which is often, so keeping
 # it current is routine maintenance rather than an unusual event. Updating the
-# copy this project owns is a flag rather than a documented pip incantation.
+# copy this project owns is a flag rather than a documented incantation.
+#
+# Through uv, which is what install.sh builds and fills that environment with:
+# it holds no pip of its own, and reaching one through the distro's site
+# packages would install with a tool that does not own the environment on the
+# machines that happen to have it and fail outright on the ones that do not.
 if (( UPDATE )); then
     (( $# == 0 )) || die "--update takes no URLs."
     [[ -x "$VENV_PYTHON" ]] \
         || die_with "$EXIT_MISSING_DEPENDENCY" \
             "No virtualenv at $VENV_PYTHON - run ./install.sh first."
+    command -v uv >/dev/null 2>&1 \
+        || die_with "$EXIT_MISSING_DEPENDENCY" \
+            "uv is required to update yt-dlp - install it from https://docs.astral.sh/uv/."
     info "Updating yt-dlp"
-    "$VENV_PYTHON" -m pip install -q --disable-pip-version-check --upgrade yt-dlp \
+    uv pip install --quiet --python "$VENV_PYTHON" --upgrade yt-dlp \
         || die "Failed to update yt-dlp."
     info "yt-dlp $("$(yt_dlp_bin)" --version)"
     exit 0
