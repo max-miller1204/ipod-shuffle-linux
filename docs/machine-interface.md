@@ -225,13 +225,14 @@ Read it again until it says what you are waiting for, rather than once.
 ## Over MCP, from outside this checkout
 
 ```bash
-python3 tools/mcp-server.py
+~/ipod-tools/venv/bin/python tools/mcp-server.py
 ```
 
 `tools/mcp-server.py` is an MCP server over the readings above and the three device-changing scripts, spoken as JSON-RPC on stdin and stdout, one document per line.
 It answers protocol version `2025-06-18` and the four methods a client needs of it - `initialize`, `ping`, `tools/list` and `tools/call` - reads a notification without answering it, and says `-32601` to anything else rather than falling silent.
 It imports nothing outside the standard library, so a client needs no package installed to reach any of this.
-Launch it by the absolute path to the file, with the interpreter that has the GTK bindings, which is `/usr/bin/python3` on an ordinary install: the read tools below re-enter the `ipod_gui` package with whichever interpreter is running the server, while the scripts are found from the server's own location rather than from the directory a client happened to launch it in.
+Launch it by the absolute path to the file, with the interpreter `./install.sh` builds, which is `~/ipod-tools/venv/bin/python` on an ordinary install: it is the one that has both the distro's GTK bindings and this project's `mutagen`, so the tag-reader subprocess stays on the same interpreter instead of crossing over to another installation to find tags.
+The read tools below re-enter the `ipod_gui` package with whichever interpreter is running the server, while the scripts are found from the server's own location rather than from the directory a client happened to launch it in.
 
 The listing is where the three kinds of call are kept apart, because the listing is what a client chooses from:
 

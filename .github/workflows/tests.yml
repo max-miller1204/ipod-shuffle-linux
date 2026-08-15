@@ -15,6 +15,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
 
       # The GUI smoke tests import the ipod_gui package, which imports
       # PyGObject at module level, so the bindings are needed even though most
@@ -34,40 +35,42 @@ jobs:
       # ffmpeg encodes the demo fixture's tracks and cover art, and
       # tools/demo-library.py refuses to build anything without it, so the
       # screenshot harness cannot run on a runner image that does not ship one.
-      # python3-venv is for the tag reader below, which is a virtualenv here
-      # for the same reason it is one on a real machine.
+      # The tag reader below uses the same uv environment shape as install.sh:
+      # distro Python and GTK bindings plus project-owned Python packages.
       - name: Install test dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck xvfb dbus \
-            espeak ffmpeg python3-venv
+            espeak ffmpeg
 
-      # The window reads tags through whichever interpreter has mutagen, and
-      # nothing on this runner has it: without one the canonical four-album
-      # fixture renders as a single "Unknown album" tile over "All 1", and the
-      # screenshots uploaded below are of a library nobody has. It is a
-      # virtualenv rather than the python3-mutagen package deliberately.
-      # install.sh puts mutagen in one because PyGObject belongs to the system
-      # Python, and the end-to-end suite checks an install that reports
-      # metadata support missing until its own virtualenv has it - which a
-      # system-wide mutagen, visible to every interpreter on the machine,
-      # would make it report the opposite of.
-      - name: Tag reader for the screenshots
+      # Exercise the installed environment contract rather than giving the
+      # screenshot harness a second, test-only dependency setup.
+      - name: Python environment
         run: |
-          python3 -m venv "${RUNNER_TEMP}/tag-venv"
-          "${RUNNER_TEMP}/tag-venv/bin/pip" install \
-            -q --disable-pip-version-check mutagen
+          uv venv \
+            --python /usr/bin/python3 \
+            --system-site-packages \
+            "${RUNNER_TEMP}/tag-venv"
+          uv pip sync \
+            --python "${RUNNER_TEMP}/tag-venv/bin/python" \
+            requirements.txt
 
       - name: MCP server
         run: python3 tests/mcp-server.py
 
-      - name: Shell lint
-        run: shellcheck -x ./*.sh tests/product-e2e.sh
+      # The shell check, the architecture tooling and the Python compile, run
+      # through the wrapper a contributor runs, so this cannot end up checking
+      # an older set than .no-mistakes.yaml configures. Architecture tooling
+      # is gated here rather than as a behavioural check.
+      - name: Lint
+        run: python3 tools/lint.py
 
-      # Architecture tooling gated at lint time, not a behavioural check.
-      - name: Mixin contract
-        run: python3 tools/mixin-contract.py
+      # The step above is the only reader of the block scalar those checks are
+      # written down in, and one read short would run fewer of them while
+      # still passing. This is what says it read the whole of it.
+      - name: Lint wrapper
+        run: python3 tests/lint-wrapper.py
 
       # The demo builder rebuilds by deleting the directory it is handed, so
       # the guard deciding whether it may is checked on its own. It needs no
@@ -76,13 +79,11 @@ jobs:
       - name: Demo library guard
         run: python3 tests/demo-library-guard.py
 
-      # Compiling catches a syntax error in any file, and the import catches
-      # what compiling cannot now that the GUI is a package: a name that moved
-      # to another module and left an import behind pointing at nothing.
-      - name: Python syntax
+      # What compiling cannot catch now that the GUI is a package: a name that
+      # moved to another module and left an import behind pointing at nothing.
+      # The compile itself is in the lint step above rather than repeated here.
+      - name: Python imports
         run: |
-          python3 -m py_compile \
-            ipod-gui.py ipod-report.py ipod_gui/*.py tests/*.py tools/*.py
           python3 -c 'import ipod_gui'
           python3 -m ipod_gui.cli --help
           python3 tests/headless-cli.py

@@ -42,52 +42,44 @@ cd ipod-shuffle-linux
 ```
 
 That handles the core installation.
-It fetches the database builder into `~/ipod-tools/`, creates a virtualenv for the Python dependencies, installs an app-grid entry for the GUI, and offers to install compatible missing system packages.
+It fetches the database builder into `~/ipod-tools/`, creates a uv-managed environment from the distro Python, synchronizes the pure Python dependencies, installs an app-grid entry for the GUI, and offers to install compatible missing system packages.
+The environment can see the distro's GTK bindings, so the GUI, database builder, and download helper use one Python without rebuilding PyGObject.
 A missing JavaScript runtime is reported with a link to its manual setup guide instead; see [Downloading from YouTube](#downloading-from-youtube).
 
-The only hard requirements are Python 3 and git.
+The hard requirements are a distro Python 3, git, and [uv](https://docs.astral.sh/uv/getting-started/installation/).
 Everything else is installed or reported for you:
 
 | Component | Where it goes | Gives you |
 | --- | --- | --- |
-| `mutagen` | virtualenv | Artist and album metadata, including tag-based playlists |
-| `yt-dlp` | virtualenv | Downloading music from YouTube via `ipod-fetch.sh` |
+| `mutagen` | uv environment | Artist and album metadata, including tag-based playlists |
+| `yt-dlp` | uv environment | Downloading music from YouTube via `ipod-fetch.sh` |
 | `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-adw-1` | system | The graphical interface |
 | `libttspico-utils` | system | Spoken track and playlist names via VoiceOver |
 | `ffmpeg` | system | Converting FLAC, OGG, and other unsupported formats, including YouTube's Opus |
 | [GStreamer](#preview-playback) | system | Previewing a track through this computer's speakers |
 | [Supported JavaScript runtime](#downloading-from-youtube) | system | Solving YouTube's signature challenge |
 
-Run `./install.sh --no-system` to set up the virtualenv only and be told what to install by hand.
+Run `./install.sh --no-system` to set up the uv environment only and be told what native packages to install by hand.
 Run `./install.sh --check` to be told what this machine already has without installing anything at all; see [what is installed](docs/machine-interface.md#what-is-installed).
 System packages are never installed without asking, and the privileged step goes through `pkexec` so it prompts through the desktop rather than needing a terminal.
 
-### Why not put everything in the virtualenv
+### Why native dependencies stay outside the uv environment
 
-It is a fair question, and the answer differs per dependency.
+`mutagen` and `yt-dlp` are Python packages, so uv synchronizes them into `~/ipod-tools/venv` without modifying the system Python.
 
-`mutagen` is pure Python, so it goes in the virtualenv and needs no privileges at all.
+PyGObject is different.
+Building it from PyPI requires the GObject Introspection and Cairo development headers, while GTK4 itself is a native library that no Python environment can contain.
+The distro's `python3-gi` is smaller, already built, and tested with the distro's GTK packages.
 
-PyGObject cannot.
-Building it from pip requires the gobject-introspection and cairo development headers, so pip-installing it would mean adding three `-dev` system packages in order to avoid adding one runtime package.
-GTK4 itself is a C library that no virtualenv can contain.
-The distro's `python3-gi` is smaller, already built, and better tested.
+`install.sh` therefore creates the uv environment from the distro Python with access to its system site packages.
+The environment imports `gi` from the distro and imports `mutagen` and `yt-dlp` from its own package directory.
+An unrelated uv-, pyenv-, conda-, or Homebrew-managed `python3` earlier on `PATH` cannot silently take over the application.
 
-GStreamer is reached through those same bindings, so its typelib belongs to the system Python too.
-Its plugins are native libraries rather than Python packages, and a virtualenv cannot contain them.
+GStreamer is reached through those same bindings, and its typelibs and plugins are native system packages.
+`pico2wave` and `ffmpeg` are native executables as well.
 
-`pico2wave` and `ffmpeg` are plain binaries rather than Python packages, so they have no virtualenv to go in either.
-
-This split is why `ipod-gui.sh` looks for an interpreter that can import GTK instead of assuming the one on PATH, and why the GUI reads tags by calling into the virtualenv as a subprocess.
-
-### Why mutagen goes in a virtualenv rather than apt
-
-`mutagen` supplies the artist and album metadata written into the database, and `install.sh` installs it into `~/ipod-tools/venv` rather than through apt.
-
-That is deliberate.
-The `python3` first on your PATH is not necessarily the one apt installs into.
-If you use uv, pyenv, conda, or Homebrew, your `python3` cannot see `/usr/lib/python3/dist-packages` at all, so `sudo apt install python3-mutagen` completes successfully while the database builder still reports `No mutagen found`.
-Owning a virtualenv sidesteps both that and PEP 668's externally-managed-environment error.
+`ipod-gui.sh` prefers the project environment after installation and still probes system interpreters before installation, so it can report missing GTK packages accurately.
+The database builder and tag reader use that same project environment, avoiding both PEP 668's externally managed environment restriction and the mismatch where a PATH-selected Python cannot see `/usr/lib/python3/dist-packages`.
 
 ## Graphical interface
 
@@ -739,7 +731,7 @@ Re-run the sync and let the script unmount with `--eject`.
 
 **Tracks play but have no names under VoiceOver.**
 `mutagen` is missing, so the database was written without metadata.
-Re-run `./install.sh`, or install `mutagen` into the virtualenv it creates.
+Re-run `./install.sh`, or install `mutagen` into the uv environment it creates.
 
 **`udisksctl unmount` says the device is busy.**
 Something still has a file open on the volume, often a file manager.
@@ -765,7 +757,7 @@ That erases the device, including `Speakable/`, which is restored from the firmw
 ## Code layout
 
 The shell scripts are the product; each one does a job the command line can do on its own, and `lib.sh` holds what they share.
-`install.sh` sets up the virtualenv and the desktop entry, and nothing else depends on it.
+`install.sh` sets up the uv environment and desktop entry, and nothing else depends on it.
 
 `ipod-report.py` is the one exception to that shape: it is the JSON the scripts report with, not a command of its own.
 It is Python because JSON is not something a shell can emit safely, and a track name holding a quote, a backslash or a newline is ordinary on a device whose names came from tags and YouTube titles.
@@ -780,7 +772,7 @@ The GUI is a package, `ipod_gui/`, launched by `ipod-gui.py` and split by what e
 | --- | --- |
 | `config.py` | Where things live: the scripts to drive, the caches, the track states |
 | `text.py` | Script output and raw numbers, turned into what a label can show |
-| `tags.py` | The tag reader that runs in the virtualenv's interpreter, and the scan around it |
+| `tags.py` | The tag reader that runs in the project's uv environment, and the scan around it |
 | `device.py` | Finding the iPod, and reading what is on it over USB in one pass |
 | `shell.py` | Asking `lib.sh` what is installed, so the window and the scripts agree |
 | `youtube.py` | Search, artwork, and the `ipod-fetch.sh` command for a result |
@@ -807,6 +799,8 @@ bash tests/product-e2e.sh
 ```
 
 The suite runs against a synthetic iPod directory tree with a stand-in for the database builder, so it needs no hardware, no audio, and a few seconds.
+It does need `uv`, and says so before it starts rather than partway through: its installer sections run the shipped `install.sh`, which builds the project's environment with it.
+It refuses just as early without the GTK4 bindings on `/usr/bin/python3`, since the checks on the launcher's interpreter fallback and on the report an install closes with read a real environment built from that interpreter's site packages, which stand-in bindings cannot supply.
 The playlist checks are the exception: they also run the real upstream builder against the rewritten lists a sync produces, because only it can vouch that every entry resolves.
 That part uses the copy `install.sh` keeps, or `IPOD_REAL_DB_TOOL`; CI fetches the builder itself so the check always runs there, and a local run without it says so rather than passing silently.
 That same run writes the spoken playlist names, and `tests/gui-spoken-names.py` reads them back the way the window does, because the builder alone decides what those recordings are called: a stand-in agreeing with the window's idea of the name would agree with it wrong just as readily.
@@ -906,6 +900,8 @@ Reading it there rather than off the runner's environment is the point, because 
 It also takes each of the two servers off `PATH` in turn and gives the wrapped command a file to write, so a runner that reports a refusal after already letting a window open is told apart from one that stopped it.
 
 `tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
+`tools/lint.py` runs it together with `shellcheck` and the Python syntax check, reading the `lint` command out of `.no-mistakes.yaml` rather than repeating it, so what a contributor types and what the pipeline runs are the same text.
+`tests/lint-wrapper.py` covers that reader against the quiet way it could fail, a block scalar read short running fewer checks while still passing, deciding each case by what the command it ran actually did.
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the `tools/shoot.py` line that retakes that shot from it.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
