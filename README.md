@@ -800,6 +800,7 @@ bash tests/product-e2e.sh
 
 The suite runs against a synthetic iPod directory tree with a stand-in for the database builder, so it needs no hardware, no audio, and a few seconds.
 It does need `uv`, and says so before it starts rather than partway through: its installer sections run the shipped `install.sh`, which builds the project's environment with it.
+It refuses just as early without the GTK4 bindings on `/usr/bin/python3`, since the checks on the launcher's interpreter fallback and on the report an install closes with read a real environment built from that interpreter's site packages, which stand-in bindings cannot supply.
 The playlist checks are the exception: they also run the real upstream builder against the rewritten lists a sync produces, because only it can vouch that every entry resolves.
 That part uses the copy `install.sh` keeps, or `IPOD_REAL_DB_TOOL`; CI fetches the builder itself so the check always runs there, and a local run without it says so rather than passing silently.
 That same run writes the spoken playlist names, and `tests/gui-spoken-names.py` reads them back the way the window does, because the builder alone decides what those recordings are called: a stand-in agreeing with the window's idea of the name would agree with it wrong just as readily.
@@ -900,6 +901,7 @@ It also takes each of the two servers off `PATH` in turn and gives the wrapped c
 
 `tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
 `tools/lint.py` runs it together with `shellcheck` and the Python syntax check, reading the `lint` command out of `.no-mistakes.yaml` rather than repeating it, so what a contributor types and what the pipeline runs are the same text.
+`tests/lint-wrapper.py` covers that reader against the quiet way it could fail, a block scalar read short running fewer checks while still passing, deciding each case by what the command it ran actually did.
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the `tools/shoot.py` line that retakes that shot from it.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 

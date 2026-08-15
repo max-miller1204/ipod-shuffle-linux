@@ -225,7 +225,7 @@ Read it again until it says what you are waiting for, rather than once.
 ## Over MCP, from outside this checkout
 
 ```bash
-python3 tools/mcp-server.py
+~/ipod-tools/venv/bin/python tools/mcp-server.py
 ```
 
 `tools/mcp-server.py` is an MCP server over the readings above and the three device-changing scripts, spoken as JSON-RPC on stdin and stdout, one document per line.

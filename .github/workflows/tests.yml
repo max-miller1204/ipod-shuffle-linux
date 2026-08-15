@@ -66,6 +66,12 @@ jobs:
       - name: Lint
         run: python3 tools/lint.py
 
+      # The step above is the only reader of the block scalar those checks are
+      # written down in, and one read short would run fewer of them while
+      # still passing. This is what says it read the whole of it.
+      - name: Lint wrapper
+        run: python3 tests/lint-wrapper.py
+
       # The demo builder rebuilds by deleting the directory it is handed, so
       # the guard deciding whether it may is checked on its own. It needs no
       # display and no ffmpeg, and it is the only step covering a path that
