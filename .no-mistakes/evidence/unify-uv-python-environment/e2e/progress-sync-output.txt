@@ -1,0 +1,19 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.PvM8He9IzI/progress-ipod
+  + 03 - Line
+break.mp3 -> Odd Album/03 - Line
+break.mp3
+  + 02 - Say "hi", it's \ fine.mp3 -> Odd Album/02 - Say "hi", it's \ fine.mp3
+  + 01 - Plain.mp3 -> Odd Album/01 - Plain.mp3
+[33mwarning:[0m Broken symlink, skipped: 04 - Dangling.mp3
+[33mwarning:[0m Playlist 'Weekend': not found on this computer, skipped: /nowhere/not-on-this-computer.mp3
+[36m==>[0m Playlist 'Weekend': 1 track(s)
+[36m==>[0m Copied 3 file(s)
+[36m==>[0m Skipped 1 file(s) already on the iPod
+[33mwarning:[0m Skipped 1 unsupported file(s). Convert them first, for example:
+[33mwarning:[0m   ffmpeg -i input.flac -c:a libmp3lame -b:a 256k output.mp3
+[33mwarning:[0m Skipped 1 symlink(s) pointing at a file that is not there.
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 3 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

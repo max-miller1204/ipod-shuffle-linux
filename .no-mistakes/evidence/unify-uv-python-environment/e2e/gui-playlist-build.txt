@@ -1,0 +1,3 @@
+added 2
+moved True
+entries ['/tmp/tmp.PvM8He9IzI/Library/Neil Young/Heart of Gold.mp3', '/tmp/tmp.PvM8He9IzI/Library/Beach Boys/Surfin.mp3']

@@ -1,0 +1,13 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m Reusing saved options: --playlist-voiceover
+[36m==>[0m iPod: /tmp/tmp.PvM8He9IzI/playlist-target
+[33mwarning:[0m Playlist name contains characters FAT rejects; it will be called 'Rock_2026' on the device.
+  + First.mp3 -> First Collision/First.mp3
+[36m==>[0m Playlist 'Rock_2026': 1 track(s)
+[33mwarning:[0m Playlist name contains characters FAT rejects; it will be called 'Rock_2026' on the device.
+[33mwarning:[0m Playlist files '/tmp/tmp.PvM8He9IzI/Library/Rock:2026.m3u' and '/tmp/tmp.PvM8He9IzI/Library/Rock?2026.m3u' both become 'Rock_2026.m3u' on the device; skipped '/tmp/tmp.PvM8He9IzI/Library/Rock?2026.m3u'.
+[36m==>[0m Copied 1 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 4 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

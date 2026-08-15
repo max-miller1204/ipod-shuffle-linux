@@ -1,0 +1,3 @@
+{"event": "start", "schema": 1, "script": "remove"}
+{"event": "device", "ipod": "/tmp/tmp.PvM8He9IzI/progress-ipod-refusal"}
+{"event": "result", "ok": false, "code": 1, "removed": 0, "playlists": 0}

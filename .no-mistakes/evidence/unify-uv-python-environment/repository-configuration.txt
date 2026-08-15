@@ -1,0 +1,29 @@
+# .no-mistakes.yaml, read as the gate reads it (YAML -> semantic model):
+  auto_fix.review   = 2   (int)
+  ignore_patterns   = ['.no-mistakes/**']
+  commands.lint     = str, 21 lines
+  top-level keys    = ['auto_fix', 'commands', 'ignore_patterns']
+
+# Those key names against the installed gate binary's own decoder:
+  yaml:"auto_fix"
+  yaml:"commands"
+  yaml:"ignore_patterns"
+  yaml:"lint"
+  yaml:"review"
+
+# Evidence the ignore pattern covers, kept out of every reviewed diff:
+  461 tracked files under .no-mistakes/
+  0 of them changed on this branch
+
+# .github/workflows/tests.yml still parses, with the steps it now runs:
+Traceback (most recent call last):
+  File "<stdin>", line 4, in <module>
+KeyError: 'tests'
+# .github/workflows/tests.yml still parses; jobs: ['test']
+  test: 21 steps
+    - actions/checkout@v4: []
+    - astral-sh/setup-uv@v7: []
+    - Python environment: ['uv venv \\']
+    - Lint: ['python3 tools/lint.py']
+    - Lint wrapper: ['python3 tests/lint-wrapper.py']
+    - Python imports: ["python3 -c 'import ipod_gui'"]

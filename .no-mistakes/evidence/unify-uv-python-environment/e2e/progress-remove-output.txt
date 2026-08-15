@@ -1,0 +1,10 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.PvM8He9IzI/progress-ipod
+[36m==>[0m Reusing saved options: --playlist-voiceover
+[36m==>[0m Removed 1 track(s)
+[36m==>[0m Removed playlist 'Weekend': every track it listed is gone
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 2 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

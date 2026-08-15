@@ -1,0 +1,6 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/tmp.PvM8He9IzI/vanishing-ipod
+  + 01 - Song.mp3 -> vanishing-source/01 - Song.mp3
+[36m==>[0m Copied 1 file(s)
+[36m==>[0m Rebuilding iTunesSD database
+[31merror:[0m The iPod stopped answering; it was unplugged or replaced mid-operation.

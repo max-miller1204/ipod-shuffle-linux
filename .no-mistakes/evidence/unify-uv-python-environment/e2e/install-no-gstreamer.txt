@@ -1,0 +1,17 @@
+[36m==>[0m Python environment base: /usr/bin/python3 (Python 3.12.3)
+[36m==>[0m GUI: GTK4 bindings present
+[36m==>[0m Voiceover: speech engine present
+[36m==>[0m Conversion: ffmpeg present
+[36m==>[0m YouTube downloads: bun present
+
+[36m==>[0m These need the system package manager:
+  gir1.2-gstreamer-1.0
+  gstreamer1.0-plugins-base
+  gstreamer1.0-plugins-good
+  gstreamer1.0-plugins-bad
+
+[36m==>[0m Skipping (--no-system). To install them yourself:
+  sudo apt install gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+[36m==>[0m Desktop entry installed (look for iPod Shuffle in the app grid)
+[36m==>[0m Installing database builder into /tmp/tmp.PvM8He9IzI/install-blocker
+mkdir: cannot create directory ‘/tmp/tmp.PvM8He9IzI/install-blocker’: File exists

@@ -1,0 +1,13 @@
+# docs/machine-interface.md now says to launch tools/mcp-server.py with the
+# interpreter ./install.sh builds. Driving the protocol with exactly that one:
+$ /tmp/nm-install-demo/tools/venv/bin/python tests/mcp-server.py
+mcp server ok
+  exit=0
+
+# and the tag reader it reaches from there is that same interpreter:
+  server interpreter: /tmp/nm-install-demo/tools/venv/bin/python
+  tag interpreter   : /tmp/nm-install-demo/tools/venv/bin/python
+
+# The documented hard requirements, when one is missing:
+[31merror:[0m uv is required - install it from https://docs.astral.sh/uv/.
+  exit=1

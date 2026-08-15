@@ -1,0 +1,3 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m No playlist called 'Not On This iPod' on this iPod.
+[31merror:[0m It has no playlists.

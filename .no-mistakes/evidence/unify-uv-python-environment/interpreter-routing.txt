@@ -1,0 +1,16 @@
+$ IPOD_TOOLS_DIR=/tmp/nm-install-demo/tools  # the environment install.sh just built
+
+# Which interpreter each entry point runs in (lib.sh resolvers):
+  ipod-gui.sh   -> /tmp/nm-install-demo/tools/venv/bin/python
+  database      -> /tmp/nm-install-demo/tools/venv/bin/python
+  yt-dlp        -> /tmp/nm-install-demo/tools/venv/bin/yt-dlp
+
+# Same three, on a checkout with no installed environment yet:
+  ipod-gui.sh   -> /usr/bin/python3
+  database      -> /usr/bin/python3
+
+# ...even when a PATH-managed python3 (nix, 3.14) comes first:
+/home/max/.local/share/uv/python-bin/python3
+Python 3.14.6
+  ipod-gui.sh   -> /usr/bin/python3
+  database      -> /usr/bin/python3

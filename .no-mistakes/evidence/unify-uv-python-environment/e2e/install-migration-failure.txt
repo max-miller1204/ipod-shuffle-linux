@@ -1,0 +1,15 @@
+[36m==>[0m Python environment base: /usr/bin/python3 (Python 3.12.3)
+[36m==>[0m GUI: GTK4 bindings present
+[36m==>[0m Preview playback: GStreamer present
+[36m==>[0m Voiceover: speech engine present
+[36m==>[0m Conversion: ffmpeg present
+[36m==>[0m YouTube downloads: bun present
+[36m==>[0m All system dependencies satisfied
+[36m==>[0m Desktop entry installed (look for iPod Shuffle in the app grid)
+[36m==>[0m Installing database builder into /tmp/tmp.PvM8He9IzI/full-install-tools
+[36m==>[0m Database builder updated
+[36m==>[0m Creating uv environment at /tmp/tmp.PvM8He9IzI/full-install-tools/venv
+[36m==>[0m Synchronizing Python dependencies
+stand-in uv: no index to reach
+[31merror:[0m Failed to synchronize Python dependencies.
+[33mwarning:[0m Kept the environment already at /tmp/tmp.PvM8He9IzI/full-install-tools/venv

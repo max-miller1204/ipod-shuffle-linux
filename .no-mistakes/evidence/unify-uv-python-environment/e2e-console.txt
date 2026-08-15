@@ -1,0 +1,178 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+destructive authorization PTY checks passed
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+PASS: GUI and database fallbacks preferred the validated distro Python
+probe parses
+[
+  [
+    "--auto-dir-playlists",
+    "-1",
+    "--playlist-voiceover",
+    "/tmp/tmp.PvM8He9IzI/Alex's iPod"
+  ],
+  [
+    "--auto-dir-playlists",
+    "-1",
+    "--playlist-voiceover",
+    "/tmp/tmp.PvM8He9IzI/Alex's iPod"
+  ],
+  [
+    "--auto-id3-playlists",
+    "{artist}",
+    "--track-voiceover",
+    "--playlist-voiceover",
+    "/tmp/tmp.PvM8He9IzI/Alex's iPod"
+  ],
+  [
+    "--auto-id3-playlists",
+    "{genre}",
+    "--track-voiceover",
+    "--playlist-voiceover",
+    "/tmp/tmp.PvM8He9IzI/Alex's iPod"
+  ],
+  [
+    "/tmp/tmp.PvM8He9IzI/Alex's iPod"
+  ],
+  [
+    "--auto-id3-playlists",
+    "{artist}",
+    "/tmp/tmp.PvM8He9IzI/Alex's iPod"
+  ],
+  [
+    "/tmp/tmp.PvM8He9IzI/Alex's iPod"
+  ]
+]
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[
+  "--format",
+  "bestaudio[audio_channels<=2]",
+  "--extract-audio",
+  "--audio-format",
+  "mp3",
+  "--audio-quality",
+  "256k",
+  "--postprocessor-args",
+  "ExtractAudio:-ac 2 -af alimiter=limit=0.631:level=false:latency=true,aresample=44100:resampler=soxr",
+  "--embed-metadata",
+  "--no-embed-thumbnail",
+  "--windows-filenames",
+  "--replace-in-metadata",
+  "uploader",
+  " - Topic$",
+  "",
+  "--output",
+  "/tmp/tmp.PvM8He9IzI/youtube/%(artist,uploader)s/%(track,title)s [%(id)s].%(ext)s",
+  "--download-archive",
+  "/tmp/tmp.PvM8He9IzI/youtube/.fetched",
+  "--no-playlist",
+  "--js-runtimes",
+  "deno",
+  "--print-to-file",
+  "after_move:filepath",
+  "/tmp/ipod-fetch-tracks.wdf7K2",
+  "--",
+  "https://example.invalid/watch?v=test"
+]
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+PASS: a failed migration put the previous environment back
+PASS: an interrupted migration put the previous environment back
+PASS: sync copied supported music while preserving source folders
+PASS: playlist flags used explicit upstream values and persisted across rebuild
+PASS: GUI restored playlist and voiceover choices and mapped them to CLI flags
+PASS: missing playlist voiceover produced a screenless-device warning
+PASS: saved directory and tag playlist options produced the voiceover warning
+PASS: sync copied a symlinked library, through links and out of the tree
+PASS: sync named a broken link, walked a loop once, and matched the GUI's count
+PASS: sync --clear confirmed track and playlist deletion, including playlist-only devices
+PASS: a dry run of each script printed its plan and left the device byte for byte
+PASS: a guessed token, another plan's token and a changed plan were each refused
+PASS: every device-changing script refused an iPod swapped in behind the plan
+PASS: every device-changing script refused a swap at its prompt, and --yes without a plan token
+PASS: --yes answered the Speakable prompt too, in all three scripts
+PASS: wipe backed up music/database and preserved Speakable plus Device state
+PASS: JSON mount detection retained a mount path containing spaces
+PASS: raw findmnt output stayed rejected, so \x20 escaping cannot return
+PASS: GUI refused to choose between two connected iPods
+PASS: unpersistable options failed loudly instead of reporting success
+PASS: unmount fell back to the UDisks2 gdbus Filesystem.Unmount method
+PASS: removal checked its database builder before deleting tracks
+PASS: unreadable saved options stopped removal and sync before changes
+PASS: removal listed the tracks and kept them when the prompt was declined
+PASS: removal deleted only the named track and rebuilt with saved options
+PASS: removal pruned emptied folders, which playlists would otherwise keep
+PASS: removal refused paths outside the music folder and the folder itself
+PASS: a single file synced into a folder named after the one it came from
+PASS: a track name starting with a dash stayed a path rather than a flag
+PASS: a playlist file synced its tracks and left a rewritten list at the volume root
+PASS: playlist entries kept their order, decoded file URIs, and dropped streams and misses
+PASS: a pls playlist reached the device as m3u, ordered by its numbered entries
+PASS: PLS replacement removed stale PLS spellings for valid and empty updates
+PASS: the voiceover warning followed the effective options, not the command line alone
+PASS: a FAT-hostile playlist name was adjusted and the change announced
+PASS: the window read back the spoken names the real builder wrote
+PASS: control characters in playlist names became FAT-safe underscores
+PASS: trailing FAT-rejected playlist characters became underscores
+PASS: colliding sanitized playlist names kept the first list and skipped the second
+PASS: case-only playlist collisions kept the first list and its casing
+PASS: playlist case folding stayed stable across locale and Unicode casing
+PASS: one-to-one case folding preserved expansion-distinct playlist names
+PASS: long playlist names used bounded atomic temporary files
+PASS: the real database builder resolved every rewritten playlist entry
+PASS: colliding playlist tracks kept distinct content and destinations
+PASS: replacing a playlist with no playable tracks removed its stale device list
+PASS: parser failures preserved playlists and copied no partial results
+PASS: failed sync and removal rewrites preserved complete playlist files
+PASS: removal pruned playlists and deleted one that lost every track
+PASS: wipe backed up the playlists and cleared them from the volume root
+PASS: sync --clear removed the playlists with the tracks they referenced
+PASS: uppercase playlist extensions were listed, pruned, backed up, and cleared
+PASS: a playlist was deleted by name, keeping every song it listed
+PASS: double-dot, extension-like M3U, and root PLS names deleted safely
+PASS: a playlist the GUI store wrote synced in the order it was dragged into
+PASS: emptying a GUI playlist removed it from the device and kept its songs
+PASS: GUI playlists were made, named, edited, moved between and deleted
+PASS: GUI playlist queueing staged the list itself alongside its tracks
+PASS: GUI playlist rows parsed the device lists and removal mapped to the script
+PASS: GUI removal and YouTube commands named the device, options and paths
+PASS: fetch requested playable MP3 with tags and vfat-safe filenames
+PASS: fetch copied only this run's downloads, not the whole output folder
+PASS: fetch reported new tracks for the GUI, and deleted a list it could not fill
+PASS: fetch handed artist folders to the sync when it could not name files
+PASS: fetch passed a JavaScript runtime, without which downloads 403
+PASS: runtime probe reported absence instead of naming an uninstalled one
+PASS: installer reported a missing runtime instead of offering a stale nodejs
+PASS: installer generated the app-grid entry pointing at this checkout
+PASS: installer removed a stale launcher when GUI dependencies disappeared
+PASS: installer offered the GStreamer working set only when playback was missing
+PASS: desktop entry paths preserved reserved characters through Gio parsing
+PASS: runtime probe rejected unsupported versions and accepted supported boundaries
+PASS: old PATH yt-dlp fallback omitted its unsupported runtime option
+PASS: GStreamer probe answered per interpreter and its program still parses
+PASS: GUI preview player tracked state, queue, seeking and decode failures
+PASS: GUI preview downloaded into the cache, played it, and kept it out of the library
+PASS: the device report agreed with the window's own reading, field by field
+PASS: the report's tracks matched the plain listing of the same device
+PASS: an unreadable options file and an unreadable album produced no report at all
+PASS: no iPod, several iPods, a vanished one, a missing dependency and a refusal each got their own code
+PASS: a builder that failed with the iPod still connected stayed a plain failure
+PASS: the report writer answered a vanished device with the scripts' own code
+PASS: a machine without python3 got the dependency code once, and still listed
+PASS: --check reported what is installed without installing, and its code matched its document
+PASS: an install that finished ended with the report --check prints, taken after it
+PASS: a failed dependency synchronization left the installed environment intact
+PASS: an environment predating the distro-Python contract was rebuilt from it
+PASS: --update upgraded yt-dlp in an environment that holds no pip
+PASS: a sync reported every file, playlist and stage as JSON while it ran
+PASS: names holding a quote, a backslash and a newline survived the stream
+PASS: the same run without the stream printed exactly the same output
+PASS: removal and wipe reported themselves on the same protocol
+PASS: the count reached the total, and the total followed unplanned work
+PASS: a run with no iPod still said so on the stream, with the code it exited
+PASS: a run that found nothing mounted reported once, from the shell that owned the stream
+PASS: a caller that stopped reading mid-copy did not take the copy with it
+PASS: a descriptor nobody opened was refused instead of quietly reporting nowhere
+PASS: an empty descriptor was refused by every script that takes the flag
+PASS: a run refused after the stream opened still ended with a result
+PASS: a unit separator in a track name reached the stream without ending it

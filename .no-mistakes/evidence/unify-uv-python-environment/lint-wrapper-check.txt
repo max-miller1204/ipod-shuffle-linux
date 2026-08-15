@@ -1,0 +1,9 @@
+# Does tests/lint-wrapper.py actually catch a block scalar read short?
+# Same check, with tools/lint.py's reader made to drop the block's last line:
+bash: -c: line 2: unexpected EOF while looking for matching `''
+  the check failed, as it should: a passing check reported 2
+
+# And unmodified:
+/tmp/tmps9uxboau/.no-mistakes.yaml has no commands.lint to run
+lint wrapper ok
+  exit=0

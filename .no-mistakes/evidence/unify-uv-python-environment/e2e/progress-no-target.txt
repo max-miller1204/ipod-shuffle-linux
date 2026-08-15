@@ -1,0 +1,53 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+Usage: ./ipod-remove.sh [options] <track> [more-tracks...]
+       ./ipod-remove.sh --playlist <name> [more-names...]
+
+Deletes tracks from iPod_Control/Music/ and rebuilds the iTunesSD database, so
+the player forgets them rather than listing songs it can no longer play.
+
+Tracks are named by their path under iPod_Control/Music, which --list prints.
+A folder may be given instead of a file, which removes everything in it.
+
+With --playlist the arguments are playlist names instead: the named playlist
+files are deleted from the top of the iPod and the database is rebuilt. The
+songs they listed stay on the device.
+
+Options:
+  -i, --ipod PATH   iPod mount point (default: autodetect)
+  -l, --list        Print what is on the iPod and exit
+  -j, --json        With --list, report the whole device as JSON instead of
+                    track paths: where it is mounted, what it calls itself,
+                    its storage, its tracks, its playlists and which of them
+                    it can say out loud, and the options the last sync saved
+  -P, --playlist    Treat the arguments as playlist names, not tracks
+  -y, --yes         Answer yes to every prompt; a destructive run carrying
+                    it still needs --confirm-token
+      --dry-run     Print the exact operation plan as JSON and change nothing
+      --expect-device ID
+                    Refuse unless the mounted iPod has this identity
+      --confirm-token TOKEN
+                    Approve the exact plan from --dry-run
+  -e, --eject       Unmount the iPod when finished
+      --progress-json[=FD]
+                    Report progress as one JSON object per line on descriptor
+                    FD (default 3), which the caller opens. The output below
+                    is unchanged.
+  -h, --help        Show this message
+
+Examples:
+  ./ipod-remove.sh --list
+  ./ipod-remove.sh --list --json
+  ./ipod-remove.sh 'Road Trip/Disc 1/01 - Highway.mp3'
+  ./ipod-remove.sh --eject 'Road Trip'
+  ./ipod-remove.sh --playlist twizzy
+
+The playlist and voiceover options saved by the last sync are reused, so the
+rebuild keeps the playlists already on the device. Playlist files stored at
+the top of the iPod are updated to drop the removed tracks, and one that
+loses every track is removed with them.
+
+To empty the iPod completely, use ./ipod-wipe.sh instead: it clears the stale
+iTunes state as well, and can back the music up first.
+
+Exit codes: 3 no iPod, 4 several iPods, 5 the iPod stopped answering, 6 a
+missing dependency, 7 a declined prompt. Anything else that failed is 1.

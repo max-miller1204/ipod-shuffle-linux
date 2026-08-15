@@ -1,0 +1,2 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+error: could not read the iPod: [Errno 13] Permission denied: '/tmp/tmp.PvM8He9IzI/playlist-target/iPod_Control/Music/Neil Young'

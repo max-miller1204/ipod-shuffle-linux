@@ -1,0 +1,19 @@
+{
+  "mount_point": "/tmp/tmp.PvM8He9IzI/playlist-target",
+  "identity": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc",
+  "tracks": 3,
+  "playlists": [
+    "Best_ Hits",
+    "Party",
+    "Summer Mix"
+  ],
+  "announced": [
+    "best_ hits",
+    "party",
+    "summer mix"
+  ],
+  "sync_options": [
+    "--playlist-voiceover"
+  ],
+  "free_bytes": 337234268160
+}

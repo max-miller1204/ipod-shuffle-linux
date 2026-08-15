@@ -1,0 +1,7 @@
+[36m==>[0m iPod: /tmp/tmp.PvM8He9IzI/not-a-shuffle
+[36m==>[0m Tracks currently on device: 1
+[36m==>[0m Removed 1 track(s)
+[36m==>[0m Cleared stale iTunes state and previous-owner library binding
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m Preserved: 0 Speakable prompt file(s)
+[36m==>[0m Wipe complete. The iPod is empty and ready for ./ipod-sync.sh

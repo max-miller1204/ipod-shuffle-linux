@@ -1,0 +1,12 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[33mwarning:[0m Playlists without --playlist-voiceover will be unnamed on the device.
+[33mwarning:[0m With no screen, there is no way to tell them apart. Consider adding -p.
+[36m==>[0m iPod: /tmp/tmp.PvM8He9IzI/playlist-target
+[36m==>[0m Playlist 'mix.m3u': 1 track(s)
+[36m==>[0m Copied 0 file(s)
+[36m==>[0m Skipped 1 file(s) already on the iPod
+[33mwarning:[0m Nothing new copied; rebuilding the database anyway.
+[36m==>[0m Rebuilding iTunesSD database
+[36m==>[0m iPod now holds 3 track(s)
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

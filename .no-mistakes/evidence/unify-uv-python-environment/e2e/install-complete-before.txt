@@ -1,0 +1,10 @@
+[36m==>[0m Dependencies
+[33mwarning:[0m   python virtualenv    unavailable (not created yet at /tmp/tmp.PvM8He9IzI/full-install-tools/venv/bin/python (base /usr/bin/python3))
+[36m==>[0m   database builder     ok (/tmp/tmp.PvM8He9IzI/full-install-tools/IPod-Shuffle-4g/ipod-shuffle-4g.py)
+[33mwarning:[0m   metadata support     unavailable (mutagen is not in the virtualenv)
+[36m==>[0m   graphical interface  ok (/usr/bin/python3)
+[36m==>[0m   preview playback     ok
+[36m==>[0m   voiceover            ok
+[36m==>[0m   audio conversion     ok
+[36m==>[0m   javascript runtime   ok (bun)
+[33mwarning:[0m   youtube downloads    unavailable (no yt-dlp)

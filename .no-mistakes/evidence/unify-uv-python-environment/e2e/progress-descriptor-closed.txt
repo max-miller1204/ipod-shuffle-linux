@@ -1,0 +1,1 @@
+[31merror:[0m --progress-json needs descriptor 3 open for writing, e.g. 3>progress.ndjson.

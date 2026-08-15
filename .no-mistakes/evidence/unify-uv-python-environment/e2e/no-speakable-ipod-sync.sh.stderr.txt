@@ -1,0 +1,6 @@
+[33mwarning:[0m No iPod_Control/Speakable directory found.
+[33mwarning:[0m This may not be a shuffle. These scripts only support the shuffle 3G/4G.
+[36m==>[0m Continue anyway? yes (--yes)
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[33mwarning:[0m Unmount before unplugging, or the database may be corrupted:
+[33mwarning:[0m   ./ipod-sync.sh --rebuild-only --eject

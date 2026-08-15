@@ -1,0 +1,9 @@
+{"event": "start", "schema": 1, "script": "wipe"}
+{"event": "device", "ipod": "/tmp/tmp.PvM8He9IzI/progress-ipod"}
+{"event": "stage", "name": "backup", "state": "start"}
+{"event": "stage", "name": "backup", "state": "done"}
+{"event": "stage", "name": "clear", "state": "start"}
+{"event": "stage", "name": "clear", "state": "done"}
+{"event": "stage", "name": "rebuild", "state": "start"}
+{"event": "stage", "name": "rebuild", "state": "done"}
+{"event": "result", "ok": true, "code": 0, "removed": 2, "playlists": 0, "tracks": 0}

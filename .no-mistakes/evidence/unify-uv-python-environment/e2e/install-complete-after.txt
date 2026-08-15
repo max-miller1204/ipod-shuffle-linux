@@ -1,0 +1,10 @@
+[36m==>[0m Dependencies
+[36m==>[0m   python virtualenv    ok (/tmp/tmp.PvM8He9IzI/full-install-tools/venv/bin/python)
+[36m==>[0m   database builder     ok (/tmp/tmp.PvM8He9IzI/full-install-tools/IPod-Shuffle-4g/ipod-shuffle-4g.py)
+[36m==>[0m   metadata support     ok
+[36m==>[0m   graphical interface  ok (/tmp/tmp.PvM8He9IzI/full-install-tools/venv/bin/python)
+[36m==>[0m   preview playback     ok
+[36m==>[0m   voiceover            ok
+[36m==>[0m   audio conversion     ok
+[36m==>[0m   javascript runtime   ok (bun)
+[36m==>[0m   youtube downloads    ok (/tmp/tmp.PvM8He9IzI/full-install-tools/venv/bin/yt-dlp)

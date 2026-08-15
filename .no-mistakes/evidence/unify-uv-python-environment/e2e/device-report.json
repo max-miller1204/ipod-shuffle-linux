@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "mount_point": "/tmp/tmp.PvM8He9IzI/playlist-target",
+  "identity": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc",
+  "storage": {
+    "total_bytes": 491001659392,
+    "used_bytes": 128750624768,
+    "free_bytes": 337234268160
+  },
+  "track_count": 3,
+  "tracks": [
+    "Beach Boys/Surfin.mp3",
+    "Neil Young/Harvest Moon.mp3",
+    "Neil Young/Heart of Gold.mp3"
+  ],
+  "playlists": [
+    {
+      "name": "Best_ Hits",
+      "spoken": true,
+      "entries": [
+        "Beach Boys/Surfin.mp3"
+      ]
+    },
+    {
+      "name": "Party",
+      "spoken": true,
+      "entries": [
+        "Neil Young/Heart of Gold.mp3",
+        "Beach Boys/Surfin.mp3"
+      ]
+    },
+    {
+      "name": "Summer Mix",
+      "spoken": true,
+      "entries": [
+        "Beach Boys/Surfin.mp3",
+        "Neil Young/Harvest Moon.mp3",
+        "Neil Young/Heart of Gold.mp3"
+      ]
+    }
+  ],
+  "sync_options": [
+    "--playlist-voiceover"
+  ]
+}

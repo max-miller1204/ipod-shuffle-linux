@@ -1,0 +1,5 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m No playlist called 'No Such List' on this iPod.
+[31merror:[0m It has:
+  Summer Mix
+  Legacy

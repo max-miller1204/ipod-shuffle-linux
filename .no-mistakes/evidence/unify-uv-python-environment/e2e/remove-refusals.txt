@@ -1,0 +1,8 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Not a path on this iPod: ../../../outside.mp3
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Not a path on this iPod: /tmp/tmp.PvM8He9IzI/outside.mp3
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m That is the whole library. Use ./ipod-wipe.sh to empty the iPod.
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m No such track on the iPod: No Such/Track.mp3 (try --list)

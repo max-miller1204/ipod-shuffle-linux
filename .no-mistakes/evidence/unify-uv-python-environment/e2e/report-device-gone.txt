@@ -1,0 +1,1 @@
+error: the iPod stopped answering: /tmp/tmp.PvM8He9IzI/report-gone-ipod stopped answering mid-read

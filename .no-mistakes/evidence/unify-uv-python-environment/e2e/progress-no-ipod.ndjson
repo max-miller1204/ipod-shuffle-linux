@@ -1,0 +1,2 @@
+{"event": "start", "schema": 1, "script": "sync"}
+{"event": "result", "ok": false, "code": 3, "copied": 0, "duplicates": 0, "unsupported": 0, "broken": 0}

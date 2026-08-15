@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "mount_point": "/tmp/tmp.PvM8He9IzI/report-gone-ipod",
+  "identity": "uuid:7db76715-7b0b-4eb9-8aa0-3bcf3e3b27cc",
+  "storage": {
+    "total_bytes": 491001659392,
+    "used_bytes": 128752844800,
+    "free_bytes": 337232048128
+  },
+  "track_count": 1,
+  "tracks": [
+    "Beach Boys/Surfin.mp3"
+  ],
+  "playlists": [],
+  "sync_options": []
+}

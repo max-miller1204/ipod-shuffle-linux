@@ -1,0 +1,2 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[31merror:[0m Expected device 'sysinfo:17b186c672434cf34137e6add5701f632d172f8a6e42daae84842f5e05715016', but 'sysinfo:3fdc586551319d0044c485bb8ecf62b18f419375acb320a3050ce2cbea1d9029' is mounted at /tmp/tmp.PvM8He9IzI/handshake-target.

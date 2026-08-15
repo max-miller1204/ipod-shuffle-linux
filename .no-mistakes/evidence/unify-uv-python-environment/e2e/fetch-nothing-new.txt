@@ -1,0 +1,6 @@
+[36m==>[0m Downloading as 256k MP3 into /tmp/tmp.PvM8He9IzI/youtube
+[download] testvideo has already been recorded in the archive
+[36m==>[0m Nothing new; every track was already in /tmp/tmp.PvM8He9IzI/youtube
+[36m==>[0m /tmp/tmp.PvM8He9IzI/youtube now holds 2 track(s)
+[36m==>[0m Nothing new to copy onto the iPod.
+[36m==>[0m For the whole library: ./ipod-sync.sh "/tmp/tmp.PvM8He9IzI/youtube"/*/

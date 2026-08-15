@@ -1,0 +1,9 @@
+{"event": "start", "schema": 1, "script": "sync"}
+{"event": "device", "ipod": "/tmp/tmp.PvM8He9IzI/progress-separator-ipod"}
+{"event": "plan", "total": 1}
+{"event": "stage", "name": "copy", "state": "start"}
+{"event": "file", "status": "copied", "name": "05 - Unit_separator.mp3", "dest": "Odd Album/05 - Unit_separator.mp3", "done": 1, "total": 1}
+{"event": "stage", "name": "copy", "state": "done"}
+{"event": "stage", "name": "rebuild", "state": "start"}
+{"event": "stage", "name": "rebuild", "state": "done"}
+{"event": "result", "ok": true, "code": 0, "copied": 1, "duplicates": 0, "unsupported": 0, "broken": 0, "tracks": 1}

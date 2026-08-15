@@ -1,0 +1,55 @@
+# A machine with no environment yet (./install.sh --check --json, abridged):
+  satisfied: False
+  python-virtualenv    False not created yet at /tmp/nm-check-demo/tools/venv/bin/python (base /usr/bin/python3)
+  metadata             False mutagen is not in the virtualenv
+  graphical-interface  True  /usr/bin/python3
+  youtube-downloads    False no yt-dlp
+
+
+$ ./install.sh --no-system
+[36m==>[0m Python environment base: /usr/bin/python3 (Python 3.12.3)
+[36m==>[0m GUI: GTK4 bindings present
+[36m==>[0m Preview playback: GStreamer present
+[36m==>[0m Voiceover: speech engine present
+[36m==>[0m Conversion: ffmpeg present
+[36m==>[0m YouTube downloads: bun present
+[36m==>[0m All system dependencies satisfied
+[36m==>[0m Desktop entry installed (look for iPod Shuffle in the app grid)
+[36m==>[0m Installing database builder into /tmp/nm-install-demo/tools
+[36m==>[0m Database builder cloned
+[36m==>[0m Creating uv environment at /tmp/nm-install-demo/tools/venv
+[36m==>[0m Synchronizing Python dependencies
+[36m==>[0m   mutagen 1.48.1
+[36m==>[0m   yt-dlp 2026.07.04
+
+[36m==>[0m Verifying
+[36m==>[0m   python virtualenv    ok (/tmp/nm-install-demo/tools/venv/bin/python)
+[36m==>[0m   database builder     ok (/tmp/nm-install-demo/tools/IPod-Shuffle-4g/ipod-shuffle-4g.py)
+[36m==>[0m   metadata support     ok
+[36m==>[0m   graphical interface  ok (/tmp/nm-install-demo/tools/venv/bin/python)
+[36m==>[0m   preview playback     ok
+[36m==>[0m   voiceover            ok
+[36m==>[0m   audio conversion     ok
+[36m==>[0m   javascript runtime   ok (bun)
+[36m==>[0m   youtube downloads    ok (/tmp/nm-install-demo/tools/venv/bin/yt-dlp)
+
+[36m==>[0m Done.
+[36m==>[0m   GUI:  ./ipod-gui.sh
+[36m==>[0m   CLI:  ./ipod-sync.sh ~/Music/somefolder
+
+# One interpreter, with both halves of what the app needs:
+  interpreter         /tmp/nm-install-demo/tools/venv/bin/python
+  built from           /usr/bin/python3.12 3.12.3
+  GTK 4.14 (distro)    /usr/lib/python3/dist-packages/gi
+  mutagen 1.48.1 (uv)       /tmp/nm-install-demo/tools/venv/lib/python3.12/site-packages/mutagen
+  distro site visible  True
+  yt-dlp (uv)          2026.07.04
+  pyvenv.cfg           home = /usr/bin implementation = CPython uv = 0.11.28 version_info = 3.12.3 include-system-site-packages = true 
+  its own pip?         0 executables named pip
+
+# Re-running it is how this project updates, and it keeps the environment:
+[36m==>[0m Python environment base: /usr/bin/python3 (Python 3.12.3)
+[36m==>[0m Reusing uv environment at /tmp/nm-install-demo/tools/venv
+[36m==>[0m   mutagen 1.48.1
+[36m==>[0m   yt-dlp 2026.07.04
+[36m==>[0m   youtube downloads    ok (/tmp/nm-install-demo/tools/venv/bin/yt-dlp)

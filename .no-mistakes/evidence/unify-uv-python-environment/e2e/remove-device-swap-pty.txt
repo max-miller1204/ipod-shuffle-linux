@@ -1,0 +1,7 @@
+[33mwarning:[0m No shuffle 4G (05ac:1303) on USB; continuing based on directory layout.
+[36m==>[0m iPod: /tmp/ipod-authorization-pty-safh7app/remove-swap
+[36m==>[0m About to remove 1 track(s):
+  Album/Keep.mp3
+[33mwarning:[0m The iPod holds the only copy unless you have these elsewhere.
+Remove them? [y/N] y
+[31merror:[0m The iPod stopped answering; it was unplugged or replaced mid-operation.

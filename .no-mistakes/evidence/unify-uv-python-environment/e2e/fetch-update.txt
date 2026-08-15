@@ -1,0 +1,2 @@
+[36m==>[0m Updating yt-dlp
+[36m==>[0m yt-dlp 2026.02.04

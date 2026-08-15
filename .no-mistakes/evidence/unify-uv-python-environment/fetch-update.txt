@@ -1,0 +1,11 @@
+# Setup: pin the installed environment back to an older yt-dlp
+  yt-dlp before: 2025.11.12
+  pip inside the environment? pip 24.0 from /usr/lib/python3/dist-packages/pip (python 3.12)
+
+$ ./ipod-fetch.sh --update
+[36m==>[0m Updating yt-dlp
+[36m==>[0m yt-dlp 2026.07.04
+
+$ ./ipod-fetch.sh --update   # with uv taken off PATH
+[31merror:[0m uv is required to update yt-dlp - install it from https://docs.astral.sh/uv/.
+  exit=6
