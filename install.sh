@@ -249,6 +249,35 @@ if all(
 PROBE
 }
 
+# Where the environment a rebuild replaces waits until its replacement is one.
+#
+# uv will not build over an environment that is already there, so a rebuild has
+# to take the old one away first, and the synchronization that refills it is
+# the step most likely to fail: it is the only one that reaches an index. So
+# the old environment is moved aside rather than cleared, which is what keeps
+# the invariant above true through the one rebuild every machine installed
+# before this contract has to make. It goes back to the path it came from,
+# because the console scripts uv writes beside the interpreter carry that path
+# inside them.
+readonly PREVIOUS_ENVIRONMENT="$TOOLS_DIR/venv.previous"
+environment_preserved=0
+
+restore_preserved_environment() {
+    (( environment_preserved )) || return 0
+    environment_preserved=0
+    rm -rf "$TOOLS_DIR/venv"
+    if mv "$PREVIOUS_ENVIRONMENT" "$TOOLS_DIR/venv"; then
+        warn "Kept the environment already at $TOOLS_DIR/venv"
+    else
+        warn "Could not put the previous environment back; it is at $PREVIOUS_ENVIRONMENT"
+    fi
+}
+
+die_restoring() {
+    restore_preserved_environment
+    die "$@"
+}
+
 # Nothing is installed, nothing is written, and with --json nothing but the
 # document reaches stdout - which is why this comes before the prerequisite
 # checks below, whose first act is to print the Python version.
@@ -503,6 +532,12 @@ if environment_matches_contract "$base_python"; then
     info "Reusing uv environment at $TOOLS_DIR/venv"
 else
     info "Creating uv environment at $TOOLS_DIR/venv"
+    if [[ -e "$TOOLS_DIR/venv" ]]; then
+        rm -rf "$PREVIOUS_ENVIRONMENT"
+        mv "$TOOLS_DIR/venv" "$PREVIOUS_ENVIRONMENT" \
+            || die "Could not set the environment at $TOOLS_DIR/venv aside."
+        environment_preserved=1
+    fi
     uv venv \
         --quiet \
         --clear \
@@ -510,12 +545,14 @@ else
         --python "$base_python" \
         --system-site-packages \
         "$TOOLS_DIR/venv" \
-        || die "Could not create the uv environment from $base_python."
+        || die_restoring "Could not create the uv environment from $base_python."
 fi
 
 info "Synchronizing Python dependencies"
 uv pip sync --quiet --python "$VENV_PYTHON" "$REQUIREMENTS" \
-    || die "Failed to synchronize Python dependencies."
+    || die_restoring "Failed to synchronize Python dependencies."
+rm -rf "$PREVIOUS_ENVIRONMENT"
+environment_preserved=0
 info "  $("$VENV_PYTHON" -c 'import mutagen; print("mutagen", mutagen.version_string)')"
 info "  yt-dlp $("$VENV_YT_DLP" --version 2>/dev/null || echo "unavailable")"
 

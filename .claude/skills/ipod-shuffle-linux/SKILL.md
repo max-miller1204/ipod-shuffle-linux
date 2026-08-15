@@ -36,7 +36,7 @@ Read [`docs/machine-interface.md`](../../../docs/machine-interface.md) before ch
 
 `IpodWindow` is one `Adw.ApplicationWindow` split into mixins by responsibility.
 Cross-mixin state is an explicit architecture decision recorded in `tools/mixin-contract.py`.
-Run the repository's configured lint command, which carries that check, after changing a mixin or shared window attribute.
+Run `python3 tools/lint.py`, which carries that check, after changing a mixin or shared window attribute.
 Add intentional shared state to its `SHARED_STATE` table rather than bypassing the check.
 Do not move device-changing behavior into a mixin.
 
@@ -62,9 +62,15 @@ EVIDENCE_DIR=/tmp/ipod-shuffle-evidence \
 `IPOD_REAL_DB_TOOL` selects the upstream database builder used to prove rewritten playlist entries resolve, overriding the copy `./install.sh` clones into `~/ipod-tools/IPod-Shuffle-4g/`.
 With neither the variable nor that copy, the local suite reports that hardware-compatible builder coverage was skipped rather than silently claiming it.
 
-The deterministic shell, architecture, and Python syntax checks are the `lint` command in [`.no-mistakes.yaml`](../../../.no-mistakes.yaml).
-Run them from there rather than from a copy of the command here.
-That file owns which interpreter the Python checks use, which a checkout without the installed environment resolves differently.
+The deterministic shell, architecture, and Python syntax checks are:
+
+```bash
+python3 tools/lint.py
+```
+
+That wrapper reads the `lint` command out of [`.no-mistakes.yaml`](../../../.no-mistakes.yaml) and runs it rather than repeating it, so this and the pipeline run the same checks.
+Change the checks there, never here.
+That file also owns which interpreter the Python checks use, which a checkout without the installed environment resolves differently.
 
 The real-window checks are:
 

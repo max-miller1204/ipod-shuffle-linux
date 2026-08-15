@@ -3185,18 +3185,56 @@ test -x "$FULL_TOOLS/venv/bin/yt-dlp"
 "$FULL_TOOLS/venv/bin/python" -c \
     'import mutagen; assert mutagen.version_string == "1.47.0-stand-in"'
 
+# The same guarantee through the rebuild, which is the harder half of it and
+# the one run every machine installed before this contract has to make: the
+# environment being replaced is gone from its path while the replacement is
+# built, so a synchronization that cannot reach an index has to put back what
+# it took rather than leaving the machine with an empty environment.
+migration_venv() {
+    rm -rf "$FULL_TOOLS/venv" "$FULL_TOOLS/venv.previous"
+    uv venv --quiet --no-managed-python --python /usr/bin/python3 \
+        "$FULL_TOOLS/venv"
+    printf 'from before the contract\n' > "$FULL_TOOLS/venv/stale-environment.txt"
+    if "$FULL_TOOLS/venv/bin/python" -c 'import gi' 2>/dev/null; then
+        echo "the stand-in for an old environment could already see the distro" >&2
+        exit 1
+    fi
+}
+
+migration_venv
+printf '%s\n' 'version_string = "1.46.0-stand-in"' \
+    > "$("$FULL_TOOLS/venv/bin/python" -c \
+        'import sysconfig; print(sysconfig.get_path("purelib"))')/mutagen.py"
+printf '#!/bin/sh\nprintf "%%s\\n" 2025.01.01\n' > "$FULL_TOOLS/venv/bin/yt-dlp"
+chmod +x "$FULL_TOOLS/venv/bin/yt-dlp"
+
+migration_failure_status=0
+export IPOD_TEST_UV_SYNC_FAILS=1
+full_install --no-system \
+    > "$EVIDENCE_DIR/install-migration-failure.txt" 2>&1 \
+    || migration_failure_status=$?
+unset IPOD_TEST_UV_SYNC_FAILS
+test "$migration_failure_status" -ne 0
+grep -Fq 'Failed to synchronize Python dependencies' \
+    "$EVIDENCE_DIR/install-migration-failure.txt"
+# Back at the path it was taken from, because the console scripts uv writes
+# beside the interpreter carry that path inside them, and with everything it
+# held: the metadata reader whose absence is silent, and the downloader.
+test -f "$FULL_TOOLS/venv/stale-environment.txt"
+test "$("$FULL_TOOLS/venv/bin/yt-dlp" --version)" = 2025.01.01
+"$FULL_TOOLS/venv/bin/python" -c \
+    'import mutagen; assert mutagen.version_string == "1.46.0-stand-in"'
+test ! -e "$FULL_TOOLS/venv.previous"
+echo "PASS: a failed migration put the previous environment back"
+
 # An environment from before this contract is rebuilt rather than kept, since
 # one without the distro's site packages cannot import the GTK bindings and
-# the window would have nothing to run in. The marker goes with it.
-rm -rf "$FULL_TOOLS/venv"
-uv venv --quiet --no-managed-python --python /usr/bin/python3 "$FULL_TOOLS/venv"
-printf 'from before the contract\n' > "$FULL_TOOLS/venv/stale-environment.txt"
-if "$FULL_TOOLS/venv/bin/python" -c 'import gi' 2>/dev/null; then
-    echo "the stand-in for an old environment could already see the distro" >&2
-    exit 1
-fi
+# the window would have nothing to run in. The marker goes with it, and so
+# does the copy the failed run above put back.
+migration_venv
 full_install --no-system > "$EVIDENCE_DIR/install-migrated.txt" 2>&1
 test ! -e "$FULL_TOOLS/venv/stale-environment.txt"
+test ! -e "$FULL_TOOLS/venv.previous"
 grep -Fq 'mutagen 1.47.0-stand-in' "$EVIDENCE_DIR/install-migrated.txt"
 grep -Fq "graphical interface  ok ($FULL_TOOLS/venv/bin/python)" \
     "$EVIDENCE_DIR/install-migrated.txt"

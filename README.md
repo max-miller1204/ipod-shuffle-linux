@@ -899,6 +899,7 @@ Reading it there rather than off the runner's environment is the point, because 
 It also takes each of the two servers off `PATH` in turn and gives the wrapped command a file to write, so a runner that reports a refusal after already letting a window open is told apart from one that stopped it.
 
 `tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
+`tools/lint.py` runs it together with `shellcheck` and the Python syntax check, reading the `lint` command out of `.no-mistakes.yaml` rather than repeating it, so what a contributor types and what the pipeline runs are the same text.
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the `tools/shoot.py` line that retakes that shot from it.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
