@@ -3059,6 +3059,13 @@ case "${1:-}" in
                     echo "stand-in uv: no index to reach" >&2
                     exit 1
                 fi
+                # A synchronization interrupted rather than failed: the
+                # installer waiting on it is signalled the way Ctrl-C signals
+                # it, and this leaves without having put anything back.
+                if [[ -n "${IPOD_TEST_UV_SYNC_SIGNALS:-}" ]]; then
+                    kill -TERM "$PPID"
+                    exit 0
+                fi
                 printf '%s\n' "${packages[0]}" > "$environment/uv-sync-source.txt"
                 printf '%s\n' 'version_string = "1.47.0-stand-in"' \
                     > "$("$python" -c \
@@ -3195,19 +3202,31 @@ migration_venv() {
     uv venv --quiet --no-managed-python --python /usr/bin/python3 \
         "$FULL_TOOLS/venv"
     printf 'from before the contract\n' > "$FULL_TOOLS/venv/stale-environment.txt"
+    # What such a machine has that it would miss: the metadata reader whose
+    # absence is silent, and the downloader.
+    printf '%s\n' 'version_string = "1.46.0-stand-in"' \
+        > "$("$FULL_TOOLS/venv/bin/python" -c \
+            'import sysconfig; print(sysconfig.get_path("purelib"))')/mutagen.py"
+    printf '#!/bin/sh\nprintf "%%s\\n" 2025.01.01\n' > "$FULL_TOOLS/venv/bin/yt-dlp"
+    chmod +x "$FULL_TOOLS/venv/bin/yt-dlp"
     if "$FULL_TOOLS/venv/bin/python" -c 'import gi' 2>/dev/null; then
         echo "the stand-in for an old environment could already see the distro" >&2
         exit 1
     fi
 }
 
-migration_venv
-printf '%s\n' 'version_string = "1.46.0-stand-in"' \
-    > "$("$FULL_TOOLS/venv/bin/python" -c \
-        'import sysconfig; print(sysconfig.get_path("purelib"))')/mutagen.py"
-printf '#!/bin/sh\nprintf "%%s\\n" 2025.01.01\n' > "$FULL_TOOLS/venv/bin/yt-dlp"
-chmod +x "$FULL_TOOLS/venv/bin/yt-dlp"
+# Back at the path it was taken from, because the console scripts uv writes
+# beside the interpreter carry that path inside them, and with everything it
+# held.
+assert_previous_environment_restored() {
+    test -f "$FULL_TOOLS/venv/stale-environment.txt"
+    test "$("$FULL_TOOLS/venv/bin/yt-dlp" --version)" = 2025.01.01
+    "$FULL_TOOLS/venv/bin/python" -c \
+        'import mutagen; assert mutagen.version_string == "1.46.0-stand-in"'
+    test ! -e "$FULL_TOOLS/venv.previous"
+}
 
+migration_venv
 migration_failure_status=0
 export IPOD_TEST_UV_SYNC_FAILS=1
 full_install --no-system \
@@ -3217,15 +3236,26 @@ unset IPOD_TEST_UV_SYNC_FAILS
 test "$migration_failure_status" -ne 0
 grep -Fq 'Failed to synchronize Python dependencies' \
     "$EVIDENCE_DIR/install-migration-failure.txt"
-# Back at the path it was taken from, because the console scripts uv writes
-# beside the interpreter carry that path inside them, and with everything it
-# held: the metadata reader whose absence is silent, and the downloader.
-test -f "$FULL_TOOLS/venv/stale-environment.txt"
-test "$("$FULL_TOOLS/venv/bin/yt-dlp" --version)" = 2025.01.01
-"$FULL_TOOLS/venv/bin/python" -c \
-    'import mutagen; assert mutagen.version_string == "1.46.0-stand-in"'
-test ! -e "$FULL_TOOLS/venv.previous"
+assert_previous_environment_restored
 echo "PASS: a failed migration put the previous environment back"
+
+# The same window, left by the other way out of it. Synchronizing is the only
+# step that reaches an index, so it is the slow one and the one a person
+# interrupts; a rebuild that stopped there rather than failing there would
+# otherwise leave the same machine with nothing, and say nothing about where
+# what it had went.
+migration_venv
+signalled_status=0
+export IPOD_TEST_UV_SYNC_SIGNALS=1
+full_install --no-system \
+    > "$EVIDENCE_DIR/install-migration-signalled.txt" 2>&1 \
+    || signalled_status=$?
+unset IPOD_TEST_UV_SYNC_SIGNALS
+test "$signalled_status" -eq 143
+assert_previous_environment_restored
+grep -Fq "Kept the environment already at $FULL_TOOLS/venv" \
+    "$EVIDENCE_DIR/install-migration-signalled.txt"
+echo "PASS: an interrupted migration put the previous environment back"
 
 # An environment from before this contract is rebuilt rather than kept, since
 # one without the distro's site packages cannot import the GTK bindings and

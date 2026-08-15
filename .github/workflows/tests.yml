@@ -59,12 +59,12 @@ jobs:
       - name: MCP server
         run: python3 tests/mcp-server.py
 
-      - name: Shell lint
-        run: shellcheck -x ./*.sh tests/product-e2e.sh
-
-      # Architecture tooling gated at lint time, not a behavioural check.
-      - name: Mixin contract
-        run: python3 tools/mixin-contract.py
+      # The shell check, the architecture tooling and the Python compile, run
+      # through the wrapper a contributor runs, so this cannot end up checking
+      # an older set than .no-mistakes.yaml configures. Architecture tooling
+      # is gated here rather than as a behavioural check.
+      - name: Lint
+        run: python3 tools/lint.py
 
       # The demo builder rebuilds by deleting the directory it is handed, so
       # the guard deciding whether it may is checked on its own. It needs no
@@ -73,13 +73,11 @@ jobs:
       - name: Demo library guard
         run: python3 tests/demo-library-guard.py
 
-      # Compiling catches a syntax error in any file, and the import catches
-      # what compiling cannot now that the GUI is a package: a name that moved
-      # to another module and left an import behind pointing at nothing.
-      - name: Python syntax
+      # What compiling cannot catch now that the GUI is a package: a name that
+      # moved to another module and left an import behind pointing at nothing.
+      # The compile itself is in the lint step above rather than repeated here.
+      - name: Python imports
         run: |
-          python3 -m py_compile \
-            ipod-gui.py ipod-report.py ipod_gui/*.py tests/*.py tools/*.py
           python3 -c 'import ipod_gui'
           python3 -m ipod_gui.cli --help
           python3 tests/headless-cli.py

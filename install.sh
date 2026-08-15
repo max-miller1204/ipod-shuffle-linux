@@ -273,10 +273,16 @@ restore_preserved_environment() {
     fi
 }
 
-die_restoring() {
-    restore_preserved_environment
-    die "$@"
-}
+# On every way out rather than on the failures alone. The synchronization is
+# the only step that reaches an index, which makes it both the slowest and the
+# one someone is most likely to interrupt, and a Ctrl-C there would otherwise
+# leave the new empty environment in place with the old one orphaned beside
+# it - the same machine-with-less-than-it-had the move aside exists to
+# prevent. The two signals exit rather than ending the shell where they land,
+# so they arrive here as well.
+trap restore_preserved_environment EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Nothing is installed, nothing is written, and with --json nothing but the
 # document reaches stdout - which is why this comes before the prerequisite
@@ -540,17 +546,16 @@ else
     fi
     uv venv \
         --quiet \
-        --clear \
         --no-managed-python \
         --python "$base_python" \
         --system-site-packages \
         "$TOOLS_DIR/venv" \
-        || die_restoring "Could not create the uv environment from $base_python."
+        || die "Could not create the uv environment from $base_python."
 fi
 
 info "Synchronizing Python dependencies"
 uv pip sync --quiet --python "$VENV_PYTHON" "$REQUIREMENTS" \
-    || die_restoring "Failed to synchronize Python dependencies."
+    || die "Failed to synchronize Python dependencies."
 rm -rf "$PREVIOUS_ENVIRONMENT"
 environment_preserved=0
 info "  $("$VENV_PYTHON" -c 'import mutagen; print("mutagen", mutagen.version_string)')"
