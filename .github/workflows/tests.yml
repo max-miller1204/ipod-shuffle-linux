@@ -17,26 +17,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
 
-      # The GUI smoke tests import the ipod_gui package, which imports
-      # PyGObject at module level, so the bindings are needed even though most
-      # of them never open a window. They come from the distribution because
-      # building PyGObject from pip would need the gobject-introspection and
-      # cairo development headers. xvfb is for the checks that do build a
-      # window: GTK4 has no headless backend, so they need a display server
-      # rather than an environment variable. dbus brings dbus-run-session,
-      # which tools/headless-run.py gives each of those checks its own session
-      # bus with; it refuses to run rather than fall back to whichever bus it
-      # was handed, so an image that stopped shipping one would fail those
-      # checks rather than quietly weaken them. Named as dbus rather than as
-      # the dbus-daemon package holding the binary, because that split is
-      # recent enough that only some releases have it. espeak is a speech
-      # engine, without which the database builder writes no spoken playlist
-      # names and the check that the window can read them back skips itself.
-      # ffmpeg encodes the demo fixture's tracks and cover art, and
-      # tools/demo-library.py refuses to build anything without it, so the
-      # screenshot harness cannot run on a runner image that does not ship one.
-      # The tag reader below uses the same uv environment shape as install.sh:
-      # distro Python and GTK bindings plus project-owned Python packages.
+      # The bindings come from the distribution because building PyGObject from
+      # pip would need the gobject-introspection and cairo development headers,
+      # and the application package imports GTK at module level, so even the
+      # checks that never open a window need them. GTK4 has no headless
+      # backend, so the checks that do build a window need xvfb rather than an
+      # environment variable. dbus brings dbus-run-session, which
+      # tools/headless-run.py gives each of those checks its own session bus
+      # with; named as dbus rather than as the dbus-daemon package holding the
+      # binary, because that split is recent enough that only some releases
+      # have it. espeak records the spoken playlist names the product suite
+      # reads back, and ffmpeg encodes the demo fixture's tracks and cover art,
+      # without which tools/demo-library.py refuses to build anything. Both are
+      # declared capabilities in tools/check.py, so an image that stopped
+      # shipping one fails the profile rather than quietly weakening it.
       - name: Install test dependencies
         run: |
           sudo apt-get update
@@ -44,8 +38,10 @@ jobs:
             python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 shellcheck xvfb dbus \
             espeak ffmpeg
 
-      # Exercise the installed environment contract rather than giving the
-      # screenshot harness a second, test-only dependency setup.
+      # The same uv environment shape install.sh builds - distro Python and its
+      # GTK bindings plus the project's own packages - so the tag reader the
+      # screenshot fixture needs exercises the installed environment contract
+      # rather than a second, test-only dependency setup.
       - name: Python environment
         run: |
           uv venv \
@@ -56,108 +52,7 @@ jobs:
             --python "${RUNNER_TEMP}/tag-venv/bin/python" \
             requirements.txt
 
-      - name: MCP server
-        run: python3 tests/mcp-server.py
-
-      # The shell check, the architecture tooling and the Python compile, run
-      # through the wrapper a contributor runs, so this cannot end up checking
-      # an older set than .no-mistakes.yaml configures. Architecture tooling
-      # is gated here rather than as a behavioural check.
-      - name: Lint
-        run: python3 tools/lint.py
-
-      # The step above is the only reader of the block scalar those checks are
-      # written down in, and one read short would run fewer of them while
-      # still passing. This is what says it read the whole of it.
-      - name: Lint wrapper
-        run: python3 tests/lint-wrapper.py
-
-      # The demo builder rebuilds by deleting the directory it is handed, so
-      # the guard deciding whether it may is checked on its own. It needs no
-      # display and no ffmpeg, and it is the only step covering a path that
-      # cannot be undone by rerunning anything.
-      - name: Demo library guard
-        run: python3 tests/demo-library-guard.py
-
-      # What compiling cannot catch now that the GUI is a package: a name that
-      # moved to another module and left an import behind pointing at nothing.
-      # The compile itself is in the lint step above rather than repeated here.
-      - name: Python imports
-        run: |
-          python3 -c 'import ipod_gui'
-          python3 -m ipod_gui.cli --help
-          python3 tests/headless-cli.py
-
-      # Needs a main loop but no display. A scan used to rebuild the whole
-      # grid per batch, so a card was replaced under the pointer that was
-      # hovering it - which is the flicker this answers - and any menu open
-      # over the grid lost the widget holding the focus.
-      - name: GUI repaints coalesce
-        run: python3 tests/gui-repaint-coalescing.py
-
-      # Also a main loop and no display. The refresh button's spinner is held
-      # to a minimum so a scan that finishes instantly still looks like work,
-      # and the timing is the whole of it: there is nothing to see in a
-      # screenshot of a button that has already stopped.
-      - name: GUI refresh spinner
-        run: python3 tests/gui-refresh-spinner.py
-
-      # The seam between the window and the scripts: a real sync, driven the
-      # way the app drives one, with its progress read back off the descriptor
-      # the window opened for it. Needs a main loop and no display. Every other
-      # progress check starts from JSON written by hand, so none of them would
-      # notice a flag the script never saw or a stream that never ends.
-      - name: GUI reads a real progress stream
-        run: python3 tests/gui-progress-stream.py
-
-      # The isolation the four steps below are invoked bare on the strength of,
-      # checked where it is decided rather than where it is configured: which
-      # display server the process GDK started in actually connected to, and
-      # whether the runner really stops a check when it cannot start one.
-      - name: GUI checks are isolated
-        run: python3 tests/headless-isolation.py
-
-      # Where the real window is built and inspected part by part. The GUI
-      # checks that run methods unbound against a stand-in would not notice a
-      # builder that stopped being called or a widget that never reached the
-      # stack. Invoked bare: this and the three steps below re-execute
-      # themselves through tools/headless-run.py, which starts the display and
-      # the session bus they need, so wrapping them here would only nest a
-      # second server inside the one they start and hide which of the two the
-      # window actually reached. That is also the command a developer runs.
-      - name: GUI window builds
-        run: python3 tests/gui-window-build.py
-
-      # A window narrower than its own contents does not clip: GTK paints
-      # widgets outside the space it allocated them, so clicks stop landing on
-      # what is under the pointer. This measures every page against the
-      # minimum size the window advertises, which is the only way that gap
-      # shows up before somebody drags the window narrow.
-      - name: GUI window fits its minimum
-        run: python3 tests/gui-window-minimum.py
-
-      # The actions another program drives the window through, activated the
-      # way a client activates them against a real application and the real
-      # window under it. Needs a display for the same reason the two above do,
-      # and a bus of its own besides: it owns an application name, which would
-      # collide with any Shuffle already on the bus it was given.
-      - name: Gio application actions
-        run: python3 tests/gui-gio-actions.py
-
-      # Builds the canonical fixture and renders it through GSK rather than
-      # grabbing a compositor frame, so the shots are the same pixels on any
-      # machine. Needs a display for the same reason the checks above do: the
-      # window is real, only its rasterisation is not the screen's.
-      - name: Deterministic screenshots
-        env:
-          SCREENSHOT_EVIDENCE_DIR: ${{ runner.temp }}/screenshots
-          IPOD_VENV_PYTHON: ${{ runner.temp }}/tag-venv/bin/python
-        run: python3 tests/screenshot-harness.py
-
-      # The suite's playlist check runs the real upstream builder against the
-      # rewritten list a sync produces, which the fake builder cannot vouch
-      # for. This is the hardware-validated revision; bump it only after
-      # validating the replacement against real hardware.
+      # Hardware-validated database builder revision used by product E2E.
       - name: Fetch upstream database builder
         env:
           IPOD_BUILDER_REVISION: a97a99ab8623f0eccc5adcb8ebbdb2e626c6c703
@@ -171,16 +66,19 @@ jobs:
           test "$(git -C "${RUNNER_TEMP}/IPod-Shuffle-4g" rev-parse HEAD)" = \
             "${IPOD_BUILDER_REVISION}"
 
-      # Never run as root. The suite checks that a volume it cannot write to
-      # produces a loud failure, and root ignores the permission bits that
-      # check depends on, which would silently reduce its coverage.
-      - name: End-to-end suite
-        run: |
-          test "$(id -u)" -ne 0 || { echo "must not run as root" >&2; exit 1; }
-          tool_dir="${RUNNER_TEMP}/IPod-Shuffle-4g"
-          EVIDENCE_DIR="${RUNNER_TEMP}/evidence" \
-            IPOD_REAL_DB_TOOL="$tool_dir/ipod-shuffle-4g.py" \
-            bash tests/product-e2e.sh
+      # The repository runner owns the complete required check set. It runs the
+      # independent ones concurrently and prints their captured output in
+      # declaration order, reporting each check on stderr as it finishes so a
+      # long profile is not a silent step. Every check also leaves its output
+      # in CHECK_EVIDENCE_DIR for the upload below.
+      - name: Full validation profile
+        env:
+          SCREENSHOT_EVIDENCE_DIR: ${{ runner.temp }}/screenshots
+          EVIDENCE_DIR: ${{ runner.temp }}/evidence
+          CHECK_EVIDENCE_DIR: ${{ runner.temp }}/check-evidence
+          IPOD_VENV_PYTHON: ${{ runner.temp }}/tag-venv/bin/python
+          IPOD_REAL_DB_TOOL: ${{ runner.temp }}/IPod-Shuffle-4g/ipod-shuffle-4g.py
+        run: python3 tools/check.py full
 
       - name: Upload screenshots
         if: always()
@@ -195,5 +93,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: test-evidence
-          path: ${{ runner.temp }}/evidence
+          path: |
+            ${{ runner.temp }}/evidence
+            ${{ runner.temp }}/check-evidence
           if-no-files-found: warn

@@ -794,6 +794,35 @@ That ordering is what makes a name's home unambiguous, and `tests/harness.py` re
 
 ## Tests
 
+The repository owns four fixed validation profiles:
+
+```bash
+python3 tools/check.py staged
+python3 tools/check.py push
+python3 tools/check.py full
+python3 tools/check.py fix
+```
+
+`staged` runs the shell, architecture, Python syntax, and runner checks used by the pre-commit hook.
+`push` adds the display-free behavioral checks used by the pre-push hook.
+`full` adds the isolated real-window, screenshot, and product end-to-end checks required by CI.
+`fix` currently performs no rewrites: only explicitly approved mechanical formatting or safe rewrites may be added to it.
+
+Independent read-only checks run concurrently, while their captured output is printed in declaration order.
+Each check declares what it needs - the GTK bindings, Xvfb, D-Bus, a speech engine, the upstream database builder, an unprivileged user - and one this machine cannot satisfy is reported as `[SKIP]`, naming what is missing, while every check that can run still runs.
+A profile that skipped something exits 2, and one with a real failure exits 1.
+Declaring the optional ones is what keeps a missing speech engine or database builder from quietly turning a passing run into a weaker one.
+Every check's captured output is written into `CHECK_EVIDENCE_DIR`, alongside the screenshot and product evidence; a failing local run copies the lot to `.check-evidence/` and says so.
+
+The hooks need `pre-commit` itself, which is not part of the application environment.
+Install it once with `uv tool install pre-commit`, or from your distribution, then:
+
+```bash
+pre-commit install --hook-type pre-commit --hook-type pre-push
+```
+
+The product suite the `full` profile ends with also runs on its own:
+
 ```bash
 bash tests/product-e2e.sh
 ```
@@ -900,8 +929,9 @@ Reading it there rather than off the runner's environment is the point, because 
 It also takes each of the two servers off `PATH` in turn and gives the wrapped command a file to write, so a runner that reports a refusal after already letting a window open is told apart from one that stopped it.
 
 `tools/mixin-contract.py` checks the mixin boundary without a display, including shared state, duplicate methods, and attributes that are only read or only written.
-`tools/lint.py` runs it together with `shellcheck` and the Python syntax check, reading the `lint` command out of `.no-mistakes.yaml` rather than repeating it, so what a contributor types and what the pipeline runs are the same text.
-`tests/lint-wrapper.py` covers that reader against the quiet way it could fail, a block scalar read short running fewer checks while still passing, deciding each case by what the command it ran actually did.
+`tools/check.py` declares each validation command once, groups them into the staged, push, full, and fix profiles, and runs independent read-only checks concurrently with deterministic output.
+`tests/check-runner.py` covers that runner with checks that rendezvous through the filesystem, so overlap is what lets them finish rather than something a stopwatch infers afterwards, and running them one at a time fails outright.
+It also covers output that stays in declaration order when the first check is the last to exit, the log each one leaves on disk, complete failure reporting, a skipped check that does not hold back the rest, and the deliberately constrained fix profile.
 `tools/demo-library.py` rebuilds the demo library `docs/screenshot.png` is taken against - four albums, two playlists and a stand-in iPod that has really been synced to - and prints both the command that launches the app against it and the `tools/shoot.py` line that retakes that shot from it.
 `tests/demo-library-guard.py` covers the one step of that tool which cannot be undone, running the real guard against directories in a temporary folder of its own: a directory the tool did not build is refused with everything in it still there, by name or through a symlink, while an empty one and a previous build of its own are claimed and rebuilt.
 
@@ -915,7 +945,8 @@ A sync is held to that same reading although it deletes nothing, since it still 
 The authorized sync that follows moves that record, so a refused one leaving it alone is a rebuild that did not happen rather than two absent files agreeing with each other.
 A device the scripts would stop to ask a question about is declined with the session still answering afterwards, since a server that let a child reach its client's pipe would take the next request for the answer.
 
-`.github/workflows/tests.yml` runs the suite, `shellcheck`, the mixin contract, the demo library guard, a Python syntax and import check, the headless CLI check, the MCP server check, the three main-loop checks, the isolation check, and all four display-backed checks on every push and pull request, keeping the screenshots the last of them takes as an artefact. The display-backed steps are invoked bare, because each starts its own Xvfb display and session bus through `tools/headless-run.py`.
+`.github/workflows/tests.yml` installs the required native dependencies and upstream database builder, then invokes the repository-owned `full` profile on every push and pull request.
+It uploads the deterministic screenshots and product end-to-end evidence even when validation fails.
 
 ## Credits
 

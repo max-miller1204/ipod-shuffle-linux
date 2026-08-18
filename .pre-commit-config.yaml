@@ -1,0 +1,16 @@
+---
+repos:
+  - repo: local
+    hooks:
+      - id: repository-staged-checks
+        name: repository staged checks
+        entry: python3 tools/check.py staged
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+      - id: repository-push-checks
+        name: repository push checks
+        entry: python3 tools/check.py push
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

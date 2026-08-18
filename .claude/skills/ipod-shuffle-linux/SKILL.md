@@ -36,7 +36,7 @@ Read [`docs/machine-interface.md`](../../../docs/machine-interface.md) before ch
 
 `IpodWindow` is one `Adw.ApplicationWindow` split into mixins by responsibility.
 Cross-mixin state is an explicit architecture decision recorded in `tools/mixin-contract.py`.
-Run `python3 tools/lint.py`, which carries that check, after changing a mixin or shared window attribute.
+Run `python3 tools/check.py staged`, which carries that check, after changing a mixin or shared window attribute.
 Add intentional shared state to its `SHARED_STATE` table rather than bypassing the check.
 Do not move device-changing behavior into a mixin.
 
@@ -62,15 +62,22 @@ EVIDENCE_DIR=/tmp/ipod-shuffle-evidence \
 `IPOD_REAL_DB_TOOL` selects the upstream database builder used to prove rewritten playlist entries resolve, overriding the copy `./install.sh` clones into `~/ipod-tools/IPod-Shuffle-4g/`.
 With neither the variable nor that copy, the local suite reports that hardware-compatible builder coverage was skipped rather than silently claiming it.
 
-The deterministic shell, architecture, and Python syntax checks are:
+The repository-owned validation profiles are:
 
 ```bash
-python3 tools/lint.py
+python3 tools/check.py staged
+python3 tools/check.py push
+python3 tools/check.py full
+python3 tools/check.py fix
 ```
 
-That wrapper reads the `lint` command out of [`.no-mistakes.yaml`](../../../.no-mistakes.yaml) and runs it rather than repeating it, so this and the pipeline run the same checks.
-Change the checks there, never here.
-That file also owns which interpreter the Python checks use, which a checkout without the installed environment resolves differently.
+`staged` runs deterministic shell, architecture, Python syntax, and runner checks.
+`push` adds the display-free behavioral checks, and `full` adds the real-window, screenshot, and product end-to-end checks required by CI.
+`fix` is a declared no-op; add only explicitly approved mechanical rewrites to it.
+The runner declares each check once, selects the installed application interpreter, preflights native capabilities, runs independent read-only checks concurrently, and prints their captured output in declaration order.
+A check whose capabilities this machine lacks is reported as `[SKIP]` and leaves the profile exiting 2, while every check that can run still runs.
+Each check's captured output is also written to `CHECK_EVIDENCE_DIR`, which a failing local run copies to `.check-evidence/`.
+Change profile membership and commands in `tools/check.py`.
 
 The real-window checks are:
 
@@ -87,7 +94,7 @@ Never weaken this by falling back to the user's desktop or existing application 
 Use `tools/headless-run.py COMMAND ...` for any new display-backed GTK check.
 Set `SCREENSHOT_EVIDENCE_DIR` to retain screenshot artifacts.
 
-Consult [`.github/workflows/tests.yml`](../../../.github/workflows/tests.yml) for the complete CI command list and dependencies.
+Consult [`tools/check.py`](../../../tools/check.py) for the complete list of checks CI runs, and [`.github/workflows/tests.yml`](../../../.github/workflows/tests.yml) for the native dependencies it installs before invoking them.
 
 ## Canonical demo library
 

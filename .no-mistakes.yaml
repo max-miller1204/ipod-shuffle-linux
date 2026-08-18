@@ -5,29 +5,10 @@
 auto_fix:
   review: 2
 
-commands:
-  lint: |
-    shellcheck -x ./*.sh tests/product-e2e.sh &&
-    bash -c '
-      set -euo pipefail
-      source ./lib.sh
-      # The installed environment when there is one, so these read the modules
-      # the application runs. py_compile never imports, so it holds on any
-      # interpreter; the mixin contract imports the package to read which
-      # mixins IpodWindow is built from and what Adw.ApplicationWindow
-      # provides, so it needs the GTK bindings. A checkout with none yet is
-      # told which check it is not getting rather than dying on the import.
-      if python="$(find_gui_python 2>/dev/null)"; then
-        "$python" tools/mixin-contract.py
-      else
-        python="$(system_python)" \
-          || { echo "lint needs a python3 interpreter" >&2; exit 1; }
-        echo "lint: no interpreter with the GTK4 bindings; skipping the mixin" \
-          "contract and compiling with $python" >&2
-      fi
-      "$python" -m py_compile \
-        ipod-gui.py ipod-report.py ipod_gui/*.py tests/*.py tools/*.py
-    '
+# No validation command is configured here any more: tools/check.py owns them
+# all, and the pre-commit hooks and CI invoke its profiles directly, so what a
+# contributor runs and what the pipeline runs is one declaration.
 
+# Evidence of past runs, kept for the record rather than reviewed again.
 ignore_patterns:
   - ".no-mistakes/**"

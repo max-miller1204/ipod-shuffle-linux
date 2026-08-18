@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 198,
+  "revision": 204,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -438,6 +438,76 @@
       "links": [
         "https://github.com/max-miller1204/ipod-shuffle-linux/pull/46"
       ]
+    },
+    {
+      "id": "ci-validation-replace-no-mistakes-with",
+      "title": "ci/validation: replace no-mistakes with repository-owned check profiles",
+      "description": "Replace no-mistakes as the validation command owner with a small dependency-free repository runner exposing fixed staged, push, full, and fix profiles. Define each check once, run independent read-only checks concurrently with stable output, detect required GTK, Xvfb, and D-Bus capabilities, and retain screenshot and product-E2E evidence on failure. Make standard pre-commit hooks invoke the fast staged profile, keep pre-push read-only, and make required CI invoke the complete full profile. Limit fix to explicitly requested mechanical formatting and safe rewrites. Migrate every caller before removing .no-mistakes.yaml, then delete the custom YAML extraction in tools/lint.py and its parser-specific test rather than retaining a compatibility path.",
+      "group": "Developer Experience",
+      "status": "active",
+      "createdAt": "2026-08-16T19:35:08.548Z",
+      "updatedAt": "2026-08-18T00:49:49.774Z"
+    },
+    {
+      "id": "ci-static-analysis-add-pinned-shell",
+      "title": "ci/static-analysis: add pinned shell Python secret and workflow checks",
+      "description": "Extend the repository-owned profiles with pinned high-signal checks: retain ShellCheck, add Ruff lint and formatting with a deliberately small rule set, introduce shfmt in check-only mode before any dedicated formatting migration, run actionlint and zizmor for GitHub Actions correctness and security, run gitleaks on staged and branch diffs, and add standard merge-conflict, case-conflict, large-file, shebang, private-key, EOF, and whitespace checks. Keep strict typing limited to display-free machine-interface modules until PyGObject typing proves useful. Do not make generic Bandit, Semgrep, codespell, Markdown, external-link, or unsafe auto-fix output blocking without repository-specific signal.",
+      "group": "Developer Experience",
+      "dependsOn": [
+        "ci-validation-replace-no-mistakes-with"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-16T19:35:08.548Z",
+      "updatedAt": "2026-08-16T19:35:08.548Z"
+    },
+    {
+      "id": "ci-reproducibility-lock-tools-split",
+      "title": "ci/reproducibility: lock tools split jobs and protect merges",
+      "description": "Make CI and dependency resolution reproducible without weakening the existing behavioral suite. Add a locked uv development environment while retaining distro-provided PyGObject, pin the supported Ubuntu runner and GitHub Actions to immutable revisions, verify checksums for downloaded tools, add dependency update automation, and configure workflow timeouts and stale-run concurrency cancellation. Start with separate required static and behavioral jobs, splitting headless, GTK, and product E2E further only when measured latency justifies repeated environment setup. Add merge_group support, protected-branch required checks, merge-queue validation, and code-owner approval for destructive scripts, device identity and authorization logic, GUI architecture, and workflows. Consider a digest-pinned GTK/font/Xvfb image only if screenshot drift or setup instability is observed.\n\nExpose one stable aggregate required status check that always runs for `pull_request` and `merge_group`. It must fail when any required child job fails, is cancelled, or is unexpectedly absent, while allowing intentionally inapplicable jobs to report an explicit successful no-op. Do not make a path-filtered or conditionally skipped workflow directly required, and never interpret a missing check as success.",
+      "group": "Developer Experience",
+      "dependsOn": [
+        "ci-validation-replace-no-mistakes-with"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-16T19:35:08.548Z",
+      "updatedAt": "2026-08-16T19:59:51.841Z"
+    },
+    {
+      "id": "ci-e2e-validate-destructive-rails-on",
+      "title": "ci/e2e: validate destructive rails on isolated loopback devices",
+      "description": "Add a privileged but tightly isolated loopback-filesystem integration tier that invokes the public sync, remove, wipe, report, and device-detection interfaces against disposable disk images. Cover realistic iPod layouts and identities, unrelated mounted images, ambiguous or absent identities, device replacement between planning and mutation, stale or wrong confirmation tokens, expected-device mismatches, symlinks, bind mounts, spaces, labels, and stale mount records. Assert that every unsafe or ambiguous case fails closed and leaves unrelated filesystems byte-for-byte unchanged. Run trusted pull-request smoke cases and a broader scheduled matrix, preserve evidence on failure, and do not replace the existing shell product E2E, private X and D-Bus GTK checks, screenshots, MCP tests, or pinned real database-builder coverage.",
+      "group": "Device Safety",
+      "dependsOn": [
+        "ci-validation-replace-no-mistakes-with"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-16T19:35:08.548Z",
+      "updatedAt": "2026-08-16T19:35:08.548Z"
+    },
+    {
+      "id": "ci-developer-workflow-add-explicit",
+      "title": "ci/developer-workflow: add explicit deterministic PR delivery",
+      "description": "Provide an optional explicit non-AI PR-delivery command after the repository-owned validation profiles are established. Verify a clean branch, run or verify the full profile for the exact current revision, push without rebasing or rewriting history, and invoke gh pr create while leaving title, intent, review, and merge under human control. It must not be a Git hook, automatically fix product behavior, create commits, force-push, rebase, merge, or treat a stale validation result as current. Print the exact checked revision and PR URL. Keep delivery separate from the read-only tools/check.py validation runner and document the normal staged, push, full, fix, and PR-delivery commands.",
+      "group": "Developer Experience",
+      "dependsOn": [
+        "ci-validation-replace-no-mistakes-with"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-16T19:59:02.606Z",
+      "updatedAt": "2026-08-16T19:59:02.606Z"
+    },
+    {
+      "id": "ci-deep-quality-add-scheduled-supply",
+      "title": "ci/deep-quality: add scheduled supply-chain and compatibility audits",
+      "description": "Add expensive, time-varying, or network-dependent checks outside normal commit and push hooks. Run scheduled full-history secret scanning, refreshed Python and GitHub Actions advisory scans, dependency-lock freshness checks, and supported-environment install and install.sh --check --json capability checks. Validate external documentation links as scheduled or nonblocking evidence rather than a required local gate. Exercise the complete loopback-device, private X and D-Bus GTK, screenshot, and product-E2E matrix periodically with retained evidence. Record tool and advisory-database versions. Treat every retry or flaky pass as a failure requiring investigation rather than using retries to manufacture green status.",
+      "group": "Developer Experience",
+      "dependsOn": [
+        "ci-static-analysis-add-pinned-shell",
+        "ci-reproducibility-lock-tools-split"
+      ],
+      "status": "open",
+      "createdAt": "2026-08-16T19:59:02.606Z",
+      "updatedAt": "2026-08-16T19:59:02.606Z"
     }
   ],
   "retiredIds": [
@@ -445,6 +515,7 @@
     "fix-unknown-album-on-every-song-import",
     "add-interfaces-so-agents-can-interact",
     "add-queued-filter-and-symbol-on-library",
-    "delete-from-library-button"
+    "delete-from-library-button",
+    "replace-no-mistakes-with-deterministic"
   ]
 }
