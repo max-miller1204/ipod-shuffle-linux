@@ -93,6 +93,7 @@ Each re-executes through `tools/headless-run.py`, which requires `xvfb-run` and 
 Never weaken this by falling back to the user's desktop or existing application session.
 Use `tools/headless-run.py COMMAND ...` for any new display-backed GTK check.
 Set `SCREENSHOT_EVIDENCE_DIR` to retain screenshot artifacts.
+The temporary fixtures a check builds go through `tests/scratch.py` and are removed when it ends; set `IPOD_KEEP_SCRATCH=1` to keep them.
 
 Consult [`tools/check.py`](../../../tools/check.py) for the complete list of checks CI runs, and [`.github/workflows/tests.yml`](../../../.github/workflows/tests.yml) for the native dependencies it installs before invoking them.
 

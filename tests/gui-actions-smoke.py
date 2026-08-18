@@ -25,6 +25,8 @@ from pathlib import Path
 
 from harness import REPO, gui
 
+import scratch as _scratch
+
 
 class FakeWidget:
     """Stands in for any widget _set_busy touches.
@@ -280,7 +282,7 @@ assert {f".{e}" for e in declared.group(1).split("|")} == gui.AUDIO_EXTENSIONS, 
     gui.AUDIO_EXTENSIONS,
 )
 
-scan_root = Path(tempfile.mkdtemp())
+scan_root = Path(_scratch.directory())
 (scan_root / "Artist").mkdir()
 (scan_root / "Artist" / "Fallback.mp3").write_bytes(b"not really an mp3")
 (scan_root / "Artist" / "ignored.txt").touch()
@@ -339,11 +341,11 @@ assert not complete, "a missing scan root was reported as complete"
 # there leaves a finished sync reading short of the end, and a track skipped
 # here and copied there overruns it. The script enumerates with find -L, so
 # every case below is asserted against what find -L reaches.
-symlink_root = Path(tempfile.mkdtemp())
+symlink_root = Path(_scratch.directory())
 regular_track = symlink_root / "regular.mp3"
 regular_track.write_bytes(b"regular")
 (symlink_root / "linked.mp3").symlink_to(regular_track)
-outside_directory = Path(tempfile.mkdtemp())
+outside_directory = Path(_scratch.directory())
 (outside_directory / "nested.mp3").write_bytes(b"nested")
 (outside_directory / "outside.mp3").write_bytes(b"outside")
 # A link leaving the scanned tree entirely, which is the layout the whole
@@ -382,7 +384,7 @@ assert {record["path"] for record in through_link} == {
 
 # Two routes to one folder are two folders to find, which copies both, so the
 # guard must prune its own ancestry and nothing wider.
-twin_root = Path(tempfile.mkdtemp())
+twin_root = Path(_scratch.directory())
 (twin_root / "album").mkdir()
 (twin_root / "album" / "song.mp3").write_bytes(b"song")
 (twin_root / "twin").symlink_to(twin_root / "album", target_is_directory=True)
@@ -492,7 +494,7 @@ assert failed_discovery.queued is None, "partial folder scan entered the queue"
 assert "nothing was queued" in failed_discovery.toasts[-1]
 
 enrichment_window = FakeWindow()
-pending_only = Path(tempfile.mkdtemp()) / "Outside.mp3"
+pending_only = Path(_scratch.directory()) / "Outside.mp3"
 pending_only.touch()
 enrichment_window._update_device_controls = lambda: None
 
@@ -734,7 +736,7 @@ assert identity_window.toasts and "different iPod" in identity_window.toasts[-1]
 # between a playlist and the sync.
 
 playlist_window = FakeWindow()
-playlist_root = Path(tempfile.mkdtemp())
+playlist_root = Path(_scratch.directory())
 playlist_track = playlist_root / "Party Song.mp3"
 playlist_track.touch()
 playlist_path = playlist_root / "Party Mix.m3u"
@@ -817,7 +819,7 @@ busy_window.pending = set()
 # A volume that has been synced, because the tag scan only walks a device that
 # has a music folder to walk; what is being checked below is the lock it takes
 # while it does.
-synced_volume = Path(tempfile.mkdtemp(prefix="synced-ipod-"))
+synced_volume = Path(_scratch.directory(prefix="synced-ipod-"))
 (synced_volume / "iPod_Control" / "Music").mkdir(parents=True)
 busy_window.mount_point = str(synced_volume)
 
@@ -963,7 +965,7 @@ assert queued_window.sync_button.sensitive
 # The rows the window shows come from the m3u files at the volume root, with
 # entries under the music folder rewritten to match the track list's keys so
 # both share tag-derived titles.
-fake_volume = Path(tempfile.mkdtemp())
+fake_volume = Path(_scratch.directory())
 (fake_volume / "Party.M3U").write_text(
     "#EXTM3U\r\niPod_Control/Music/Yeat/Song [x1].mp3\r\n\r\n/kept/as/written.mp3\n",
     encoding="utf-8",
@@ -1057,7 +1059,7 @@ new_tracks = Path(fetch[fetch.index("--new-tracks") + 1])
 
 # What the download reported is exactly what gets queued. Anything else in the
 # library, downloaded on an earlier day, stays where it is.
-library = Path(tempfile.mkdtemp())
+library = Path(_scratch.directory())
 downloaded = library / "New Artist" / "New Song [abc].mp3"
 downloaded.parent.mkdir(parents=True)
 downloaded.touch()
@@ -1270,7 +1272,7 @@ assert gui.short_link("") == ""
 # A search result has no file to read a cover out of, so its artwork is the
 # video's thumbnail. Redirected at the real cache so that nothing here reads
 # or writes the one the user's own library fills.
-art_cache = Path(tempfile.mkdtemp()) / "art"
+art_cache = Path(_scratch.directory()) / "art"
 gui.ART_CACHE = art_cache
 
 # The smallest size that still covers the largest square artwork is drawn at.
@@ -1591,7 +1593,7 @@ def read_device_tracks(window):
         gui.GLib.idle_add = scan_idle
 
 
-unsynced_volume = Path(tempfile.mkdtemp(prefix="unsynced-ipod-"))
+unsynced_volume = Path(_scratch.directory(prefix="unsynced-ipod-"))
 (unsynced_volume / "iPod_Control").mkdir()
 unsynced_window = device_scan_window(unsynced_volume)
 read_device_tracks(unsynced_window)
@@ -1629,7 +1631,7 @@ if os.geteuid() != 0:
 # see any more.
 assert gui.music_folder(synced_volume) == synced_volume / "iPod_Control" / "Music"
 assert gui.music_folder(unsynced_volume) is None
-gone_volume = Path(tempfile.mkdtemp(prefix="gone-ipod-"))
+gone_volume = Path(_scratch.directory(prefix="gone-ipod-"))
 try:
     gui.music_folder(gone_volume)
 except OSError:
@@ -1640,7 +1642,7 @@ else:
 
 def stub_yt_dlp(script):
     """A yt-dlp stand-in, so no test here depends on the network."""
-    path = Path(tempfile.mkdtemp()) / "yt-dlp"
+    path = Path(_scratch.directory()) / "yt-dlp"
     path.write_text(f"#!/bin/sh\n{script}\n", encoding="utf-8")
     path.chmod(0o755)
     return str(path)
@@ -2134,7 +2136,7 @@ finally:
 # runs has to name every queued path and nothing else. Copying the whole
 # library instead would fill a 2GB device from a single click.
 queue_window = FakeWindow()
-sync_source = Path(tempfile.mkdtemp()) / "Music"
+sync_source = Path(_scratch.directory()) / "Music"
 sync_source.mkdir()
 queued_paths = {
     str(path): gui.Track(
@@ -2200,7 +2202,7 @@ linked_during_sync = sync_source / "04 Linked.mp3"
 linked_during_sync.symlink_to(exact_track)
 # A source folder whose only remaining track is a link. It used to drop
 # out of the sync entirely; now it is a source like any other.
-linked_source = Path(tempfile.mkdtemp()) / "Only Links"
+linked_source = Path(_scratch.directory()) / "Only Links"
 linked_source.mkdir()
 removed_before_sync = linked_source / "Removed.mp3"
 removed_before_sync.write_bytes(b"removed")
@@ -2331,7 +2333,7 @@ assert (
 # what it lost - said here rather than folded into the sync's own message,
 # which _clear_pending replaces on success and a non-zero exit never shows.
 partial_sync = FakeWindow()
-kept_source = Path(tempfile.mkdtemp(prefix="kept-source-")) / "Kept.mp3"
+kept_source = Path(_scratch.directory(prefix="kept-source-")) / "Kept.mp3"
 kept_source.write_bytes(b"kept")
 partial_sync.pending = {str(kept_source), failed_member}
 partial_sync.pending_sources = {
@@ -2353,7 +2355,7 @@ assert partial_sync.done_messages[-1].endswith("synced"), partial_sync.done_mess
 # A folder that is still there but has been emptied by hand is the same news:
 # the queue is rebuilt without it either way, so the user hears about it.
 emptied_sync = FakeWindow()
-emptied_folder = Path(tempfile.mkdtemp(prefix="emptied-source-"))
+emptied_folder = Path(_scratch.directory(prefix="emptied-source-"))
 emptied_sync.pending = {str(kept_source)}
 emptied_sync.pending_sources = {
     str(kept_source): {str(kept_source)},
@@ -2372,7 +2374,7 @@ assert (
 # One that is there but cannot be read is the other thing entirely, and still
 # cancels: syncing around it would copy a queue the user never approved.
 unreadable_sync = FakeWindow()
-unreadable_source = Path(tempfile.mkdtemp(prefix="unreadable-")) / "notes.txt"
+unreadable_source = Path(_scratch.directory(prefix="unreadable-")) / "notes.txt"
 unreadable_source.write_text("not a source this can read", encoding="utf-8")
 unreadable_sync.pending = {str(unreadable_source)}
 unreadable_sync.pending_sources = {str(unreadable_source): {str(unreadable_source)}}
@@ -2642,7 +2644,7 @@ assert idle_window.commands == [], idle_window.commands
 # has to reach the device rather than living in the window. The entries under
 # the music folder get their prefix back; anything hand-written is left as it
 # was, because restoring the prefix blindly would break an absolute path.
-reorder_root = Path(tempfile.mkdtemp())
+reorder_root = Path(_scratch.directory())
 (reorder_root / "iPod_Control" / "Music" / "F00").mkdir(parents=True)
 for code in ("LDPX", "QMRT"):
     (reorder_root / "iPod_Control" / "Music" / "F00" / f"{code}.mp3").write_bytes(b"x")
@@ -3475,8 +3477,8 @@ gui.label, gui.make_cover = real_label, real_cover
 # it out. Both halves of that are checked against real files: a promotion that
 # silently leaves the file in the cache loses it at the next prune.
 
-preview_cache = Path(tempfile.mkdtemp())
-preview_library = Path(tempfile.mkdtemp())
+preview_cache = Path(_scratch.directory())
+preview_library = Path(_scratch.directory())
 gui.PREVIEW_CACHE = preview_cache
 gui.PREVIEW_INCOMING = preview_cache / ".incoming"
 gui.YOUTUBE_LIBRARY = preview_library

@@ -15,11 +15,12 @@ would move into, so neither check touches the real ones.
 import json
 import os
 import sys
-import tempfile
 import threading
 from pathlib import Path
 
 from harness import gui
+
+import scratch as _scratch
 
 cache = Path(sys.argv[1])
 library = Path(sys.argv[2])
@@ -160,7 +161,7 @@ assert closed.library.previews == []
 # going to play is already named, rather than leaving it fetching forever.
 # YouTube changing something under yt-dlp is the ordinary way this happens, so
 # the double is replaced by one that fails the way that does.
-broken = Path(tempfile.mkdtemp()) / "yt-dlp"
+broken = Path(_scratch.directory()) / "yt-dlp"
 broken.write_text(
     "#!/bin/sh\necho 'ERROR: unable to download' >&2\nexit 1\n", encoding="utf-8"
 )

@@ -15,15 +15,15 @@ built for real, under a display server.
 """
 
 import os
-import shutil
 import sys
-import tempfile
 import threading
 from pathlib import Path
 
 from gi.repository import GLib
 
 from harness import REPO, gui
+
+import scratch as _scratch
 
 
 class FakeWidget:
@@ -97,7 +97,7 @@ class StreamWindow:
 
 
 failures = []
-root = Path(tempfile.mkdtemp())
+root = Path(_scratch.directory())
 ipod = root / "iPod"
 source = root / "Odd Album"
 for directory in (
@@ -287,8 +287,6 @@ on_device = sorted(
 )
 if on_device != ["01 - Plain.mp3", '02 - Say "hi".mp3']:
     failures.append(f"the device holds {on_device}")
-
-shutil.rmtree(root, ignore_errors=True)
 
 if failures:
     for failure in failures:

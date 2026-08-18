@@ -30,9 +30,10 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
+
+import scratch as _scratch
 
 REPO = Path(__file__).resolve().parents[1]
 if not os.environ.get("SHUFFLE_HEADLESS_TEST"):
@@ -42,7 +43,7 @@ if not os.environ.get("SHUFFLE_HEADLESS_TEST"):
         ).returncode
     )
 
-_SANDBOX = tempfile.mkdtemp(prefix="ipod-gio-actions-")
+_SANDBOX = _scratch.directory(prefix="ipod-gio-actions-")
 os.environ["HOME"] = _SANDBOX
 os.environ["XDG_CACHE_HOME"] = str(Path(_SANDBOX, "cache"))
 os.environ["XDG_CONFIG_HOME"] = str(Path(_SANDBOX, "config"))

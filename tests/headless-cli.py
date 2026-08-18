@@ -11,11 +11,12 @@ the model at all.
 import json
 import os
 import subprocess
-import tempfile
 from pathlib import Path
 
+import scratch as _scratch
+
 repo = Path(__file__).resolve().parents[1]
-home = Path(tempfile.mkdtemp(prefix="headless-cli-home-")).resolve()
+home = Path(_scratch.directory(prefix="headless-cli-home-")).resolve()
 # PYTHONPATH so that the checks below can run the command from somewhere other
 # than the repository, which is what a relative argument needs to mean anything.
 # The yt-dlp double is the same one product-e2e.sh uses, named the way lib.sh
