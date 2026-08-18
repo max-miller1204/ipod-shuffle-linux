@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 204,
+  "revision": 205,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -444,9 +444,10 @@
       "title": "ci/validation: replace no-mistakes with repository-owned check profiles",
       "description": "Replace no-mistakes as the validation command owner with a small dependency-free repository runner exposing fixed staged, push, full, and fix profiles. Define each check once, run independent read-only checks concurrently with stable output, detect required GTK, Xvfb, and D-Bus capabilities, and retain screenshot and product-E2E evidence on failure. Make standard pre-commit hooks invoke the fast staged profile, keep pre-push read-only, and make required CI invoke the complete full profile. Limit fix to explicitly requested mechanical formatting and safe rewrites. Migrate every caller before removing .no-mistakes.yaml, then delete the custom YAML extraction in tools/lint.py and its parser-specific test rather than retaining a compatibility path.",
       "group": "Developer Experience",
-      "status": "active",
+      "status": "done",
       "createdAt": "2026-08-16T19:35:08.548Z",
-      "updatedAt": "2026-08-18T00:49:49.774Z"
+      "updatedAt": "2026-08-18T08:55:10.738Z",
+      "completedAt": "2026-08-18T08:55:10.738Z"
     },
     {
       "id": "ci-static-analysis-add-pinned-shell",
