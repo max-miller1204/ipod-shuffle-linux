@@ -15,7 +15,6 @@ is the approach the other GUI checks use.
 
 import os
 import sys
-import tempfile
 import threading
 from pathlib import Path
 
@@ -24,9 +23,11 @@ from harness import gui
 # After the harness, which is what pins the GTK versions this resolves against.
 from gi.repository import Gio  # noqa: E402
 
+import scratch as _scratch
 
-PLAYLISTS = Path(tempfile.mkdtemp(prefix="playlists-"))
-MUSIC = Path(tempfile.mkdtemp(prefix="music-"))
+
+PLAYLISTS = Path(_scratch.directory(prefix="playlists-"))
+MUSIC = Path(_scratch.directory(prefix="music-"))
 gui.PLAYLIST_LIBRARY = PLAYLISTS
 
 
@@ -113,7 +114,7 @@ assert not renamed_cover.exists(), "deleting a playlist left its custom cover"
 # In a folder of its own, because what is being read is which playlist a
 # stored image belongs to, and that only means anything with more than one
 # playlist in the folder to confuse it with.
-COVERS = Path(tempfile.mkdtemp(prefix="covers-"))
+COVERS = Path(_scratch.directory(prefix="covers-"))
 mix = gui.create_local_playlist(COVERS, "Mix", [first])
 # The name that a cover matched on anything less than the whole filename would
 # be taken for: "Mix.m3u.old" is a name FAT and this app both accept, and the
@@ -191,7 +192,7 @@ assert gui.set_playlist_cover(COVERS / "No Such.m3u", mix_image) is gui.PLAYLIST
 assert gui.set_playlist_cover(kept, notes) is gui.IMAGE_UNSUPPORTED
 assert gui.set_playlist_cover(kept, MUSIC / "vanished.png") is gui.IMAGE_GONE
 assert gui.playlist_custom_cover(kept) is None, "a refused image was stored anyway"
-blocked_root = Path(tempfile.mkdtemp(prefix="blocked-"))
+blocked_root = Path(_scratch.directory(prefix="blocked-"))
 blocked = gui.create_local_playlist(blocked_root, "Blocked", [first])
 (blocked_root / ".covers").write_bytes(b"a file where the store wants a folder")
 assert gui.set_playlist_cover(blocked, mix_image) is None
@@ -326,7 +327,7 @@ assert gui.PLAYLIST_GONE != gui.TARGET_GONE, (
 # those, so a container running the suite as root would read the playlist
 # straight through the folder meant to shut it away and the check would pass
 # while proving nothing.
-blocked = Path(tempfile.mkdtemp(prefix="blocked-")) / "Playlists"
+blocked = Path(_scratch.directory(prefix="blocked-")) / "Playlists"
 blocked.write_bytes(b"a file where the folder should be")
 assert gui.playlist_contents(blocked / "Locked Away.m3u") == ([], False), (
     "a playlist behind a folder that could not be read was called deleted"
@@ -335,7 +336,7 @@ assert gui.add_entries(blocked / "Locked Away.m3u", [str(second)]) is None
 # And as the user actually meets it, which is a folder whose permissions
 # refuse a listing. Only as an unprivileged user, for the reason above.
 if os.geteuid() != 0:
-    shut = Path(tempfile.mkdtemp(prefix="shut-"))
+    shut = Path(_scratch.directory(prefix="shut-"))
     gui.write_playlist_entries(shut / "Locked Away.m3u", [str(first)])
     shut.chmod(0o000)
     try:
@@ -354,7 +355,7 @@ if os.geteuid() != 0:
 # entry is missing only where there is a folder that could have held it, so
 # these keep the "could not read" answer and stay on the rail. Nothing here
 # depends on permission bits, so it means the same thing whoever runs it.
-missing_folder = Path(tempfile.mkdtemp(prefix="unlisted-")) / "Music"
+missing_folder = Path(_scratch.directory(prefix="unlisted-")) / "Music"
 in_missing = missing_folder / "On The Drive.m3u"
 assert gui.playlist_contents(in_missing) == ([], False), (
     "a playlist in a folder that was not there was called deleted"
@@ -363,7 +364,7 @@ assert gui.add_entries(in_missing, [str(second)]) is None
 assert not missing_folder.exists(), "an edit rebuilt a folder that had gone"
 # The way the user meets that, which is the drive under it being unplugged:
 # the folder is an entry that is still perfectly there and names nothing.
-unplugged_folder = Path(tempfile.mkdtemp(prefix="unplugged-")) / "Music"
+unplugged_folder = Path(_scratch.directory(prefix="unplugged-")) / "Music"
 unplugged_folder.symlink_to("/nowhere/mounted/Music")
 on_drive = unplugged_folder / "On The Drive.m3u"
 assert gui.playlist_contents(on_drive) == ([], False), (
@@ -416,7 +417,7 @@ assert gui.delete_local_playlist(survivor)
 
 # Importing resolves what another program wrote against wherever it wrote it,
 # because those paths stop meaning anything once the file has been copied.
-foreign_dir = Path(tempfile.mkdtemp(prefix="exported-"))
+foreign_dir = Path(_scratch.directory(prefix="exported-"))
 foreign_track = foreign_dir / "Exported.mp3"
 foreign_track.write_bytes(b"exported")
 foreign = foreign_dir / "Road Trip.m3u"
@@ -1924,7 +1925,7 @@ gui.delete_local_playlist(adopted)
 # What a YouTube result adds is found by video id: the same press has to work
 # for a video the music folder already holds, whose download reports nothing
 # new because there was nothing new to fetch.
-youtube_library = Path(tempfile.mkdtemp(prefix="youtube-"))
+youtube_library = Path(_scratch.directory(prefix="youtube-"))
 gui.YOUTUBE_LIBRARY = youtube_library
 downloaded = youtube_library / "Queen" / "Bohemian Rhapsody [fJ9rUzIMcZQ].mp3"
 downloaded.parent.mkdir(parents=True)

@@ -20,12 +20,13 @@ import hashlib
 import json
 import os
 import subprocess
-import tempfile
 import threading
 from pathlib import Path
 
+import scratch as _scratch
+
 repo = Path(__file__).resolve().parents[1]
-root = Path(tempfile.mkdtemp(prefix="mcp-server-")).resolve()
+root = Path(_scratch.directory(prefix="mcp-server-")).resolve()
 home = root / "home"
 (home / "Music").mkdir(parents=True)
 source = root / "New Album"
