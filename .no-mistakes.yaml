@@ -1,14 +1,4 @@
----
-# The iPod's device-changing paths justify one automatic repair pass before
-# and one after an intent-sensitive review decision. Keep this repository-local:
-# every attempt is another complete diff review.
-auto_fix:
-  review: 2
-
-# No validation command is configured here any more: tools/check.py owns them
-# all, and the pre-commit hooks and CI invoke its profiles directly, so what a
-# contributor runs and what the pipeline runs is one declaration.
-
-# Evidence of past runs, kept for the record rather than reviewed again.
-ignore_patterns:
-  - ".no-mistakes/**"
+# Pin the harness for this repository. Model and effort are global-only in
+# no-mistakes and are keyed by agent, so selecting opencode here is what routes
+# this repository to the DeepSeek V4 Flash Free profile in agent_args_override.
+agent: opencode
