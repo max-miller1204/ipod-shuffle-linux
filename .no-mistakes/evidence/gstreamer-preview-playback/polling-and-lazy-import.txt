@@ -1,2 +1,0 @@
-module import -> GStreamer remains lazy
-PreviewPlayer._start_polling -> GLib timeout scheduled every 250ms

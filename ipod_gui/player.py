@@ -14,7 +14,7 @@ from .shell import lib_function_succeeds
 
 
 GSTREAMER_UNAVAILABLE = (
-    "GStreamer is not installed - see Preview playback in the README"
+    "GStreamer is not installed - see docs/installation.md"
 )
 
 # Said in the bar, where the track that will not arrive is already named, and

@@ -4,7 +4,7 @@
 #
 # Usage: ./ipod-sync.sh [options] <music-dir-file-or-playlist> [more...]
 #
-# See README.md for the full workflow.
+# See docs/command-line.md for the full workflow.
 
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"

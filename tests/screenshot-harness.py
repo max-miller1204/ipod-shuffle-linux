@@ -197,7 +197,7 @@ with tempfile.TemporaryDirectory(prefix="screenshot-harness-") as workspace:
     library = shoot(root, "library", 1180, 1, out / "library-1180-1x.png")
     playlists = shoot(root, "playlists", 760, 2, out / "playlists-760-2x.png")
     # The width the sidebar is shown at, rendered again at the other scale:
-    # the README's own 2x command, and the pair the scale is checked against
+    # the development guide's 2x command, and the pair that verifies the scale
     # below. It has to be a width above the sidebar's collapse threshold,
     # because a breakpoint both scales take the same way hides the defect.
     library_2x = shoot(root, "library", 1180, 2, out / "library-1180-2x.png")
