@@ -5,7 +5,7 @@
 # Usage: ./ipod-remove.sh [options] <track> [more-tracks...]
 #        ./ipod-remove.sh --playlist <name> [more-names...]
 #
-# See README.md for the full workflow.
+# See docs/command-line.md for the full workflow.
 
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"

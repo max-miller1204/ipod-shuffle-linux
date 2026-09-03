@@ -1693,7 +1693,7 @@ gui.lib_function_succeeds = lambda _name: False
 try:
     assert "yt-dlp" in (gui.youtube_search_unavailable_reason() or "")
     assert gui.preview_unavailable_reason() == (
-        "GStreamer is not installed - see Preview playback in the README"
+        "GStreamer is not installed - see docs/installation.md"
     )
 finally:
     gui.lib_function_succeeds = original_succeeds
@@ -2744,7 +2744,7 @@ assert by_duration.compare(short, long_) == Gtk.Ordering.SMALLER
 # state happens to be stored as: alphabetically "queued" falls after "preview",
 # which would put a track staged for the next sync below one that is not in the
 # library yet, and read as a different order from the pills above the table and
-# the marker table in the README.
+# the marker table in docs/graphical-interface.md.
 by_state = gui.track_sorter(
     next(key for name, _t, _e, key in gui.TRACK_COLUMNS if name == "state")
 )
@@ -3428,7 +3428,7 @@ missing = BarWindow(unavailable=gui.GSTREAMER_UNAVAILABLE)
 missing._update_now_playing()
 assert missing.playing_stack.child_name == "message"
 assert missing.playing_message.get_text() == (
-    "GStreamer is not installed - see Preview playback in the README"
+    "GStreamer is not installed - see docs/installation.md"
 )
 
 

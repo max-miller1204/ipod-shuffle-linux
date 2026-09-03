@@ -4,14 +4,14 @@
 #
 # Usage: ./ipod-fetch.sh [options] <url> [more-urls...]
 #
-# See README.md for the full workflow.
+# See docs/youtube-downloads.md for the full workflow.
 
 set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
 # MP3 is deliberate even though AAC looks better on paper: ffmpeg's native AAC
 # output crackled on a real shuffle 4G, while this MP3 configuration played
-# cleanly. README.md owns the device-bisect results and encoder rationale.
+# cleanly. docs/youtube-downloads.md contains the test results and rationale.
 #
 # 256k is deliberate headroom over that ~160k source rather than a claim about
 # it: encoding lossy to lossy loses a little every time, and the cheapest way
@@ -127,7 +127,7 @@ declare -a YTDLP_ARGS=(
 
     # Pin output to stereo and give the encoder 4 dB of headroom. Re-encoding
     # brickwalled masters otherwise added clipping, and the unlimited version
-    # sounded worse on the device. README.md owns the measurements.
+    # sounded worse on the device. docs/youtube-downloads.md contains the results.
     #
     # level=false stops the limiter handing the gain straight back as makeup,
     # which would put the peaks back exactly where they started. latency=true

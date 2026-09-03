@@ -2064,7 +2064,7 @@ def value_of(flag):
 # conversion at the documented bitrate is not optional.
 #
 # Regression: native ffmpeg AAC crackled on a real 4G, while this MP3
-# configuration played cleanly. README.md owns the hardware-bisect details.
+# configuration played cleanly. docs/youtube-downloads.md has the test results.
 assert value_of("--audio-format") == "mp3", args
 assert value_of("--audio-quality") == "256k", args
 assert "--extract-audio" in args, args
@@ -3270,7 +3270,7 @@ grep -Fq "graphical interface  ok ($FULL_TOOLS/venv/bin/python)" \
     "$EVIDENCE_DIR/install-migrated.txt"
 
 # yt-dlp breaks whenever YouTube changes something, so --update is what the
-# window and the README both point at. It updates the environment install.sh
+# window and the YouTube guide both point at. It updates the environment install.sh
 # built, which has no pip of its own for it to reach through.
 env -u IPOD_DB_TOOL -u IPOD_VENV_PYTHON -u IPOD_VENV_YT_DLP \
     PATH="$FULL_BIN:$BASE_PATH" IPOD_TOOLS_DIR="$FULL_TOOLS" \

@@ -43,7 +43,8 @@ empty database. Preserves Apple's Speakable prompts and the Device directory.
 
 Options:
   -i, --ipod PATH     iPod mount point (default: autodetect)
-  -b, --backup DIR    Copy existing music and databases to DIR first
+  -b, --backup DIR    Copy existing music and databases to DIR first.
+                      Use a new directory outside the iPod.
   -y, --yes           Answer yes to every prompt; a destructive run
                       carrying it still needs --confirm-token
       --dry-run       Print the exact operation plan as JSON and change nothing
@@ -58,7 +59,7 @@ Options:
   -h, --help          Show this message
 
 Example:
-  ./ipod-wipe.sh --backup ~/ipod-backup
+  ./ipod-wipe.sh --backup ~/ipod-backups/shuffle-before-wipe
 
 Exit codes: 3 no iPod, 4 several iPods, 5 the iPod stopped answering, 6 a
 missing dependency, 7 a declined prompt. Anything else that failed is 1.

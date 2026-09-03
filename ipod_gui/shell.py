@@ -78,7 +78,7 @@ def youtube_unavailable_reason():
     if shutil.which("ffmpeg") is None:
         return "ffmpeg is not installed - run ./install.sh"
     if not lib_function_succeeds("js_runtime"):
-        return "Needs Deno, Node, or Bun - see the README"
+        return "Needs Deno, Node, or Bun - see docs/installation.md"
     return None
 
 

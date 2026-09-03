@@ -1,4 +1,0 @@
-cache figure: 33.6 KB · 1 file
-Clear enabled: True
-view title: Device & Settings
-device fixture: Test iPod

@@ -58,7 +58,7 @@ MARKER = ".demo-library"
 # Ridge is the one that gets synced, so it is the only one wearing an "On iPod"
 # badge. Nothing is queued: the queue is held by the running window rather than
 # written anywhere, so a demo cannot build one - what the shot shows of it is
-# the pill, and the badge is in the state table in the README.
+# the pill. The state table is in docs/graphical-interface.md.
 ALBUMS = [
     ("Ana Petrov", "Field Notes", ["Paper Boats", "Coastal Road"]),
     ("Elle Marchetti", "Warm Ridge", ["Low Sun", "Ridge Line"]),

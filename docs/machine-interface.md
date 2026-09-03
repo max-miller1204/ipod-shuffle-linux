@@ -1,9 +1,17 @@
-# Driving the scripts from another program
+# Machine interface
 
-The [README](../README.md) is written for a person reading a terminal.
-The scripts also answer in JSON, they report what they are doing while they do it, and they say what went wrong as a number rather than as English, so that another program can act on any of it without reading prose.
-The application the window is built on answers the same way twice over: once with no display at all, and once as the window a person already has open, driven where it stands.
-The last section before the codes is the one server that carries the readings and the device-changing scripts to a client that is not this checkout at all.
+This document defines the interfaces for programs that control or inspect the project. Do not parse terminal prose when a structured interface is available.
+
+- [Device JSON](#what-is-on-the-device)
+- [Planning and authorization](#planning-and-authorizing-changes)
+- [NDJSON progress](#what-a-run-is-doing-while-it-is-doing-it)
+- [Installation report](#what-is-installed)
+- [Display-free application CLI](#the-applications-own-model-without-a-window)
+- [D-Bus window actions](#driving-the-window-that-is-already-open)
+- [MCP server](#over-mcp-from-outside-this-checkout)
+- [Exit codes](#what-went-wrong)
+
+See the [documentation index](README.md) for user guides.
 
 ## What is on the device
 
@@ -25,6 +33,31 @@ This is the same reading the window takes when you plug the iPod in, and it cove
 | `schema` | `1`, and bumped only when a field changes meaning or leaves |
 
 Without `--json`, `--list` still prints nothing but the track paths, so the two forms of the same question give the same answer in different shapes.
+
+A complete report has this shape. `storage` can be `null`, `identity` can be `null`, and the arrays can be empty.
+
+```json
+{
+  "schema": 1,
+  "mount_point": "/run/media/user/MAX_SHUFFLE",
+  "identity": "uuid:1234-ABCD",
+  "storage": {
+    "total_bytes": 2000000000,
+    "used_bytes": 750000000,
+    "free_bytes": 1250000000
+  },
+  "track_count": 1,
+  "tracks": ["Roadtrip/01 - Highway.mp3"],
+  "playlists": [
+    {
+      "name": "Roadtrip",
+      "spoken": true,
+      "entries": ["iPod_Control/Music/Roadtrip/01 - Highway.mp3"]
+    }
+  ],
+  "sync_options": ["--playlist-voiceover"]
+}
+```
 
 ## Planning and authorizing changes
 
@@ -53,6 +86,31 @@ token="$(printf '%s' "$plan" | jq -r '.confirmationToken')"
 ```
 
 Changing an argument, choosing another mount, or replacing the device changes the token, so approval for one plan cannot authorize another.
+
+A plan is one complete JSON document:
+
+```json
+{
+  "action": "sync",
+  "device": {
+    "mount": "/run/media/user/MAX_SHUFFLE",
+    "identity": "uuid:1234-ABCD"
+  },
+  "destructive": false,
+  "arguments": [
+    "clear=0",
+    "eject=0",
+    "rebuild-only=0",
+    "forget-options=0",
+    "existing-tracks=12",
+    "existing-playlists=1",
+    "/home/user/Music/roadtrip"
+  ],
+  "confirmationToken": "86dd27c358bdd8f2426d20cf8da40f43d5eb5a2ae6be738f5067c4670a9e7f47"
+}
+```
+
+Treat `arguments` as normalized operation data. Do not construct or edit it. Return the token from the plan that you reviewed.
 
 ## What a run is doing, while it is doing it
 
@@ -96,6 +154,22 @@ And a caller that stops reading half way through - a window closed during a copy
 
 The JSON is written by `ipod-report.py`, for the reason the reports above are, and it will not encode an event or a status that is not in its own table.
 A typo in a script is a run that fails loudly rather than a line that reaches you as valid JSON meaning nothing.
+
+A successful one-file sync can produce this NDJSON sequence:
+
+```jsonl
+{"event":"start","schema":1,"script":"sync"}
+{"event":"device","ipod":"/run/media/user/MAX_SHUFFLE"}
+{"event":"plan","total":1}
+{"event":"stage","name":"copy","state":"start"}
+{"event":"file","status":"copied","name":"01 - Highway.mp3","dest":"Roadtrip/01 - Highway.mp3","done":1,"total":1}
+{"event":"stage","name":"copy","state":"done"}
+{"event":"stage","name":"rebuild","state":"start"}
+{"event":"stage","name":"rebuild","state":"done"}
+{"event":"result","ok":true,"code":0,"copied":1,"duplicates":0,"unsupported":0,"broken":0,"tracks":1}
+```
+
+Only the fields listed as required in the event table are always present. For example, `dest` is optional on a `file` event, and each script includes only the counters that it keeps on a `result` event.
 
 ## What is installed
 
@@ -164,6 +238,61 @@ A track named on the command line is written into the M3U as an absolute path, w
 `2` is what a caller meets before any of the above: a missing subcommand, `playlists` with no action after it, a name no subcommand has, or a position that is not a number.
 It comes from the argument parser rather than from the model, which is why it is separate from `1` - nothing was read, nothing was written, and the message is a usage line rather than a sentence about the library.
 
+A complete library result has this shape:
+
+```json
+{
+  "schema": 1,
+  "command": "library",
+  "result": {
+    "tracks": [
+      {
+        "path": "/home/user/Music/Roadtrip/01 - Highway.mp3",
+        "title": "Highway",
+        "artist": "Example Artist",
+        "album": "Roadtrip",
+        "genre": "Rock",
+        "duration": 213.4,
+        "trackNumber": 1,
+        "art": null,
+        "size": 6830000,
+        "state": "library",
+        "onIpod": false
+      }
+    ],
+    "albums": [
+      {
+        "title": "Roadtrip",
+        "artist": "Example Artist",
+        "state": "library",
+        "trackCount": 1
+      }
+    ],
+    "counts": {"ipod": 0, "queued": 0, "library": 1, "preview": 0},
+    "complete": true
+  }
+}
+```
+
+The same command can return useful partial data, write an explanation to stderr, and exit `1`:
+
+```json
+{
+  "schema": 1,
+  "command": "library",
+  "result": {
+    "tracks": [],
+    "albums": [],
+    "counts": {"ipod": 0, "queued": 0, "library": 0, "preview": 0},
+    "complete": false
+  }
+}
+```
+
+```text
+a music folder could not be read through: this answer is partial
+```
+
 `complete` is what that third row is, and it is why the field exists.
 A configured music folder that could not be read through - a root that has gone, a directory that will not open, a scan that ran out of time - leaves a real reading of everything else, and a cached preview that will not be deleted leaves every other one deleted.
 `library` reads two more places and answers for them the same way: the preview cache, and the connected iPod - one that has gone or stopped answering since the probe found it, and equally more than one plugged in at once, which is a device this cannot choose between rather than an iPod holding nothing.
@@ -173,6 +302,20 @@ It is carried by the three commands that can do part of their work - `library` a
 
 Editing a playlist follows the same rule from the other side.
 An edit that found nothing to do is a count of zero and a `0`, while a playlist that has gone since it was listed, a row at a position the file does not have, and a folder that refused the rewrite are each a sentence of their own and a `1` - three different places to go and look, rather than one `false` a caller has to guess at.
+
+Playlist mutations return their result under the same top-level envelope:
+
+```json
+{"schema":1,"command":"playlists","result":{"added":2}}
+```
+
+```json
+{"schema":1,"command":"playlists","result":{"removed":1}}
+```
+
+```json
+{"schema":1,"command":"playlists","result":{"moved":true}}
+```
 
 ## Driving the window that is already open
 
