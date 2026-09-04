@@ -568,6 +568,7 @@ class PlaylistViewMixin:
             self.current_playlist = shown[0].name
         if self.current_playlist is not None:
             self._show_playlist(self.current_playlist)
+        self._refresh_playlist_membership_views()
         self._populate_playlist_shelf(shown, covers)
 
     def _rail_row(self, playlist, compact, art=None):
@@ -1388,7 +1389,6 @@ class PlaylistViewMixin:
         names = [name] if also is None or also == name else [name, also]
         note = self._stage_playlists(names)
         self._populate_playlist_rail()
-        self._refresh_playlist_membership_views()
         self._toast(message + note)
 
     def _refresh_playlist_membership_views(self):

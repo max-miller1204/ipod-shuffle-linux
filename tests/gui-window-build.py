@@ -1936,6 +1936,35 @@ def inspect(window):
     if window.search_playlist_row.get_visible():
         failures.append("the playlist header outlived the playlist it named")
 
+    membership_refreshes = []
+    original_membership_refresh = window._refresh_playlist_membership_views
+    window._refresh_playlist_membership_views = lambda: membership_refreshes.append(
+        "refresh"
+    )
+    rename_dialog = window.on_rename_playlist("Built")
+    rename_entry = find_entry(rename_dialog) if rename_dialog is not None else None
+    if rename_entry is None:
+        failures.append("renaming Built opened no playlist name field")
+    else:
+        rename_entry.set_text("Renamed")
+        rename_dialog.emit("response", "rename")
+        rename_dialog.force_close()
+        if not membership_refreshes:
+            failures.append("renaming a playlist did not refresh membership rows")
+
+    membership_refreshes.clear()
+    disconnect_generation = window.probe_generation + 1
+    window.probe_generation = disconnect_generation
+    disconnect_probe = type(
+        "DisconnectProbe",
+        (),
+        {"mount_point": None, "identity": None, "candidates": [], "readable": True},
+    )()
+    window._apply_probe(disconnect_generation, disconnect_probe)
+    if not membership_refreshes:
+        failures.append("disconnecting an iPod did not refresh membership rows")
+    window._refresh_playlist_membership_views = original_membership_refresh
+
     # Closing stops the player and disowns any download; it is a mixin's job
     # now, so a split that lost the wiring would leave audio playing.
     window._on_close_request(window)
