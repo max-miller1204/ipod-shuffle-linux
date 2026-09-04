@@ -841,6 +841,15 @@ relative_window._load_local_playlists()
 relative_window._remove_track_from_playlist("File URI", track_for(first))
 assert gui.read_playlist_entries(uri_file) == []
 
+single_uri_file = PLAYLISTS / "Single URI.m3u"
+single_uri_entry = f"file:{first}"
+gui.write_playlist_entries(single_uri_file, [single_uri_entry])
+assert gui.read_local_playlist_tracks(single_uri_file)[0] == [str(first)]
+relative_window._load_local_playlists()
+assert "Single URI" in relative_window._playlists_listing(track_for(first))
+relative_window._remove_track_from_playlist("Single URI", track_for(first))
+assert gui.read_playlist_entries(single_uri_file) == []
+
 colon_track = song("Artist: Song")
 colon_file = PLAYLISTS / "Colon.m3u"
 colon_entry = os.path.relpath(colon_track, PLAYLISTS)
@@ -875,6 +884,7 @@ assert complete and not dropped and str(malformed_file) in scanned
 gui.delete_local_playlist(relative_file)
 gui.delete_local_playlist(PLAYLISTS / "Relative Target.m3u")
 gui.delete_local_playlist(uri_file)
+gui.delete_local_playlist(single_uri_file)
 gui.delete_local_playlist(colon_file)
 gui.delete_local_playlist(prefix_file)
 gui.delete_local_playlist(PLAYLISTS / "Stale.m3u")
