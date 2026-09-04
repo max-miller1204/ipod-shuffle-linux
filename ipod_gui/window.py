@@ -142,6 +142,7 @@ class IpodWindow(
         self.search_note = ""
         self.search_add_buttons = []
         self.search_playlist_add_buttons = []
+        self.search_youtube_playlist_add_buttons = []
         self._search_timeout = None
 
         # Bumped whenever a preview is asked for, so a download that is still

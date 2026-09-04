@@ -602,6 +602,8 @@ class DeviceViewMixin:
             button.set_tooltip_text(self._youtube_download_tooltip())
         for button in self.search_playlist_add_buttons:
             button.set_sensitive(not self.busy and not self.discovering_sources)
+        for button in self.search_youtube_playlist_add_buttons:
+            button.set_sensitive(not self.busy and not self.discovering_sources)
         # Making a playlist writes a file in a folder of your own, so it waits
         # for neither an iPod nor a speech engine. What those are needed for is
         # putting one on the device, which the playlist's own page says in

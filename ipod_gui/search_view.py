@@ -449,6 +449,7 @@ class SearchViewMixin:
                     or f"Download and add to {destination}"
                 )
             )
+            self.search_youtube_playlist_add_buttons.append(add)
         else:
             add.connect("clicked", lambda _b, r=result: self._download_result(r))
             add.set_sensitive(self._can_download())
@@ -602,6 +603,7 @@ class SearchViewMixin:
         quietly erase it.
         """
         self.search_add_buttons = []
+        self.search_youtube_playlist_add_buttons = []
         clear_children(self.search_youtube_rows)
         self._paint_playlist_header()
 

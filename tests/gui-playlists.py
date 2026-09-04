@@ -802,6 +802,15 @@ blocked._add_tracks_to_playlist("Blocked", [track_for(first)])
 assert gui.read_playlist_entries(PLAYLISTS / "Blocked.m3u") == []
 assert blocked.pending_sources == {}
 
+stale_path = song("Stale iPod")
+stale_track = track_for(stale_path, gui.STATE_IPOD)
+stale_path.unlink()
+stale_window = FakeWindow(mount_point=None)
+stale_window._library_by_path = {stale_track.path: stale_track}
+new_playlist(stale_window, "Stale")
+stale_window._add_tracks_to_playlist("Stale", [stale_track])
+assert gui.read_playlist_entries(PLAYLISTS / "Stale.m3u") == []
+
 # A relative M3U entry names the same library file the sync resolves. It is
 # visible as membership and Add does not append a second, absolute spelling.
 relative_file = PLAYLISTS / "Relative.m3u"
@@ -841,6 +850,20 @@ assert "Colon" in relative_window._playlists_listing(track_for(colon_track))
 relative_window._add_tracks_to_playlist("Colon", [track_for(colon_track)])
 assert gui.read_playlist_entries(colon_file) == [colon_entry]
 
+prefix_track = PLAYLISTS / "File: Song.mp3"
+prefix_track.write_bytes(b"file prefix")
+prefix_file = PLAYLISTS / "File Prefix.m3u"
+gui.write_playlist_entries(prefix_file, [prefix_track.name])
+assert gui.read_local_playlist_tracks(prefix_file)[0] == [str(prefix_track)]
+prefix_window = FakeWindow(mount_point=None)
+prefix_window.library_tracks([prefix_track])
+prefix_window._load_local_playlists()
+assert "File Prefix" in prefix_window._playlists_listing(track_for(prefix_track))
+prefix_window._add_tracks_to_playlist("File Prefix", [track_for(prefix_track)])
+assert gui.read_playlist_entries(prefix_file) == [prefix_track.name]
+prefix_window._remove_track_from_playlist("File Prefix", track_for(prefix_track))
+assert gui.read_playlist_entries(prefix_file) == []
+
 malformed_file = PLAYLISTS / "Malformed.m3u"
 gui.write_playlist_entries(malformed_file, ["file://["])
 relative_window._load_local_playlists()
@@ -853,6 +876,8 @@ gui.delete_local_playlist(relative_file)
 gui.delete_local_playlist(PLAYLISTS / "Relative Target.m3u")
 gui.delete_local_playlist(uri_file)
 gui.delete_local_playlist(colon_file)
+gui.delete_local_playlist(prefix_file)
+gui.delete_local_playlist(PLAYLISTS / "Stale.m3u")
 gui.delete_local_playlist(malformed_file)
 relative_window._load_local_playlists()
 

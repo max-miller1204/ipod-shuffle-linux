@@ -1572,6 +1572,23 @@ def inspect(window):
         failures.append("a blocked local search Add changed the playlist")
     window.discovering_sources = False
 
+    window.discovering_sources = True
+    window.search_results = [result]
+    window._paint_youtube_section()
+    youtube_target_add = next(
+        (
+            found
+            for found in walk(window.search_youtube_rows)
+            if isinstance(found, Gtk.Button) and found.get_label() == "Add"
+        ),
+        None,
+    )
+    if youtube_target_add is None or youtube_target_add.get_sensitive():
+        failures.append("a YouTube playlist Add stayed sensitive during discovery")
+    if youtube_target_add not in window.search_youtube_playlist_add_buttons:
+        failures.append("a YouTube playlist Add was not discovery-gated")
+    window.discovering_sources = False
+
     added = gui.track_cell(
         window,
         track,
