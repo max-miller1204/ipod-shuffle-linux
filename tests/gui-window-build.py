@@ -102,6 +102,7 @@ EXPECTED = {
         "search_youtube_rows", "search_local_note", "search_youtube_note",
         "search_local_count", "search_youtube_count",
         "search_playlist_row", "search_playlist_label", "search_playlist_add",
+        "search_destination_row", "search_destination_label",
         "clipboard_offer", "clipboard_offer_label",
     ],
     "playlist_view": [
@@ -1486,6 +1487,96 @@ def inspect(window):
     # one playlist there is on offer rather than a sentence about having none.
     if "No" in menu_text(window.track_menu(track).get_child()):
         failures.append("the add menu claimed there were no playlists")
+
+    # Add songs gives the search a visible destination. Its primary Add writes
+    # into that playlist without an iPod attached, instead of taking the
+    # generic row action that queues a sync. The ⋯ still offers other lists.
+    window.library.tracks = [track]
+    window._library_scan_tracks = {track.path: track}
+    window._merge_states()
+    window._select_playlist("Built")
+    window._start_adding_songs()
+    if window.active_search_destination() != "Built":
+        failures.append(
+            "Add songs did not make Built the search destination: "
+            f"{window.active_search_destination()!r}"
+        )
+    if window.search_destination_label.get_text() != "Adding songs to Built":
+        failures.append(
+            "the search did not state where Add writes: "
+            f"{window.search_destination_label.get_text()!r}"
+        )
+    if window.search_local_table.playlist_target() != "Built":
+        failures.append("the local result table did not inherit the destination")
+    window.search_playlist = gui.LinkedPlaylist(
+        "Remote List", 12, "https://youtube.com/playlist?list=remote", 3
+    )
+    window._paint_playlist_header()
+    if window.search_playlist_add.get_visible():
+        failures.append(
+            "playlist-targeted search still offered the whole-list queue action"
+        )
+    window.search_playlist = None
+    window.show_view("search")
+
+    direct_add = gui.track_cell(
+        window,
+        track,
+        1,
+        "action",
+        window.search_local_table,
+    )
+    if direct_add.get_label() != "Add" or not direct_add.get_sensitive():
+        failures.append(
+            "a local search result could not be added to Built with no iPod: "
+            f"{direct_add.get_label()!r}, sensitive={direct_add.get_sensitive()}"
+        )
+    pending_before = set(window.pending)
+    built_list = gui.local_playlist_file(gui.PLAYLIST_LIBRARY, "Built")
+    direct_add.emit("clicked")
+    if gui.read_playlist_entries(built_list) != [track.path]:
+        failures.append(
+            "the search result Add did not write the track into Built: "
+            f"{gui.read_playlist_entries(built_list)}"
+        )
+    if window.pending != pending_before:
+        failures.append(
+            f"the playlist search queued the track directly: {window.pending}"
+        )
+    added = gui.track_cell(
+        window,
+        track,
+        1,
+        "action",
+        window.search_local_table,
+    )
+    if added.get_label() != "Added" or added.get_sensitive():
+        failures.append("a track already in Built still offered Add")
+
+    # The general track table has a visible Playlists category. It names local
+    # membership and a device-only playlist that holds the matched iPod copy,
+    # while the edit menu remains limited to playlists this computer can write.
+    track.relpath = "F00/SONG.MP3"
+    window.playlists = [("Device Mix", [track.relpath])]
+    names = window.playlist_memberships(track)
+    if names != ["Built", "Device Mix"]:
+        failures.append(f"playlist membership reads {names!r}")
+    membership = gui.track_cell(window, track, 1, "playlists")
+    if membership.get_text() != "Built, Device Mix":
+        failures.append(
+            f"the Playlists cell reads {membership.get_text()!r}"
+        )
+    columns = window.library_table.get_columns()
+    headings = [
+        columns.get_item(index).get_title()
+        for index in range(columns.get_n_items())
+    ]
+    if "Playlists" not in headings:
+        failures.append(f"the general track table has columns {headings!r}")
+
+    window._clear_search()
+    if window.active_search_destination() is not None:
+        failures.append("clearing search kept its old playlist destination")
 
     # A playlist another program wrote can list a track relative to the folder
     # it sits in. The sync resolves that, so the entry is real - but it names

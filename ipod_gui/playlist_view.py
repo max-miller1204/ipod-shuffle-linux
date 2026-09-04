@@ -34,7 +34,9 @@ whether those two readings can be quoted yet, and `show_view`, `_run`,
 `_keep_preview` to act on what an edit changed.
 """
 
+import os
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 from gi.repository import Adw, GLib, Gtk
 
@@ -92,6 +94,28 @@ from .widgets import (
 class PlaylistViewMixin:
     # ------------------------------------------------------- what there is
 
+    @staticmethod
+    def _local_playlist_entry(playlist, entry):
+        """Resolve one local playlist entry to the path its row must use."""
+        parsed = urlparse(entry)
+        if parsed.scheme:
+            if parsed.scheme.casefold() != "file" or parsed.netloc not in (
+                "",
+                "localhost",
+            ):
+                return entry
+            entry = unquote(parsed.path)
+        candidate = Path(entry)
+        if not candidate.is_absolute():
+            candidate = playlist.path.parent / candidate
+        if not candidate.exists() and "\\" in entry:
+            alternate = Path(entry.replace("\\", "/"))
+            if not alternate.is_absolute():
+                alternate = playlist.path.parent / alternate
+            if alternate.exists():
+                candidate = alternate
+        return os.path.abspath(candidate)
+
     def _load_local_playlists(self):
         """Re-read the playlist folder.
 
@@ -100,6 +124,17 @@ class PlaylistViewMixin:
         keeps an index that could disagree with them.
         """
         self.local_playlists = local_playlists(PLAYLIST_LIBRARY)
+        self._playlist_membership_index = {}
+        for playlist in self.local_playlists:
+            # A missing file remains a member and can return with its drive.
+            resolved = (
+                self._local_playlist_entry(playlist, entry)
+                for entry in playlist.entries
+            )
+            for entry in dict.fromkeys(resolved):
+                self._playlist_membership_index.setdefault(entry, []).append(
+                    playlist.name
+                )
 
     def _shown_playlists(self):
         return merge_with_device(self.local_playlists, self.playlists)
@@ -255,13 +290,78 @@ class PlaylistViewMixin:
         Both the tick beside a playlist in a track's menu and the sentence
         warning what a deletion leaves behind are this same question, so it is
         asked once: an entry is a path, and a playlist holds a track when it
-        names it.
+        names it. The index is rebuilt with the playlist listing rather than
+        once per row, because a table can ask this for hundreds of tracks.
         """
-        return [
-            playlist.name
-            for playlist in self.local_playlists
-            if track.path in playlist.entries
+        index = getattr(self, "_playlist_membership_index", {})
+        return list(index.get(track.path, ()))
+
+    def playlist_memberships(self, track):
+        """Every shown playlist this track belongs to, in display order.
+
+        Local playlists are the editable truth when a list with the same name
+        is also on the iPod. Device-only playlists use the track's device path,
+        because that is what their entries name. This is broader than
+        `_playlists_listing`, which deliberately returns only destinations a
+        track menu can edit.
+        """
+        names = self._playlists_listing(track)
+        known = {name.casefold() for name in names}
+        local_names = {playlist.name.casefold() for playlist in self.local_playlists}
+        for name, entries in self.playlists:
+            folded = name.casefold()
+            if folded in local_names or folded in known:
+                continue
+            if track.relpath in entries:
+                names.append(name)
+                known.add(folded)
+        return names
+
+    def result_in_playlist(self, name, video_id):
+        """Whether a downloaded YouTube result is already in this playlist."""
+        playlist = self._local_playlist(name)
+        path = downloaded_file(video_id, YOUTUBE_LIBRARY)
+        return bool(
+            playlist is not None
+            and path is not None
+            and playlist.name
+            in getattr(self, "_playlist_membership_index", {}).get(str(path), ())
+        )
+
+    def playlist_search_destination(self):
+        """The editable playlist on screen, or None for an ordinary search."""
+        if self.current_view() != "playlists":
+            return None
+        playlist = self._local_playlist(self.current_playlist)
+        return playlist.name if playlist is not None else None
+
+    def _begin_playlist_download(self, name):
+        """Keep the destination mutable while one result downloads."""
+        token = {"name": name}
+        self._playlist_download_destinations.append(token)
+        return token
+
+    def _finish_playlist_download(self, destination):
+        """Release a download destination and return its current name."""
+        if not isinstance(destination, dict):
+            return destination
+        self._playlist_download_destinations[:] = [
+            pending
+            for pending in self._playlist_download_destinations
+            if pending is not destination
         ]
+        return destination["name"]
+
+    def _retarget_playlist_downloads(self, old_name, new_name=None):
+        """Follow a playlist rename, or cancel additions after deletion."""
+        for destination in self._playlist_download_destinations:
+            if destination["name"] == old_name:
+                destination["name"] = new_name
+
+    def _playlist_download_failed(self, destination, title):
+        """Release a failed download before reporting it."""
+        self._finish_playlist_download(destination)
+        self._report_download_failure(title)
 
     def _playlist_state(self, playlist):
         return (
@@ -297,10 +397,14 @@ class PlaylistViewMixin:
                 or Track(entry, {"title": Path(entry).stem}, STATE_IPOD, relpath=entry)
                 for entry in playlist.entries
             ]
+        resolved = [
+            self._local_playlist_entry(playlist, entry)
+            for entry in playlist.entries
+        ]
         return [
             index.get(entry)
             or Track(entry, {"title": Path(entry).stem}, STATE_LIBRARY)
-            for entry in playlist.entries
+            for entry in resolved
         ]
 
     def _playlist_art(self, playlist, index=None):
@@ -379,6 +483,7 @@ class PlaylistViewMixin:
     # ------------------------------------------------------- playlists view
 
     def _build_playlists_view(self):
+        self._playlist_download_destinations = []
         outer = Gtk.Box(spacing=0, vexpand=True)
         self.playlists_view = outer
 
@@ -878,14 +983,14 @@ class PlaylistViewMixin:
         self.show_view("playlists")
 
     def _start_adding_songs(self):
-        """Send the user to the one field that searches both sources.
+        """Search both sources with this playlist as the Add destination.
 
         Rather than a picker of its own: the search field already lists the
-        library and YouTube together, and every row it produces carries the ⋯
-        that adds it here. A second list of the same tracks in a dialog would
-        be a worse copy of the view behind it.
+        library and YouTube together. Its primary Add buttons now write into
+        this playlist, while each row's ⋯ still offers every other playlist.
         """
-        self.focus_search()
+        if self.current_playlist is not None:
+            self.start_playlist_search(self.current_playlist)
 
     # ---------------------------------------------------------- the ⋯ menu
 
@@ -1132,7 +1237,9 @@ class PlaylistViewMixin:
         it is what takes the playlist off the rails - the answer a row the
         file has lost already gets, given here about the file itself.
         """
+        self._retarget_playlist_downloads(name)
         self._populate_playlist_rail()
+        self.playlist_destination_changed(name)
         self._toast(f"There is no playlist called {name}")
 
     def _add_tracks_to_playlist(self, name, tracks):
@@ -1149,6 +1256,7 @@ class PlaylistViewMixin:
             return
         paths = []
         device_only = 0
+        already_added = 0
         for track in tracks:
             # A track that is only on the iPod has no local file to list, and
             # its device path in a playlist would ask the next sync to copy the
@@ -1157,6 +1265,12 @@ class PlaylistViewMixin:
             # search result all arrive through this one door.
             if self._device_only_track(track):
                 device_only += 1
+                continue
+            # The membership index resolves relative playlist entries. Skip
+            # one already represented that way instead of appending the same
+            # file again under an absolute spelling.
+            if name in self._playlists_listing(track):
+                already_added += 1
                 continue
             # A previewed file lives in a cache that gets pruned, so a playlist
             # entry pointing into it would stop resolving without anything
@@ -1178,6 +1292,8 @@ class PlaylistViewMixin:
         if not paths:
             if device_only:
                 self._toast(f"Nothing added to {name}{refused}")
+            elif already_added:
+                self._toast(f"Already in {name}")
             return
 
         added = add_entries(playlist.path, paths)
@@ -1283,7 +1399,15 @@ class PlaylistViewMixin:
         names = [name] if also is None or also == name else [name, also]
         note = self._stage_playlists(names)
         self._populate_playlist_rail()
+        self._refresh_playlist_membership_views()
         self._toast(message + note)
+
+    def _refresh_playlist_membership_views(self):
+        """Repaint every visible answer changed by playlist membership."""
+        self._refresh_current_view()
+        if self.current_view() == "search":
+            self._paint_youtube_section()
+        return False
 
     def _stage_playlist(self, name):
         return self._stage_playlists([name])
@@ -1378,12 +1502,15 @@ class PlaylistViewMixin:
             # having gone, met before the download rather than after it.
             self._playlist_gone(name)
             return
+        destination = self._begin_playlist_download(name)
         self._start_youtube_download(
             result.url,
             single=True,
             busy_message=f"Downloading {result.title}",
-            on_failure=lambda: self._report_download_failure(result.title),
-            playlist=name,
+            on_failure=lambda: self._playlist_download_failed(
+                destination, result.title
+            ),
+            playlist=destination,
             video_id=result.video_id,
         )
 
@@ -1395,8 +1522,14 @@ class PlaylistViewMixin:
         download reports nothing new, and the file it would have written is
         already sitting there.
         """
+        name = self._finish_playlist_download(name)
+        if name is None:
+            return "Downloaded, but the destination playlist is no longer there"
         playlist = self._local_playlist(name)
         if playlist is None:
+            self._retarget_playlist_downloads(name)
+            self._populate_playlist_rail()
+            self.playlist_destination_changed(name)
             return f"Downloaded, but {name} is no longer there"
         path = downloaded_file(video_id, YOUTUBE_LIBRARY)
         if path is None:
@@ -1415,13 +1548,20 @@ class PlaylistViewMixin:
             # showing a list the download was going into. Said rather than
             # toasted, because this runs where a download reports back and the
             # caller is what puts one sentence on screen.
+            self._retarget_playlist_downloads(name)
             self._populate_playlist_rail()
+            self.playlist_destination_changed(name)
             return f"Downloaded, but {name} is no longer there"
         if added is None:
             return f"Downloaded, but could not {self._edit_step(playlist)} {name}"
         self._load_local_playlists()
         note = self._stage_playlist(name)
         self._populate_playlist_rail()
+        if self.current_view() == "search":
+            # This completion runs while the download still owns the busy
+            # state. Paint on the next main-loop turn, after _finish releases
+            # it, so the other result buttons do not stay disabled.
+            GLib.idle_add(self._refresh_playlist_membership_views)
         return (f"Added to {name}" if added else f"Already in {name}") + note
 
     # ----------------------------------------------------- making a playlist
@@ -1634,6 +1774,8 @@ class PlaylistViewMixin:
             return
         self._load_local_playlists()
         self.current_playlist = new_name
+        self._retarget_playlist_downloads(old_name, new_name)
+        self.playlist_destination_changed(old_name, new_name)
         # The queue named the file, and the file is called something else now,
         # so what was staged goes with the old name. After the move rather than
         # before it: a rename that could not happen would otherwise cancel a
@@ -1845,6 +1987,8 @@ class PlaylistViewMixin:
                 self._toast(f"Could not delete {name}")
                 return
             self._load_local_playlists()
+            self._retarget_playlist_downloads(name)
+            self.playlist_destination_changed(name)
             if self.current_playlist == name:
                 self.current_playlist = None
             # Only once the file has gone: a delete that failed would otherwise

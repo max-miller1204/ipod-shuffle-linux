@@ -1,11 +1,11 @@
 """One search field over two sources: the local library and YouTube.
 
 Owns the search field in the header, the strip under it that offers a link the
-clipboard already holds, both result sections, the skeleton rows that hold the
-YouTube half's space while it loads, the header naming the playlist a pasted
-link resolved to, `search_generation` and the debounce timeout that keep an
-older query from landing on a newer one, and the thumbnail fetch behind the
-rows.
+clipboard already holds, the destination shown while search adds directly to a
+playlist, both result sections, the skeleton rows that hold the YouTube half's
+space while it loads, the header naming the playlist a pasted link resolved to,
+`search_generation` and the debounce timeout that keep an older query from
+landing on a newer one, and the thumbnail fetch behind the rows.
 
 Borrows from the window: `library` to match against, `mount_point`,
 `device_identity`, `busy` and `youtube_unavailable` to decide whether a result
@@ -222,6 +222,8 @@ class SearchViewMixin:
         box.set_margin_bottom(20)
         scroller.set_child(box)
         self.search_view = scroller
+        self.search_destination = None
+        box.append(self._build_search_destination())
 
         local = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=11)
         head = Gtk.Box(spacing=8)
@@ -234,7 +236,11 @@ class SearchViewMixin:
         self.search_local_note = label("", "sf-body", wrap=True)
         local.append(self.search_local_note)
         self.search_local_table = track_column_view(
-            self, columns=("title", "album", "state", "duration", "action", "menu")
+            self,
+            columns=(
+                "title", "album", "playlists", "state", "duration", "action", "menu"
+            ),
+            playlist_target=self.active_search_destination,
         )
         local.append(self.search_local_table)
         box.append(local)
@@ -256,6 +262,77 @@ class SearchViewMixin:
         remote.append(self.search_youtube_rows)
         box.append(remote)
         return scroller
+
+    def _build_search_destination(self):
+        """The playlist that each result's Add button writes into.
+
+        The destination stays above both result sections, so Add has one stated
+        meaning for local and YouTube tracks. Without this row, a search opened
+        from a playlist looks like an ordinary search and its primary buttons
+        look as if they still queue tracks for the iPod.
+        """
+        self.search_destination_row = Gtk.Box(spacing=10)
+        self.search_destination_row.add_css_class("sf-playlist-header")
+        self.search_destination_row.set_visible(False)
+        self.search_destination_label = label(
+            "", "sf-row-title", hexpand=True, wrap=True, valign=Gtk.Align.CENTER
+        )
+        self.search_destination_row.append(self.search_destination_label)
+        back = Gtk.Button(label="Back to playlist")
+        back.add_css_class("sf-button")
+        back.set_valign(Gtk.Align.CENTER)
+        back.connect("clicked", lambda _b: self._return_to_search_destination())
+        self.search_destination_row.append(back)
+        return self.search_destination_row
+
+    def active_search_destination(self):
+        """The local playlist the search is adding to, or None."""
+        return self.search_destination
+
+    def start_playlist_search(self, name):
+        """Make this playlist the destination of the next search result.
+
+        An existing query is reused and repainted immediately. An empty field
+        stays on the playlist until the user types, so pressing Add songs does
+        not replace the playlist with an empty search page.
+        """
+        self.search_destination = name
+        self._paint_search_destination()
+        if self.search_query:
+            self.show_view("search")
+            self._paint_local_results()
+            self._paint_youtube_section()
+        self.focus_search()
+
+    def _paint_search_destination(self):
+        name = self.search_destination
+        self.search_destination_row.set_visible(name is not None)
+        self.search_destination_label.set_text(
+            f"Adding songs to {name}" if name is not None else ""
+        )
+
+    def _return_to_search_destination(self):
+        name = self.search_destination
+        if name is None:
+            return
+        self._clear_search()
+        self._select_playlist(name)
+
+    def playlist_destination_changed(self, old_name, new_name=None):
+        """Update a search destination after its playlist changes identity."""
+        if self.search_destination != old_name:
+            return
+        self.search_destination = new_name
+        self._paint_search_destination()
+        if self.current_view() != "search":
+            return
+        if new_name is None:
+            # A search whose destination has gone must not silently become an
+            # ordinary search whose Add buttons queue tracks for the iPod.
+            self._clear_search()
+            return
+        self._paint_local_results()
+        self._paint_youtube_section()
 
     def _build_playlist_header(self):
         """What a pasted playlist link actually is, above its first few rows.
@@ -347,15 +424,37 @@ class SearchViewMixin:
             )
         )
 
-        add = Gtk.Button(label="Add")
+        destination = self.active_search_destination()
+        already_added = bool(
+            destination
+            and self.result_in_playlist(destination, result.video_id)
+        )
+        add = Gtk.Button(label="Added" if already_added else "Add")
         add.add_css_class("sf-button")
         add.add_css_class("accent")
         add.set_valign(Gtk.Align.CENTER)
-        add.connect("clicked", lambda _b, r=result: self._download_result(r))
-        add.set_sensitive(self._can_download())
-        add.set_tooltip_text(self._youtube_download_tooltip())
+        if destination is not None:
+            add.connect(
+                "clicked",
+                lambda _b, r=result, name=destination: self._add_result_to_playlist(
+                    name, r
+                ),
+            )
+            add.set_sensitive(self._can_fetch() and not already_added)
+            add.set_tooltip_text(
+                f"Already in {destination}"
+                if already_added
+                else (
+                    self.youtube_unavailable
+                    or f"Download and add to {destination}"
+                )
+            )
+        else:
+            add.connect("clicked", lambda _b, r=result: self._download_result(r))
+            add.set_sensitive(self._can_download())
+            add.set_tooltip_text(self._youtube_download_tooltip())
+            self.search_add_buttons.append(add)
         row.append(add)
-        self.search_add_buttons.append(add)
         # The same ⋯ a library row carries, so adding a song to a playlist is
         # one gesture whether the song is already on this computer or not.
         row.append(
@@ -546,9 +645,16 @@ class SearchViewMixin:
         if playlist is None:
             return
         self.search_playlist_label.set_text(playlist.summary())
-        self.search_playlist_add.set_visible(playlist.length_known())
-        if not playlist.length_known():
+        destination = self.active_search_destination()
+        # The whole-list download can queue every result, but it cannot add an
+        # already-downloaded full list to a local playlist from the three rows
+        # this capped search knows. Hide it in playlist mode rather than offer
+        # a button that performs the queueing action the mode exists to avoid.
+        offered = playlist.length_known() and destination is None
+        self.search_playlist_add.set_visible(offered)
+        if not offered:
             return
+        self.search_playlist_add.set_label("Add all")
         self.search_playlist_add.set_sensitive(self._can_download())
         self.search_playlist_add.set_tooltip_text(self._youtube_download_tooltip())
         self.search_add_buttons.append(self.search_playlist_add)
@@ -578,6 +684,13 @@ class SearchViewMixin:
         query = entry.get_text().strip()
         if query == self.search_query:
             return
+        # A query started while a playlist is on screen adds to that playlist.
+        # Once the search page is visible, later keystrokes keep the same
+        # destination. A query started from any other page clears it, so Add
+        # never carries a playlist choice over into an unrelated search.
+        if self.current_view() != "search":
+            self.search_destination = self.playlist_search_destination()
+            self._paint_search_destination()
         self.search_query = query
         self._cancel_search_timeout()
         # Bumped on every keystroke so a search still in flight for an older
@@ -712,6 +825,8 @@ class SearchViewMixin:
         self.search_results = []
         self.search_playlist = None
         self.search_note = ""
+        self.search_destination = None
+        self._paint_search_destination()
         # Emptied last, so the search-changed this fires finds the state it
         # would have set already in place and stops rather than recursing.
         if self.search_entry.get_text():
@@ -740,7 +855,11 @@ class SearchViewMixin:
         track its link opens on.
         """
         playlist = self.search_playlist
-        if playlist is None or not self._can_download():
+        if (
+            playlist is None
+            or self.active_search_destination() is not None
+            or not self._can_download()
+        ):
             return
         self._set_search_note("")
         name = playlist.title or "playlist"

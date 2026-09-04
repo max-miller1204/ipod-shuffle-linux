@@ -596,6 +596,9 @@ class FakeWindow:
         self.repaints = 0
         self.refreshes = 0
         self.folder_repaints = 0
+        self.youtube_repaints = 0
+        self.destination_changes = []
+        self._playlist_download_destinations = []
         self._library_scan_tracks = {}
         self._load_local_playlists()
 
@@ -628,11 +631,17 @@ class FakeWindow:
     def _populate_folders(self):
         self.folder_repaints += 1
 
+    def _paint_youtube_section(self):
+        self.youtube_repaints += 1
+
     def _update_device_controls(self):
         pass
 
     def _select_playlist(self, name):
         self.current_playlist = name
+
+    def playlist_destination_changed(self, old_name, new_name=None):
+        self.destination_changes.append((old_name, new_name))
 
     def _show_playlist(self, _name):
         pass
@@ -657,6 +666,7 @@ class FakeWindow:
         self._merge_states()
 
     # The real implementations, which are the subject.
+    _local_playlist_entry = staticmethod(gui.IpodWindow._local_playlist_entry)
     _load_local_playlists = gui.IpodWindow._load_local_playlists
     _shown_playlists = gui.IpodWindow._shown_playlists
     _shown_playlist = gui.IpodWindow._shown_playlist
@@ -671,6 +681,13 @@ class FakeWindow:
     _copy_playlist_here = gui.IpodWindow._copy_playlist_here
     _playlist_state = gui.IpodWindow._playlist_state
     _playlists_listing = gui.IpodWindow._playlists_listing
+    playlist_memberships = gui.IpodWindow.playlist_memberships
+    result_in_playlist = gui.IpodWindow.result_in_playlist
+    playlist_search_destination = gui.IpodWindow.playlist_search_destination
+    _begin_playlist_download = gui.IpodWindow._begin_playlist_download
+    _finish_playlist_download = gui.IpodWindow._finish_playlist_download
+    _retarget_playlist_downloads = gui.IpodWindow._retarget_playlist_downloads
+    _playlist_download_failed = gui.IpodWindow._playlist_download_failed
     _delete_entry = gui.IpodWindow._delete_entry
     _playlist_index = gui.IpodWindow._playlist_index
     _playlist_tracks = gui.IpodWindow._playlist_tracks
@@ -685,6 +702,9 @@ class FakeWindow:
     _move_track_between = gui.IpodWindow._move_track_between
     _add_result_to_playlist = gui.IpodWindow._add_result_to_playlist
     _after_playlist_change = gui.IpodWindow._after_playlist_change
+    _refresh_playlist_membership_views = (
+        gui.IpodWindow._refresh_playlist_membership_views
+    )
     _staging_wanted = gui.IpodWindow._staging_wanted
     _stage_playlist = gui.IpodWindow._stage_playlist
     _stage_playlists = gui.IpodWindow._stage_playlists
@@ -771,6 +791,19 @@ window.commands = []
 window._add_tracks_to_playlist("Gym", [track_for(first)])
 assert window.toasts[-1] == "Already in Gym", window.toasts
 assert gui.read_playlist_entries(PLAYLISTS / "Gym.m3u") == [str(first)]
+
+# A relative M3U entry names the same library file the sync resolves. It is
+# visible as membership and Add does not append a second, absolute spelling.
+relative_file = PLAYLISTS / "Relative.m3u"
+relative_entry = os.path.relpath(first, PLAYLISTS)
+gui.write_playlist_entries(relative_file, [relative_entry])
+window._load_local_playlists()
+assert "Relative" in window._playlists_listing(track_for(first))
+window._add_tracks_to_playlist("Relative", [track_for(first)])
+assert gui.read_playlist_entries(relative_file) == [relative_entry]
+assert window.toasts[-1] == "Already in Relative", window.toasts
+gui.delete_local_playlist(relative_file)
+window._load_local_playlists()
 
 # A previewed file lives in a cache that gets pruned, so it is kept first and
 # the entry names where it landed rather than where it was heard from.
@@ -1484,12 +1517,15 @@ gui.delete_local_playlist(PLAYLISTS / "All On The iPod.m3u")
 # loud, removes the copy the iPod knows under the old one.
 window.playlists = [("Gym", [])]
 window.current_playlist = "Gym"
+in_flight_destination = window._begin_playlist_download("Gym")
 window._on_rename_response(
     None, "rename", "Gym", Entry("Gym Mix"), window.device_identity
 )
 assert (PLAYLISTS / "Gym Mix.m3u").is_file(), "the rename wrote no file"
 assert not (PLAYLISTS / "Gym.m3u").exists(), "the old name was left behind"
 assert window.current_playlist == "Gym Mix", window.current_playlist
+assert window.destination_changes[-1] == ("Gym", "Gym Mix")
+assert in_flight_destination["name"] == "Gym Mix", in_flight_destination
 rename_command = window.commands[-1]
 assert rename_command[0].endswith("ipod-remove.sh"), rename_command
 assert "--playlist" in rename_command, rename_command
@@ -1501,6 +1537,9 @@ assert str(PLAYLISTS / "Gym.m3u") not in window.pending_sources
 window.playlists = []
 window.commands = []
 window._on_playlist_remove_response(None, "remove", "Gym Mix", "uuid:test-ipod")
+assert window.destination_changes[-1] == ("Gym Mix", None)
+assert in_flight_destination["name"] is None, in_flight_destination
+assert window._finish_playlist_download(in_flight_destination) is None
 assert not (PLAYLISTS / "Gym Mix.m3u").exists(), "the playlist file survived"
 assert window.commands == [], "a local-only delete ran a device command"
 assert window.toasts[-1] == "Gym Mix deleted", window.toasts
@@ -1937,9 +1976,29 @@ assert gui.downloaded_file("", youtube_library) is None
 download_window = FakeWindow()
 new_playlist(download_window, "Fresh")
 download_window.library_tracks([downloaded, first])
-outcome = download_window._add_download_to_playlist("Fresh", "fJ9rUzIMcZQ", [])
+# Completion arrives while the download still owns the busy state. Its idle
+# repaint updates both local and YouTube result membership after that state is
+# released, rather than leaving either half stale.
+download_window.view = "search"
+refreshes_before = download_window.refreshes
+youtube_repaints_before = download_window.youtube_repaints
+real_idle = gui.GLib.idle_add
+gui.GLib.idle_add = lambda callback, *args: callback(*args)
+try:
+    outcome = download_window._add_download_to_playlist(
+        "Fresh", "fJ9rUzIMcZQ", []
+    )
+finally:
+    gui.GLib.idle_add = real_idle
+download_window.view = "playlists"
 assert outcome == "Added to Fresh · queued for sync", outcome
+assert download_window.refreshes > refreshes_before, download_window.refreshes
+assert download_window.youtube_repaints == youtube_repaints_before + 1, (
+    download_window.youtube_repaints
+)
 assert gui.read_playlist_entries(PLAYLISTS / "Fresh.m3u") == [str(downloaded)]
+assert download_window.result_in_playlist("Fresh", "fJ9rUzIMcZQ")
+assert not download_window.result_in_playlist("Fresh", "notthere")
 # Downloaded again from a different search: the file is already listed.
 assert download_window._add_download_to_playlist(
     "Fresh", "fJ9rUzIMcZQ", []
@@ -1955,6 +2014,29 @@ single = download_window._add_download_to_playlist("Fresh", "", [str(first)])
 assert single.startswith("Added to Fresh"), single
 gone = download_window._add_download_to_playlist("Deleted", "abc", [])
 assert "no longer there" in gone, gone
+# A playlist can be renamed or deleted while yt-dlp is still running. The
+# pending addition follows a rename and is cancelled by a deletion.
+new_playlist(download_window, "Moving")
+moving = download_window._begin_playlist_download("Moving")
+assert gui.rename_local_playlist(PLAYLISTS / "Moving.m3u", "Moved")
+download_window._load_local_playlists()
+download_window._retarget_playlist_downloads("Moving", "Moved")
+moved = download_window._add_download_to_playlist(
+    moving, "fJ9rUzIMcZQ", []
+)
+assert moved.startswith("Added to Moved"), moved
+assert gui.read_playlist_entries(PLAYLISTS / "Moved.m3u") == [str(downloaded)]
+assert gui.delete_local_playlist(PLAYLISTS / "Moved.m3u")
+download_window._load_local_playlists()
+new_playlist(download_window, "Cancelled")
+cancelled = download_window._begin_playlist_download("Cancelled")
+assert gui.delete_local_playlist(PLAYLISTS / "Cancelled.m3u")
+download_window._load_local_playlists()
+download_window._retarget_playlist_downloads("Cancelled")
+cancelled_note = download_window._add_download_to_playlist(
+    cancelled, "fJ9rUzIMcZQ", []
+)
+assert "destination playlist is no longer there" in cancelled_note, cancelled_note
 
 # Picking a playlist from a result's ⋯ starts that download and carries both
 # the playlist and the id it will be found by afterwards.
@@ -1969,7 +2051,8 @@ download_window._add_result_to_playlist("Fresh", result)
 assert len(download_window.downloads) == 1, download_window.downloads
 url, asked = download_window.downloads[-1]
 assert url == result.url, url
-assert asked["playlist"] == "Fresh", asked
+destination = asked["playlist"]
+assert destination["name"] == "Fresh", asked
 assert asked["video_id"] == "fJ9rUzIMcZQ", asked
 # And if that download fails, what it says names the track. The press left the
 # search behind for the Playlists view, so the toast is the only word there is
@@ -2008,13 +2091,16 @@ gui.delete_local_playlist(PLAYLISTS / "For A Video.m3u")
 resolve_window = FakeWindow()
 new_playlist(resolve_window, "Resolve")
 resolve_window.library_tracks([first])
+relative_first = os.path.relpath(first, PLAYLISTS)
 gui.write_playlist_entries(
-    PLAYLISTS / "Resolve.m3u", [str(first), "/gone/Missing Song.mp3"]
+    PLAYLISTS / "Resolve.m3u", [relative_first, "/gone/Missing Song.mp3"]
 )
 resolve_window._load_local_playlists()
 rows = resolve_window._playlist_tracks(resolve_window._local_playlist("Resolve"))
 assert [row.title for row in rows] == ["Lithium", "Missing Song"], rows
 assert rows[0].artist == "Artist", rows[0].artist
+assert rows[0].path == str(first), rows[0].path
+assert not resolve_window._device_only_track(rows[0])
 
 # A device playlist's rows come from what was read off the device instead.
 resolve_window.playlists = [("Genres", ["F00/AAAA.mp3", "F00/CCCC.mp3"])]
@@ -2031,6 +2117,20 @@ device_rows = resolve_window._playlist_tracks(
 )
 assert [row.title for row in device_rows] == ["On The Device", "CCCC"], device_rows
 assert all(row.state == gui.STATE_IPOD for row in device_rows)
+
+# Membership shown in the general track table includes editable local lists
+# and device-only lists.
+local_track = resolve_window.library.tracks[0]
+local_track.relpath = "F00/AAAA.mp3"
+memberships = resolve_window.playlist_memberships(local_track)
+assert "Resolve" in memberships, memberships
+assert "Genres" in memberships, memberships
+assert gui.playlist_summary(["Resolve", "Genres", "Road Trip"]) == (
+    "Resolve, Genres +1"
+)
+assert resolve_window.playlist_search_destination() == "Resolve"
+resolve_window.view = "library"
+assert resolve_window.playlist_search_destination() is None
 
 # The dot beside a playlist means what it means beside a track: on the iPod,
 # or here and waiting to be.

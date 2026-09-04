@@ -275,11 +275,31 @@ def unqueue_tooltip(window, track):
     return f"Take this back out of the next sync, and with it {named}"
 
 
-def track_cell(window, track, number, column, view=None, playlist=None):
+def playlist_summary(names, most=2):
+    """A compact playlist membership label for one track table cell."""
+    names = list(names)
+    if not names:
+        return "—"
+    shown = ", ".join(names[:most])
+    if len(names) > most:
+        shown += f" +{len(names) - most}"
+    return shown
+
+
+def track_cell(
+    window,
+    track,
+    number,
+    column,
+    view=None,
+    playlist=None,
+    target_playlist=None,
+):
     """One cell of a track row, for whichever column asked for it.
 
     `playlist` names the playlist the row is being shown inside, which is what
     turns its menu from adding to moving and lets it offer a removal.
+    `target_playlist` gives a search result's primary Add button a destination.
     """
     if column == "number":
         return label(str(number), "sf-caption", "sf-mono", width_chars=3, xalign=1.0)
@@ -296,6 +316,19 @@ def track_cell(window, track, number, column, view=None, playlist=None):
 
     if column == "album":
         return label(track.album, "sf-body", ellipsize=ELLIPSIZE_END, hexpand=True)
+
+    if column == "playlists":
+        names = window.playlist_memberships(track)
+        membership = label(
+            playlist_summary(names),
+            "sf-caption",
+            ellipsize=ELLIPSIZE_END,
+            max_width_chars=18,
+        )
+        membership.set_tooltip_text(
+            f"In {', '.join(names)}" if names else "Not in a playlist"
+        )
+        return membership
 
     if column == "state":
         marker = Gtk.Box(spacing=5, valign=Gtk.Align.CENTER)
@@ -321,6 +354,32 @@ def track_cell(window, track, number, column, view=None, playlist=None):
     action = Gtk.Button()
     action.add_css_class("sf-button")
     action.set_valign(Gtk.Align.CENTER)
+    if target_playlist is None and view is not None:
+        destination = getattr(view, "playlist_target", None)
+        target_playlist = destination() if destination is not None else None
+    if target_playlist is not None:
+        already_added = target_playlist in window._playlists_listing(track)
+        if window._device_only_track(track):
+            action.set_label("Unavailable")
+            action.set_tooltip_text(
+                "This track has no copy on this computer to add to a playlist"
+            )
+            action.set_sensitive(False)
+        elif already_added:
+            action.set_label("Added")
+            action.set_tooltip_text(f"Already in {target_playlist}")
+            action.set_sensitive(False)
+        else:
+            action.set_label("Add")
+            action.add_css_class("accent")
+            action.set_tooltip_text(f"Add to {target_playlist}")
+            action.connect(
+                "clicked",
+                lambda _b, t=track, name=target_playlist: (
+                    window._add_tracks_to_playlist(name, [t])
+                ),
+            )
+        return action
     if track.state == STATE_PREVIEW:
         # Add still means "I want this track", but a previewed file is sitting
         # in a cache that gets pruned, so here it has to move the file first.
@@ -381,6 +440,7 @@ TRACK_COLUMNS = (
     ("number", "#", False, None),
     ("title", "Title", True, lambda t: t.title.lower()),
     ("album", "Album", True, lambda t: t.album.lower()),
+    ("playlists", "Playlists", False, None),
     ("state", "", False, lambda t: state_rank(t.state)),
     ("duration", "Time", False, lambda t: t.duration),
     ("action", "", False, None),
@@ -403,7 +463,7 @@ def track_sorter(get):
     return Gtk.CustomSorter.new(compare)
 
 
-def track_column_view(window, columns=None):
+def track_column_view(window, columns=None, playlist_target=None):
     """A sortable track table.
 
     GtkColumnView rather than a box of rows: it recycles widgets, so a flat
@@ -415,6 +475,9 @@ def track_column_view(window, columns=None):
     view = Gtk.ColumnView.new(Gtk.NoSelection.new(sort_model))
     view.add_css_class("sf-tracks")
     sort_model.set_sorter(view.get_sorter())
+    # Kept on the view as well as in the bind closure, so the destination is a
+    # property of this table that checks and accessibility tools can inspect.
+    view.playlist_target = playlist_target
 
     wanted = columns or [key for key, *_ in TRACK_COLUMNS]
     for key, title, expand, sort_key in TRACK_COLUMNS:

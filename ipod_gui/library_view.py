@@ -284,7 +284,10 @@ class LibraryViewMixin:
         box.append(header)
 
         self.album_tracks = track_column_view(
-            self, columns=("number", "title", "state", "duration", "action", "menu")
+            self,
+            columns=(
+                "number", "title", "playlists", "state", "duration", "action", "menu"
+            ),
         )
         box.append(self.album_tracks)
         return scroller

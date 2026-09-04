@@ -191,6 +191,8 @@ def populate(window):
         "https://www.youtube.com/playlist?list=PLAnUnaBFhOM0Y3nVQFwq6b3lFm0",
         len(window.search_results),
     )
+    window.search_destination = name
+    window._paint_search_destination()
     window._paint_local_results()
     window._paint_youtube_section()
     window.clipboard_offer_label.set_text(
