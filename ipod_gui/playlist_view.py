@@ -34,9 +34,7 @@ whether those two readings can be quoted yet, and `show_view`, `_run`,
 `_keep_preview` to act on what an edit changed.
 """
 
-import os
 from pathlib import Path
-from urllib.parse import unquote, urlparse
 
 from gi.repository import Adw, GLib, Gtk
 
@@ -73,6 +71,7 @@ from .playlists import (
     remove_entry,
     remove_playlist_cover,
     rename_local_playlist,
+    resolve_playlist_entry,
     set_playlist_cover,
     TARGET_GONE,
 )
@@ -97,24 +96,7 @@ class PlaylistViewMixin:
     @staticmethod
     def _local_playlist_entry(playlist, entry):
         """Resolve one local playlist entry to the path its row must use."""
-        parsed = urlparse(entry)
-        if parsed.scheme:
-            if parsed.scheme.casefold() != "file" or parsed.netloc not in (
-                "",
-                "localhost",
-            ):
-                return entry
-            entry = unquote(parsed.path)
-        candidate = Path(entry)
-        if not candidate.is_absolute():
-            candidate = playlist.path.parent / candidate
-        if not candidate.exists() and "\\" in entry:
-            alternate = Path(entry.replace("\\", "/"))
-            if not alternate.is_absolute():
-                alternate = playlist.path.parent / alternate
-            if alternate.exists():
-                candidate = alternate
-        return os.path.abspath(candidate)
+        return resolve_playlist_entry(playlist.path, entry)
 
     def _load_local_playlists(self):
         """Re-read the playlist folder.

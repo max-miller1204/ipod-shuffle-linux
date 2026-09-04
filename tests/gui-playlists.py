@@ -796,14 +796,36 @@ assert gui.read_playlist_entries(PLAYLISTS / "Gym.m3u") == [str(first)]
 # visible as membership and Add does not append a second, absolute spelling.
 relative_file = PLAYLISTS / "Relative.m3u"
 relative_entry = os.path.relpath(first, PLAYLISTS)
+relative_window = FakeWindow()
+relative_window.library_tracks([first, second])
 gui.write_playlist_entries(relative_file, [relative_entry])
-window._load_local_playlists()
-assert "Relative" in window._playlists_listing(track_for(first))
-window._add_tracks_to_playlist("Relative", [track_for(first)])
+relative_window._load_local_playlists()
+assert "Relative" in relative_window._playlists_listing(track_for(first))
+relative_window._add_tracks_to_playlist("Relative", [track_for(first)])
 assert gui.read_playlist_entries(relative_file) == [relative_entry]
-assert window.toasts[-1] == "Already in Relative", window.toasts
+assert relative_window.toasts[-1] == "Already in Relative", relative_window.toasts
+
+relative_window._remove_track_from_playlist("Relative", track_for(first))
+assert gui.read_playlist_entries(relative_file) == []
+
+gui.write_playlist_entries(relative_file, [relative_entry])
+new_playlist(relative_window, "Relative Target")
+relative_window._move_track_between("Relative", "Relative Target", track_for(first))
+assert gui.read_playlist_entries(relative_file) == []
+assert gui.read_playlist_entries(PLAYLISTS / "Relative Target.m3u") == [
+    str(first)
+]
+
+uri_file = PLAYLISTS / "File URI.m3u"
+gui.write_playlist_entries(uri_file, [first.as_uri()])
+relative_window._load_local_playlists()
+relative_window._remove_track_from_playlist("File URI", track_for(first))
+assert gui.read_playlist_entries(uri_file) == []
+
 gui.delete_local_playlist(relative_file)
-window._load_local_playlists()
+gui.delete_local_playlist(PLAYLISTS / "Relative Target.m3u")
+gui.delete_local_playlist(uri_file)
+relative_window._load_local_playlists()
 
 # A previewed file lives in a cache that gets pruned, so it is kept first and
 # the entry names where it landed rather than where it was heard from.
