@@ -850,6 +850,24 @@ assert "Single URI" in relative_window._playlists_listing(track_for(first))
 relative_window._remove_track_from_playlist("Single URI", track_for(first))
 assert gui.read_playlist_entries(single_uri_file) == []
 
+relative_uri_target = PLAYLISTS / "Relative URI" / "Song.mp3"
+relative_uri_target.parent.mkdir()
+relative_uri_target.write_bytes(b"relative uri")
+relative_uri_file = PLAYLISTS / "Relative URI.m3u"
+relative_uri_entry = "file:Relative URI/Song.mp3"
+gui.write_playlist_entries(relative_uri_file, [relative_uri_entry])
+assert gui.read_local_playlist_tracks(relative_uri_file)[0] == [
+    str(relative_uri_target)
+]
+relative_window._load_local_playlists()
+assert "Relative URI" in relative_window._playlists_listing(
+    track_for(relative_uri_target)
+)
+relative_window._remove_track_from_playlist(
+    "Relative URI", track_for(relative_uri_target)
+)
+assert gui.read_playlist_entries(relative_uri_file) == []
+
 colon_track = song("Artist: Song")
 colon_file = PLAYLISTS / "Colon.m3u"
 colon_entry = os.path.relpath(colon_track, PLAYLISTS)
@@ -885,6 +903,7 @@ gui.delete_local_playlist(relative_file)
 gui.delete_local_playlist(PLAYLISTS / "Relative Target.m3u")
 gui.delete_local_playlist(uri_file)
 gui.delete_local_playlist(single_uri_file)
+gui.delete_local_playlist(relative_uri_file)
 gui.delete_local_playlist(colon_file)
 gui.delete_local_playlist(prefix_file)
 gui.delete_local_playlist(PLAYLISTS / "Stale.m3u")
