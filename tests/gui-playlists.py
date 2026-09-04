@@ -811,7 +811,8 @@ new_playlist(stale_window, "Stale")
 stale_window._add_tracks_to_playlist("Stale", [stale_track])
 assert gui.read_playlist_entries(PLAYLISTS / "Stale.m3u") == []
 
-unindexed_stale_window = FakeWindow(mount_point="/media/alex/iPod")
+stale_track.relpath = "F00/STALE.mp3"
+unindexed_stale_window = FakeWindow(mount_point=None)
 new_playlist(unindexed_stale_window, "Unindexed Stale")
 unindexed_stale_window._add_tracks_to_playlist(
     "Unindexed Stale", [stale_track]
@@ -1127,7 +1128,7 @@ device_track = gui.Track(
 )
 assert window._device_only_track(device_track), "a device file was offered"
 assert not window._device_only_track(track_for(first))
-assert not FakeWindow(mount_point=None)._device_only_track(device_track)
+assert FakeWindow(mount_point=None)._device_only_track(device_track)
 
 # A device playlist stores its entries relative to the iPod's music folder, so
 # a row for one the device scan has not resolved carries that bare name and
