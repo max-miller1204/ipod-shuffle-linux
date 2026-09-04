@@ -63,6 +63,7 @@ You can:
 
 - Create, rename, and delete a playlist.
 - Add one track or a complete album.
+- Select **Add songs** to search directly into the open playlist.
 - Add a YouTube result after download.
 - Move a track between playlists.
 - Drag tracks into a new order.
@@ -95,6 +96,10 @@ The search field searches configured music folders. It matches query words acros
 For queries with at least two characters, it also requests up to three YouTube results. You can paste a video or playlist URL into the same field. A finite playlist URL includes **Add all**. An unbounded channel or mix provides only per-track actions.
 
 Local and YouTube searches fail independently. The relevant section reports an offline service, no matches, or a missing dependency. Local search continues to work when YouTube is unavailable.
+
+When you select **Add songs** from a local playlist, the search page names that playlist as the destination. Local and YouTube **Add** actions put their results in that playlist. An **Added** action identifies a result that is already there. The Playlists column identifies playlist membership in track tables.
+
+![Search results for an open playlist](playlist-search.png)
 
 A YouTube search needs `yt-dlp`. A download also needs `ffmpeg` and a supported JavaScript runtime. See [YouTube downloads](youtube-downloads.md).
 
