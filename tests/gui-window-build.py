@@ -102,6 +102,7 @@ EXPECTED = {
         "search_youtube_rows", "search_local_note", "search_youtube_note",
         "search_local_count", "search_youtube_count",
         "search_playlist_row", "search_playlist_label", "search_playlist_add",
+        "search_destination_row", "search_destination_label",
         "clipboard_offer", "clipboard_offer_label",
     ],
     "playlist_view": [
@@ -761,9 +762,12 @@ def check_copying_a_device_playlist(window):
     a menu had in it: the sentence naming what is missing, the button that
     fixes it, and the row that appears in that menu afterwards.
     """
+    here_path = Path(_SANDBOX, "Music", "The Fixture", "Roadside.mp3")
+    here_path.parent.mkdir(parents=True, exist_ok=True)
+    here_path.write_bytes(b"a local song")
     entry = "The Fixture/Roadside.mp3"
     stranger = "The Fixture/Stranger.mp3"
-    here = library_track("/music/The Fixture/Roadside.mp3", "Roadside", "Roads")
+    here = library_track(str(here_path), "Roadside", "Roads")
     window.library.tracks = [here]
     window._library_scan_tracks = {here.path: here}
     window.device_tracks = [
@@ -1458,7 +1462,10 @@ def inspect(window):
 
     # Every popover is built as it opens rather than with the row it hangs off,
     # so a broken one would first show up under the user's pointer.
-    track = gui.Track("/music/Artist/Song.mp3", {"title": "Song"}, gui.STATE_LIBRARY)
+    track_path = Path(_SANDBOX, "Music", "Artist", "Song.mp3")
+    track_path.parent.mkdir(parents=True, exist_ok=True)
+    track_path.write_bytes(b"song")
+    track = gui.Track(track_path, {"title": "Song"}, gui.STATE_LIBRARY)
     result = gui.SearchResult("Result", "Uploader", 0, "https://x.invalid/v", "v")
     for name, build in (
         ("track_menu", lambda: window.track_menu(track)),
@@ -1486,6 +1493,174 @@ def inspect(window):
     # one playlist there is on offer rather than a sentence about having none.
     if "No" in menu_text(window.track_menu(track).get_child()):
         failures.append("the add menu claimed there were no playlists")
+
+    # Add songs gives the search a visible destination. Its primary Add writes
+    # into that playlist without an iPod attached, instead of taking the
+    # generic row action that queues a sync. The ⋯ still offers other lists.
+    window.library.tracks = [track]
+    window._library_scan_tracks = {track.path: track}
+    window._merge_states()
+    window._select_playlist("Built")
+    window._start_adding_songs()
+    if window.active_search_destination() != "Built":
+        failures.append(
+            "Add songs did not make Built the search destination: "
+            f"{window.active_search_destination()!r}"
+        )
+    if window.search_destination_label.get_text() != "Adding songs to Built":
+        failures.append(
+            "the search did not state where Add writes: "
+            f"{window.search_destination_label.get_text()!r}"
+        )
+    if window.search_local_table.playlist_target() != "Built":
+        failures.append("the local result table did not inherit the destination")
+    window.search_playlist = gui.LinkedPlaylist(
+        "Remote List", 12, "https://youtube.com/playlist?list=remote", 3
+    )
+    window._paint_playlist_header()
+    if window.search_playlist_add.get_visible():
+        failures.append(
+            "playlist-targeted search still offered the whole-list queue action"
+        )
+    window.search_playlist = None
+    window.show_view("search")
+
+    direct_add = gui.track_cell(
+        window,
+        track,
+        1,
+        "action",
+        window.search_local_table,
+    )
+    if direct_add.get_label() != "Add" or not direct_add.get_sensitive():
+        failures.append(
+            "a local search result could not be added to Built with no iPod: "
+            f"{direct_add.get_label()!r}, sensitive={direct_add.get_sensitive()}"
+        )
+    pending_before = set(window.pending)
+    built_list = gui.local_playlist_file(gui.PLAYLIST_LIBRARY, "Built")
+    direct_add.emit("clicked")
+    if gui.read_playlist_entries(built_list) != [track.path]:
+        failures.append(
+            "the search result Add did not write the track into Built: "
+            f"{gui.read_playlist_entries(built_list)}"
+        )
+    if window.pending != pending_before:
+        failures.append(
+            f"the playlist search queued the track directly: {window.pending}"
+        )
+
+    blocked_path = Path(_SANDBOX, "Music", "Blocked.mp3")
+    blocked_path.write_bytes(b"blocked")
+    blocked_track = gui.Track(
+        blocked_path, {"title": "Blocked"}, gui.STATE_LIBRARY
+    )
+    window.discovering_sources = True
+    blocked_add = gui.track_cell(
+        window,
+        blocked_track,
+        1,
+        "action",
+        window.search_local_table,
+    )
+    if blocked_add.get_label() != "Add" or blocked_add.get_sensitive():
+        failures.append(
+            "a local search Add stayed sensitive during source discovery"
+        )
+    window._update_device_controls()
+    if blocked_add.get_sensitive():
+        failures.append("source discovery did not disable local search Add")
+    blocked_add.emit("clicked")
+    if gui.read_playlist_entries(built_list) != [track.path]:
+        failures.append("a blocked local search Add changed the playlist")
+    window.discovering_sources = False
+
+    window.discovering_sources = True
+    window.search_results = [result]
+    window._paint_youtube_section()
+    youtube_target_add = next(
+        (
+            found
+            for found in walk(window.search_youtube_rows)
+            if isinstance(found, Gtk.Button) and found.get_label() == "Add"
+        ),
+        None,
+    )
+    if youtube_target_add is None or youtube_target_add.get_sensitive():
+        failures.append("a YouTube playlist Add stayed sensitive during discovery")
+    if youtube_target_add not in window.search_youtube_playlist_add_buttons:
+        failures.append("a YouTube playlist Add was not discovery-gated")
+    window.discovering_sources = False
+
+    youtube_file = Path(_SANDBOX, "Music", "youtube", "Result [v].mp3")
+    youtube_file.parent.mkdir(parents=True, exist_ok=True)
+    youtube_file.write_bytes(b"downloaded")
+    gui.write_playlist_entries(built_list, [track.path, str(youtube_file)])
+    window._load_local_playlists()
+    window.search_results = [result]
+    window._paint_youtube_section()
+    youtube_already_added = next(
+        (
+            found
+            for found in walk(window.search_youtube_rows)
+            if isinstance(found, Gtk.Button) and found.get_label() == "Added"
+        ),
+        None,
+    )
+    if youtube_already_added is None:
+        failures.append("an existing YouTube result did not show Added")
+    elif youtube_already_added.get_sensitive():
+        failures.append("an existing YouTube result offered Add")
+    window._update_device_controls()
+    if youtube_already_added is not None and youtube_already_added.get_sensitive():
+        failures.append("device controls re-enabled an existing YouTube result")
+    if (
+        youtube_already_added is not None
+        and youtube_already_added in window.search_youtube_playlist_add_buttons
+    ):
+        failures.append("an existing YouTube result was discovery-gated")
+
+    added = gui.track_cell(
+        window,
+        track,
+        1,
+        "action",
+        window.search_local_table,
+    )
+    if added.get_label() != "Added" or added.get_sensitive():
+        failures.append("a track already in Built still offered Add")
+
+    # The general track table has a visible Playlists category. It names local
+    # membership and a device-only playlist that holds the matched iPod copy,
+    # while the edit menu remains limited to playlists this computer can write.
+    track.relpath = "F00/SONG.MP3"
+    window.playlists = [("Device Mix", [track.relpath])]
+    names = window.playlist_memberships(track)
+    if names != ["Built", "Device Mix"]:
+        failures.append(f"playlist membership reads {names!r}")
+    membership = gui.track_cell(window, track, 1, "playlists")
+    if membership.get_text() != "Built, Device Mix":
+        failures.append(
+            f"the Playlists cell reads {membership.get_text()!r}"
+        )
+    columns = window.library_table.get_columns()
+    headings = [
+        columns.get_item(index).get_title()
+        for index in range(columns.get_n_items())
+    ]
+    if "Playlists" not in headings:
+        failures.append(f"the general track table has columns {headings!r}")
+
+    built_list.unlink()
+    window._populate_playlist_rail()
+    if window.active_search_destination() is not None:
+        failures.append("an externally deleted playlist stayed a search destination")
+    if window.search_destination_row.get_visible():
+        failures.append("an externally deleted playlist kept its search destination row")
+
+    window._clear_search()
+    if window.active_search_destination() is not None:
+        failures.append("clearing search kept its old playlist destination")
 
     # A playlist another program wrote can list a track relative to the folder
     # it sits in. The sync resolves that, so the entry is real - but it names
@@ -1798,6 +1973,35 @@ def inspect(window):
     window._paint_youtube_section()
     if window.search_playlist_row.get_visible():
         failures.append("the playlist header outlived the playlist it named")
+
+    membership_refreshes = []
+    original_membership_refresh = window._refresh_playlist_membership_views
+    window._refresh_playlist_membership_views = lambda: membership_refreshes.append(
+        "refresh"
+    )
+    rename_dialog = window.on_rename_playlist("Built")
+    rename_entry = find_entry(rename_dialog) if rename_dialog is not None else None
+    if rename_entry is None:
+        failures.append("renaming Built opened no playlist name field")
+    else:
+        rename_entry.set_text("Renamed")
+        rename_dialog.emit("response", "rename")
+        rename_dialog.force_close()
+        if not membership_refreshes:
+            failures.append("renaming a playlist did not refresh membership rows")
+
+    membership_refreshes.clear()
+    disconnect_generation = window.probe_generation + 1
+    window.probe_generation = disconnect_generation
+    disconnect_probe = type(
+        "DisconnectProbe",
+        (),
+        {"mount_point": None, "identity": None, "candidates": [], "readable": True},
+    )()
+    window._apply_probe(disconnect_generation, disconnect_probe)
+    if not membership_refreshes:
+        failures.append("disconnecting an iPod did not refresh membership rows")
+    window._refresh_playlist_membership_views = original_membership_refresh
 
     # Closing stops the player and disowns any download; it is a mixin's job
     # now, so a split that lost the wiring would leave audio playing.

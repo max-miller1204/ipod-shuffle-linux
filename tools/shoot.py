@@ -28,7 +28,11 @@ SIZE_ATTEMPT_SECONDS = 2
 def arguments():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", type=Path, required=True)
-    parser.add_argument("--page", choices=("library", "playlists", "settings"), required=True)
+    parser.add_argument(
+        "--page",
+        choices=("library", "playlists", "search", "settings"),
+        required=True,
+    )
     parser.add_argument("--width", type=int, required=True)
     parser.add_argument("--scale", type=int, choices=(1, 2), required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -216,6 +220,21 @@ if not settle(
     )
 ):
     sys.exit(f"the demo library and device did not settle in {SETTLE_SECONDS}s")
+
+if args.page == "search":
+    # Show both destination states from the fixture: Slow Copper is already
+    # in Downloads, while the YouTube result can still be added to it.
+    os.environ["SHUFFLE_DETERMINISTIC_SCREENSHOT"] = "1"
+    window.start_playlist_search("Downloads")
+    window.search_entry.set_text("Slow")
+    if not settle(
+        lambda: (
+            window.current_view() == "search"
+            and window.search_query == "Slow"
+            and not window.search_loading
+        )
+    ):
+        sys.exit(f"the playlist search did not settle in {SETTLE_SECONDS}s")
 
 content = window.toasts
 # Waited on until the layout has caught up, because a width that crosses one

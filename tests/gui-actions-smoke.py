@@ -129,9 +129,12 @@ class FakeWindow:
         self.toasts = []
         self.track_names = {}
         self.youtube_unavailable = None
+        self.search_destination = None
         # Collected as the YouTube rows are built, exactly like _busy_widgets,
         # so a new Add button cannot be forgotten by the capability gating.
         self.search_add_buttons = []
+        self.search_playlist_add_buttons = []
+        self.search_youtube_playlist_add_buttons = []
         self.library = FakeLibrary()
         self.device_tracks = []
         self.speech_engine_available = True
@@ -199,6 +202,8 @@ class FakeWindow:
     _confirmed_device = gui.IpodWindow._confirmed_device
     _youtube_download_tooltip = gui.IpodWindow._youtube_download_tooltip
     _can_download = gui.IpodWindow._can_download
+    _can_fetch = gui.IpodWindow._can_fetch
+    active_search_destination = gui.IpodWindow.active_search_destination
     _start_youtube_download = gui.IpodWindow._start_youtube_download
     _populate_cache_card = gui.IpodWindow._populate_cache_card
 
@@ -909,6 +914,8 @@ assert not busy_window.sync_spinner.spinning, "spinner left running when idle"
 
 search_add = FakeWidget()
 busy_window.search_add_buttons = [search_add]
+youtube_playlist_add = FakeWidget()
+busy_window.search_youtube_playlist_add_buttons = [youtube_playlist_add]
 busy_window.mount_point = None
 busy_window._update_device_controls()
 assert not search_add.sensitive, "a disconnected result Add remained enabled"
@@ -921,9 +928,13 @@ busy_window.youtube_unavailable = "ffmpeg is not installed"
 busy_window._update_device_controls()
 assert not search_add.sensitive, "an unavailable download remained enabled"
 assert search_add.tooltip == busy_window.youtube_unavailable
+assert not youtube_playlist_add.sensitive, (
+    "an unavailable playlist download remained enabled"
+)
 busy_window.mount_point = None
 busy_window._update_device_controls()
 assert search_add.tooltip == busy_window.youtube_unavailable
+assert not youtube_playlist_add.sensitive
 
 # With something queued, the same reset has to offer the sync.
 queued_window = FakeWindow()
@@ -1783,6 +1794,16 @@ assert "Automate the Boring Stuff" in playlist_window.busy_messages[-1], (
     playlist_window.busy_messages
 )
 
+# The whole-list path only knows how to queue a download. Playlist-targeted
+# search hides that button, and a stale activation must not queue behind the
+# destination the page says each Add writes into.
+targeted_playlist = FakeWindow()
+targeted_playlist._set_search_note = lambda _text: None
+targeted_playlist.search_playlist = playlist_window.search_playlist
+targeted_playlist.search_destination = "Road Trip"
+gui.IpodWindow._download_playlist(targeted_playlist)
+assert targeted_playlist.commands == []
+
 # Every reason a result cannot be added is a reason the whole list cannot be.
 for attribute, value, why in (
     ("mount_point", None, "no iPod connected"),
@@ -1897,6 +1918,8 @@ class SearchWindow:
         self.search_results = []
         self.search_loading = False
         self.search_note = ""
+        self.search_destination = None
+        self.playlist_destination = None
         self.search_add_buttons = []
         self._search_timeout = None
         self.youtube_search_unavailable = unavailable
@@ -1915,6 +1938,12 @@ class SearchWindow:
     def _paint_youtube_section(self):
         pass
 
+    def _paint_search_destination(self):
+        pass
+
+    def playlist_search_destination(self):
+        return self.playlist_destination
+
     def _start_youtube_search(self, _generation, _query):
         # Never reached without a main loop; named so scheduling it does not
         # depend on the network being there.
@@ -1930,6 +1959,7 @@ class SearchWindow:
     _cancel_search_timeout = gui.IpodWindow._cancel_search_timeout
     _set_search_note = gui.IpodWindow._set_search_note
     _finish_youtube_search = gui.IpodWindow._finish_youtube_search
+    playlist_destination_changed = gui.IpodWindow.playlist_destination_changed
     navigate = gui.IpodWindow.navigate
 
 
@@ -1972,6 +2002,30 @@ typing.search_entry.set_text("")
 typing._on_search_changed(typing.search_entry)
 assert typing.views.name == "library", typing.shown
 assert typing.search_results == [] and typing.search_query == ""
+assert typing.search_destination is None
+
+# Starting the same search while an editable playlist is on screen preserves
+# that destination after the view changes to search. Later keystrokes keep it,
+# and clearing the field ends the playlist-editing context.
+targeting = SearchWindow()
+targeting.views.name = "playlists"
+targeting.playlist_destination = "Road Trip"
+targeting.search_entry.set_text("queen")
+targeting._on_search_changed(targeting.search_entry)
+assert targeting.views.name == "search"
+assert targeting.search_destination == "Road Trip"
+targeting.search_entry.set_text("queen live")
+targeting._on_search_changed(targeting.search_entry)
+assert targeting.search_destination == "Road Trip"
+targeting.playlist_destination_changed("Road Trip", "Road Trip Mix")
+assert targeting.search_destination == "Road Trip Mix"
+targeting.playlist_destination_changed("Road Trip Mix")
+assert targeting.search_destination is None
+assert targeting.views.name == "library"
+assert targeting.search_entry.get_text() == ""
+targeting.search_entry.set_text("")
+targeting._on_search_changed(targeting.search_entry)
+assert targeting.search_destination is None
 assert typing._search_timeout is None, "a search stayed scheduled after clearing"
 
 # One letter matches most of a library and would spend a round trip per

@@ -23,11 +23,11 @@ later by the sync and read out as something else.
 """
 
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
-
-from .model import read_local_playlist_tracks
+from .model import file_uri_path, read_local_playlist_tracks
 
 
 # One format, always written, so a playlist's name is enough to find its file.
@@ -209,6 +209,26 @@ def read_playlist_entries(path):
     either way. Editing is what needs the difference, and asks for it.
     """
     return playlist_contents(path)[0]
+
+
+def resolve_playlist_entry(path, entry):
+    """Resolve a local playlist entry without changing its serialized spelling."""
+    entry = str(entry)
+    decoded = file_uri_path(entry)
+    if decoded is not None:
+        entry = decoded
+    elif re.match(r"[A-Za-z][A-Za-z0-9+.-]*://", entry):
+        return entry
+    candidate = Path(entry)
+    if not candidate.is_absolute():
+        candidate = Path(path).parent / candidate
+    if not candidate.exists() and "\\" in entry:
+        alternate = Path(entry.replace("\\", "/"))
+        if not alternate.is_absolute():
+            alternate = Path(path).parent / alternate
+        if alternate.exists():
+            candidate = alternate
+    return os.path.abspath(candidate)
 
 
 def write_playlist_entries(path, entries):
@@ -606,12 +626,13 @@ def add_entries(path, entries):
     current, complete = playlist_contents(path)
     if not complete:
         return _edit_refusal(complete)
-    known = set(current)
+    known = {resolve_playlist_entry(path, entry) for entry in current}
     added = []
     for entry in entries:
         entry = str(entry)
-        if entry not in known:
-            known.add(entry)
+        resolved = resolve_playlist_entry(path, entry)
+        if resolved not in known:
+            known.add(resolved)
             added.append(entry)
     if not added:
         return 0
@@ -633,7 +654,10 @@ def remove_entry(path, entry):
     current, complete = playlist_contents(path)
     if not complete:
         return _edit_refusal(complete)
-    remaining = [line for line in current if line != str(entry)]
+    wanted = resolve_playlist_entry(path, entry)
+    remaining = [
+        line for line in current if resolve_playlist_entry(path, line) != wanted
+    ]
     removed = len(current) - len(remaining)
     if not removed:
         return 0

@@ -46,6 +46,22 @@ def local_search_matches(tracks, query):
     )
 
 
+def file_uri_path(entry):
+    entry = str(entry)
+    if not re.match(r"file:(?://|/|[^\s])", entry):
+        return None
+    try:
+        parsed = urllib.parse.urlparse(entry)
+    except ValueError:
+        return None
+    if parsed.scheme.casefold() != "file" or parsed.netloc not in (
+        "",
+        "localhost",
+    ):
+        return None
+    return urllib.parse.unquote(parsed.path)
+
+
 def read_local_playlist_tracks(list_path):
     path = Path(list_path)
     try:
@@ -69,11 +85,9 @@ def read_local_playlist_tracks(list_path):
 
     tracks = []
     for entry in entries:
-        if entry.lower().startswith("file:"):
-            parsed = urllib.parse.urlparse(entry)
-            if parsed.netloc not in ("", "localhost"):
-                continue
-            entry = urllib.parse.unquote(parsed.path)
+        decoded = file_uri_path(entry)
+        if decoded is not None:
+            entry = decoded
         elif re.match(r"[A-Za-z][A-Za-z0-9+.-]*://", entry):
             continue
         track = Path(entry) if Path(entry).is_absolute() else path.parent / entry

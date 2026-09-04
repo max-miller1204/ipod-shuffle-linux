@@ -98,6 +98,8 @@ SHARED_STATE = {
     "library_controls": ("library_view", "window"),
     "new_playlist_button": ("device_view", "playlist_view"),
     "search_add_buttons": ("device_view", "search_view"),
+    "search_playlist_add_buttons": ("device_view", "search_view"),
+    "search_youtube_playlist_add_buttons": ("device_view", "search_view"),
 }
 
 failures = []
