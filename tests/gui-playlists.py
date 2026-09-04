@@ -886,7 +886,7 @@ assert "Colon" in relative_window._playlists_listing(track_for(colon_track))
 relative_window._add_tracks_to_playlist("Colon", [track_for(colon_track)])
 assert gui.read_playlist_entries(colon_file) == [colon_entry]
 
-prefix_track = PLAYLISTS / "File: Song.mp3"
+prefix_track = PLAYLISTS / "File:Song.mp3"
 prefix_track.write_bytes(b"file prefix")
 prefix_file = PLAYLISTS / "File Prefix.m3u"
 gui.write_playlist_entries(prefix_file, [prefix_track.name])

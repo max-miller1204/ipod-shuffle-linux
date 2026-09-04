@@ -48,7 +48,7 @@ def local_search_matches(tracks, query):
 
 def file_uri_path(entry):
     entry = str(entry)
-    if not re.match(r"file:(?://|/|[^\s])", entry, re.IGNORECASE):
+    if not re.match(r"file:(?://|/|[^\s])", entry):
         return None
     try:
         parsed = urllib.parse.urlparse(entry)

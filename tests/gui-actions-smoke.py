@@ -133,6 +133,8 @@ class FakeWindow:
         # Collected as the YouTube rows are built, exactly like _busy_widgets,
         # so a new Add button cannot be forgotten by the capability gating.
         self.search_add_buttons = []
+        self.search_playlist_add_buttons = []
+        self.search_youtube_playlist_add_buttons = []
         self.library = FakeLibrary()
         self.device_tracks = []
         self.speech_engine_available = True
@@ -200,6 +202,7 @@ class FakeWindow:
     _confirmed_device = gui.IpodWindow._confirmed_device
     _youtube_download_tooltip = gui.IpodWindow._youtube_download_tooltip
     _can_download = gui.IpodWindow._can_download
+    _can_fetch = gui.IpodWindow._can_fetch
     active_search_destination = gui.IpodWindow.active_search_destination
     _start_youtube_download = gui.IpodWindow._start_youtube_download
     _populate_cache_card = gui.IpodWindow._populate_cache_card
@@ -911,6 +914,8 @@ assert not busy_window.sync_spinner.spinning, "spinner left running when idle"
 
 search_add = FakeWidget()
 busy_window.search_add_buttons = [search_add]
+youtube_playlist_add = FakeWidget()
+busy_window.search_youtube_playlist_add_buttons = [youtube_playlist_add]
 busy_window.mount_point = None
 busy_window._update_device_controls()
 assert not search_add.sensitive, "a disconnected result Add remained enabled"
@@ -923,9 +928,13 @@ busy_window.youtube_unavailable = "ffmpeg is not installed"
 busy_window._update_device_controls()
 assert not search_add.sensitive, "an unavailable download remained enabled"
 assert search_add.tooltip == busy_window.youtube_unavailable
+assert not youtube_playlist_add.sensitive, (
+    "an unavailable playlist download remained enabled"
+)
 busy_window.mount_point = None
 busy_window._update_device_controls()
 assert search_add.tooltip == busy_window.youtube_unavailable
+assert not youtube_playlist_add.sensitive
 
 # With something queued, the same reset has to offer the sync.
 queued_window = FakeWindow()
