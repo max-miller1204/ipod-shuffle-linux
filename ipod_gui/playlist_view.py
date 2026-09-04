@@ -548,6 +548,13 @@ class PlaylistViewMixin:
 
     def _populate_playlist_rail(self):
         self._load_local_playlists()
+        destination = getattr(self, "search_destination", None)
+        if destination is not None:
+            playlist = self._local_playlist(destination)
+            if playlist is None:
+                self.playlist_destination_changed(destination)
+            elif playlist.name != destination:
+                self.playlist_destination_changed(destination, playlist.name)
         for container in (self.playlist_rail, self.playlist_list):
             clear_children(container)
 

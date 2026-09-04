@@ -1648,6 +1648,13 @@ def inspect(window):
     if "Playlists" not in headings:
         failures.append(f"the general track table has columns {headings!r}")
 
+    built_list.unlink()
+    window._populate_playlist_rail()
+    if window.active_search_destination() is not None:
+        failures.append("an externally deleted playlist stayed a search destination")
+    if window.search_destination_row.get_visible():
+        failures.append("an externally deleted playlist kept its search destination row")
+
     window._clear_search()
     if window.active_search_destination() is not None:
         failures.append("clearing search kept its old playlist destination")
