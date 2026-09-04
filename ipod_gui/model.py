@@ -70,7 +70,10 @@ def read_local_playlist_tracks(list_path):
     tracks = []
     for entry in entries:
         if entry.lower().startswith("file:"):
-            parsed = urllib.parse.urlparse(entry)
+            try:
+                parsed = urllib.parse.urlparse(entry)
+            except ValueError:
+                continue
             if parsed.netloc not in ("", "localhost"):
                 continue
             entry = urllib.parse.unquote(parsed.path)

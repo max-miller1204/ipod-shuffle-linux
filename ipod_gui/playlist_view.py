@@ -1185,6 +1185,8 @@ class PlaylistViewMixin:
             return False
         if not path.is_absolute():
             return True
+        if not path.is_file() and track.state != STATE_IPOD:
+            return True
         if not self.mount_point:
             return False
         try:

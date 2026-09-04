@@ -836,6 +836,10 @@ assert gui.read_playlist_entries(colon_file) == [colon_entry]
 malformed_file = PLAYLISTS / "Malformed.m3u"
 gui.write_playlist_entries(malformed_file, ["file://["])
 relative_window._load_local_playlists()
+scanned, dropped, complete = relative_window._scan_queued_sources(
+    [str(malformed_file)], relative_window.source_generation
+)
+assert complete and not dropped and str(malformed_file) in scanned
 
 gui.delete_local_playlist(relative_file)
 gui.delete_local_playlist(PLAYLISTS / "Relative Target.m3u")
@@ -2146,6 +2150,7 @@ assert [row.title for row in rows] == ["Lithium", "Missing Song"], rows
 assert rows[0].artist == "Artist", rows[0].artist
 assert rows[0].path == str(first), rows[0].path
 assert not resolve_window._device_only_track(rows[0])
+assert resolve_window._device_only_track(rows[1])
 
 # A device playlist's rows come from what was read off the device instead.
 resolve_window.playlists = [("Genres", ["F00/AAAA.mp3", "F00/CCCC.mp3"])]
