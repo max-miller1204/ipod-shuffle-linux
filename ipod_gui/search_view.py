@@ -15,6 +15,7 @@ act on a result.
 """
 
 import threading
+from pathlib import Path
 
 from gi.repository import Gdk, GLib, Gtk
 
@@ -30,6 +31,7 @@ from .youtube import (
     linked_playlist,
     search_youtube,
     short_link,
+    video_id_from_name,
     youtube_art_path,
 )
 from .previews import cached_preview_path
@@ -398,7 +400,21 @@ class SearchViewMixin:
         row.append(text)
         return row
 
-    def _youtube_row(self, result):
+    def _youtube_playlist_video_ids(self, destination):
+        playlist = self._local_playlist(destination)
+        if playlist is None:
+            return set()
+        video_ids = set()
+        index = getattr(self, "_playlist_membership_index", {})
+        for path, names in index.items():
+            if playlist.name not in names or not Path(path).is_file():
+                continue
+            video_id = video_id_from_name(Path(path).name)
+            if video_id:
+                video_ids.add(video_id)
+        return video_ids
+
+    def _youtube_row(self, result, playlist_video_ids=None):
         row = Gtk.Box(spacing=12)
         row.add_css_class("sf-track-row")
         row.add_css_class("sf-result-row")
@@ -427,7 +443,11 @@ class SearchViewMixin:
         destination = self.active_search_destination()
         already_added = bool(
             destination
-            and self.result_in_playlist(destination, result.video_id)
+            and (
+                result.video_id in playlist_video_ids
+                if playlist_video_ids is not None
+                else self.result_in_playlist(destination, result.video_id)
+            )
         )
         add = Gtk.Button(label="Added" if already_added else "Add")
         add.add_css_class("sf-button")
@@ -615,8 +635,16 @@ class SearchViewMixin:
             self.search_youtube_note.set_visible(False)
             return
 
+        destination = self.active_search_destination()
+        playlist_video_ids = (
+            self._youtube_playlist_video_ids(destination)
+            if destination is not None
+            else None
+        )
         for result in self.search_results:
-            self.search_youtube_rows.append(self._youtube_row(result))
+            self.search_youtube_rows.append(
+                self._youtube_row(result, playlist_video_ids)
+            )
         self.search_youtube_count.set_text(
             plural(len(self.search_results), "result") if self.search_results else ""
         )
