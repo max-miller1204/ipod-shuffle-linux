@@ -762,9 +762,12 @@ def check_copying_a_device_playlist(window):
     a menu had in it: the sentence naming what is missing, the button that
     fixes it, and the row that appears in that menu afterwards.
     """
+    here_path = Path(_SANDBOX, "Music", "The Fixture", "Roadside.mp3")
+    here_path.parent.mkdir(parents=True, exist_ok=True)
+    here_path.write_bytes(b"a local song")
     entry = "The Fixture/Roadside.mp3"
     stranger = "The Fixture/Stranger.mp3"
-    here = library_track("/music/The Fixture/Roadside.mp3", "Roadside", "Roads")
+    here = library_track(str(here_path), "Roadside", "Roads")
     window.library.tracks = [here]
     window._library_scan_tracks = {here.path: here}
     window.device_tracks = [

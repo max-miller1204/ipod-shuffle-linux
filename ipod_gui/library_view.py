@@ -668,8 +668,24 @@ class LibraryViewMixin:
         only thing in the window that touches the user's own music files, and
         the menu it is reached from is one every row carries.
         """
-        if self._device_only_track(track) or track.state == STATE_PREVIEW:
+        # A local file can disappear after its row was built, and the dialog
+        # still needs to open so its response can remove that stale row. The
+        # add-to-playlist path keeps using `_device_only_track`, where a
+        # missing local file must remain refused. Delete only refuses paths
+        # that are structurally device-only; existence is checked after the
+        # dialog is answered.
+        try:
+            path = Path(track.path)
+        except (TypeError, ValueError):
             return None
+        if track.state == STATE_PREVIEW or not path.is_absolute():
+            return None
+        if self.mount_point:
+            try:
+                if path.is_relative_to(Path(self.mount_point)):
+                    return None
+            except (TypeError, ValueError):
+                return None
 
         # Every consequence beyond the file itself, stated before it happens.
         # A song is in more places than the folder it sits in, and which of
