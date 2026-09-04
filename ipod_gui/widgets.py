@@ -379,6 +379,8 @@ def track_cell(
                     window._add_tracks_to_playlist(name, [t])
                 ),
             )
+            window.search_playlist_add_buttons.append(action)
+            action.set_sensitive(not window.discovering_sources)
         return action
     if track.state == STATE_PREVIEW:
         # Add still means "I want this track", but a previewed file is sitting

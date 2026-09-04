@@ -794,6 +794,14 @@ window._add_tracks_to_playlist("Gym", [track_for(first)])
 assert window.toasts[-1] == "Already in Gym", window.toasts
 assert gui.read_playlist_entries(PLAYLISTS / "Gym.m3u") == [str(first)]
 
+blocked = FakeWindow()
+blocked.library_tracks([first])
+new_playlist(blocked, "Blocked")
+blocked.discovering_sources = True
+blocked._add_tracks_to_playlist("Blocked", [track_for(first)])
+assert gui.read_playlist_entries(PLAYLISTS / "Blocked.m3u") == []
+assert blocked.pending_sources == {}
+
 # A relative M3U entry names the same library file the sync resolves. It is
 # visible as membership and Add does not append a second, absolute spelling.
 relative_file = PLAYLISTS / "Relative.m3u"

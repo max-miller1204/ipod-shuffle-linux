@@ -141,6 +141,7 @@ class IpodWindow(
         # time the eye returns to the empty space it was explaining.
         self.search_note = ""
         self.search_add_buttons = []
+        self.search_playlist_add_buttons = []
         self._search_timeout = None
 
         # Bumped whenever a preview is asked for, so a download that is still

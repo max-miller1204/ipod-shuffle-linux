@@ -1459,7 +1459,10 @@ def inspect(window):
 
     # Every popover is built as it opens rather than with the row it hangs off,
     # so a broken one would first show up under the user's pointer.
-    track = gui.Track("/music/Artist/Song.mp3", {"title": "Song"}, gui.STATE_LIBRARY)
+    track_path = Path(_SANDBOX, "Music", "Artist", "Song.mp3")
+    track_path.parent.mkdir(parents=True, exist_ok=True)
+    track_path.write_bytes(b"song")
+    track = gui.Track(track_path, {"title": "Song"}, gui.STATE_LIBRARY)
     result = gui.SearchResult("Result", "Uploader", 0, "https://x.invalid/v", "v")
     for name, build in (
         ("track_menu", lambda: window.track_menu(track)),
@@ -1543,6 +1546,32 @@ def inspect(window):
         failures.append(
             f"the playlist search queued the track directly: {window.pending}"
         )
+
+    blocked_path = Path(_SANDBOX, "Music", "Blocked.mp3")
+    blocked_path.write_bytes(b"blocked")
+    blocked_track = gui.Track(
+        blocked_path, {"title": "Blocked"}, gui.STATE_LIBRARY
+    )
+    window.discovering_sources = True
+    blocked_add = gui.track_cell(
+        window,
+        blocked_track,
+        1,
+        "action",
+        window.search_local_table,
+    )
+    if blocked_add.get_label() != "Add" or blocked_add.get_sensitive():
+        failures.append(
+            "a local search Add stayed sensitive during source discovery"
+        )
+    window._update_device_controls()
+    if blocked_add.get_sensitive():
+        failures.append("source discovery did not disable local search Add")
+    blocked_add.emit("clicked")
+    if gui.read_playlist_entries(built_list) != [track.path]:
+        failures.append("a blocked local search Add changed the playlist")
+    window.discovering_sources = False
+
     added = gui.track_cell(
         window,
         track,

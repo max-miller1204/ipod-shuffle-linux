@@ -1228,6 +1228,8 @@ class PlaylistViewMixin:
 
     def _add_tracks_to_playlist(self, name, tracks):
         """Put tracks in a playlist, making it first if the menu asked to."""
+        if self.discovering_sources:
+            return
         if name is None:
             self.on_new_playlist(
                 None,

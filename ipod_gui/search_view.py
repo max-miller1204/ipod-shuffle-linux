@@ -580,6 +580,7 @@ class SearchViewMixin:
         matches = local_search_matches(
             self.library.all_tracks(), self.search_query
         )
+        self.search_playlist_add_buttons = []
         fill_tracks(self.search_local_table, matches)
         self.search_local_count.set_text(
             plural(len(matches), "track") if matches else ""
