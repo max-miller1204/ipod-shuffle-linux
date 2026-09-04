@@ -1194,10 +1194,13 @@ class PlaylistViewMixin:
         if not path.is_absolute():
             return True
         if not path.is_file():
-            if track.path in getattr(self, "_library_by_path", {}):
-                return True
-            if track.state != STATE_IPOD:
-                return True
+            if (
+                not self.mount_point
+                and track.state == STATE_IPOD
+                and track.relpath != track.path
+            ):
+                return False
+            return True
         if not self.mount_point:
             return False
         try:

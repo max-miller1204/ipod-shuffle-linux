@@ -811,6 +811,14 @@ new_playlist(stale_window, "Stale")
 stale_window._add_tracks_to_playlist("Stale", [stale_track])
 assert gui.read_playlist_entries(PLAYLISTS / "Stale.m3u") == []
 
+unindexed_stale_window = FakeWindow(mount_point="/media/alex/iPod")
+new_playlist(unindexed_stale_window, "Unindexed Stale")
+unindexed_stale_window._add_tracks_to_playlist(
+    "Unindexed Stale", [stale_track]
+)
+assert gui.read_playlist_entries(PLAYLISTS / "Unindexed Stale.m3u") == []
+gui.delete_local_playlist(PLAYLISTS / "Unindexed Stale.m3u")
+
 # A relative M3U entry names the same library file the sync resolves. It is
 # visible as membership and Add does not append a second, absolute spelling.
 relative_file = PLAYLISTS / "Relative.m3u"
