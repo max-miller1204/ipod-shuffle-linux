@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "revision": 205,
+  "revision": 207,
   "goals": [
     {
       "id": "dual-source-search-local-library-plus",
@@ -351,10 +351,11 @@
       "id": "make-it-easier-to-add-songs-to-playlist",
       "title": "Make it easier to add songs to playlist from search",
       "description": "Currently when im in a playlist and i try to look up a song to add it just goes straight to the queue, and not in my playlist. Also it gets confusing when adding songs to the playlist since there's no indicator if its in a playlist. Maybe add a new catagory next to each song when in the general tab showing the playlist it's in.",
-      "status": "open",
+      "status": "done",
       "createdAt": "2026-08-12T06:16:42.859Z",
-      "updatedAt": "2026-08-13T19:23:21.200Z",
-      "group": "Playlists"
+      "updatedAt": "2026-09-04T06:52:05.318Z",
+      "group": "Playlists",
+      "completedAt": "2026-09-04T06:52:05.318Z"
     },
     {
       "id": "close-destructive-operation",
