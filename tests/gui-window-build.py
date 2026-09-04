@@ -1589,6 +1589,34 @@ def inspect(window):
         failures.append("a YouTube playlist Add was not discovery-gated")
     window.discovering_sources = False
 
+    original_result_in_playlist = window.result_in_playlist
+    window.result_in_playlist = lambda _name, _video_id: True
+    try:
+        window.search_results = [result]
+        window._paint_youtube_section()
+        youtube_already_added = next(
+            (
+                found
+                for found in walk(window.search_youtube_rows)
+                if isinstance(found, Gtk.Button) and found.get_label() == "Added"
+            ),
+            None,
+        )
+        if youtube_already_added is None:
+            failures.append("an existing YouTube result did not show Added")
+        elif youtube_already_added.get_sensitive():
+            failures.append("an existing YouTube result offered Add")
+        window._update_device_controls()
+        if youtube_already_added is not None and youtube_already_added.get_sensitive():
+            failures.append("device controls re-enabled an existing YouTube result")
+        if (
+            youtube_already_added is not None
+            and youtube_already_added in window.search_youtube_playlist_add_buttons
+        ):
+            failures.append("an existing YouTube result was discovery-gated")
+    finally:
+        window.result_in_playlist = original_result_in_playlist
+
     added = gui.track_cell(
         window,
         track,

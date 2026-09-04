@@ -449,7 +449,8 @@ class SearchViewMixin:
                     or f"Download and add to {destination}"
                 )
             )
-            self.search_youtube_playlist_add_buttons.append(add)
+            if not already_added:
+                self.search_youtube_playlist_add_buttons.append(add)
         else:
             add.connect("clicked", lambda _b, r=result: self._download_result(r))
             add.set_sensitive(self._can_download())
