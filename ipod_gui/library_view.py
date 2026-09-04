@@ -399,12 +399,12 @@ class LibraryViewMixin:
         self._merge_states()
         if self.mount_point:
             self._populate_device_summary()
-        self._refresh_current_view()
         # A playlist with no custom cover wears the first one its tracks carry,
         # so the scan that reads that artwork is what those tiles waited for.
         # Here rather than in the coalesced repaint: painting the rail
         # re-reads the playlist folder, which is disk work no batch is worth.
         self._populate_playlist_rail()
+        self._refresh_current_view()
         self._populate_folders()
         return False
 

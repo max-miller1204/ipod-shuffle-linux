@@ -224,6 +224,7 @@ if not settle(
 if args.page == "search":
     # Show both destination states from the fixture: Slow Copper is already
     # in Downloads, while the YouTube result can still be added to it.
+    os.environ["SHUFFLE_DETERMINISTIC_SCREENSHOT"] = "1"
     window.start_playlist_search("Downloads")
     window.search_entry.set_text("Slow")
     if not settle(

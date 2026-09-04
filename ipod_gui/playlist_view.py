@@ -1472,6 +1472,8 @@ class PlaylistViewMixin:
     # -------------------------------------------------- adding from YouTube
 
     def _add_result_to_playlist(self, name, result):
+        if not self._can_fetch():
+            return
         if name is None:
             self.on_new_playlist(
                 None, then=lambda new: self._add_result_to_playlist(new, result)

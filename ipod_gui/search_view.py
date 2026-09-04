@@ -535,7 +535,11 @@ class SearchViewMixin:
         folder and the playlist is a file on this computer, and neither has
         anything to do with what happens to be plugged in.
         """
-        return bool(not self.busy and not self.youtube_unavailable)
+        return bool(
+            not self.busy
+            and not self.discovering_sources
+            and not self.youtube_unavailable
+        )
 
     def focus_search(self):
         """Put the cursor in the one field that searches both sources.

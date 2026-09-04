@@ -143,7 +143,15 @@ python3 tools/shoot.py --fixture /tmp/shuffle-demo \
   --output /tmp/library.png
 ```
 
-`--page` accepts `library`, `playlists`, or `settings`. `--scale` accepts `1` or `2` and changes raster density, not layout. The renderer fixes the color scheme and refuses invalid dimensions instead of silently changing them.
+`--page` accepts `library`, `playlists`, `search`, or `settings`. `--scale` accepts `1` or `2` and changes raster density, not layout. The renderer fixes the color scheme and refuses invalid dimensions instead of silently changing them.
+
+Render the playlist-aware search evidence:
+
+```bash
+python3 tools/shoot.py --fixture /tmp/shuffle-demo \
+  --page search --width 1180 --scale 1 \
+  --output /tmp/search.png
+```
 
 ## Continuous integration
 

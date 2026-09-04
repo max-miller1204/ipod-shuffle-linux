@@ -23,6 +23,7 @@ later by the sync and read out as something else.
 """
 
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -215,14 +216,19 @@ def read_playlist_entries(path):
 def resolve_playlist_entry(path, entry):
     """Resolve a local playlist entry without changing its serialized spelling."""
     entry = str(entry)
-    parsed = urlparse(entry)
-    if parsed.scheme:
+    if entry.casefold().startswith("file:"):
+        try:
+            parsed = urlparse(entry)
+        except ValueError:
+            return entry
         if parsed.scheme.casefold() != "file" or parsed.netloc not in (
             "",
             "localhost",
         ):
             return entry
         entry = unquote(parsed.path)
+    elif re.match(r"[A-Za-z][A-Za-z0-9+.-]*://", entry):
+        return entry
     candidate = Path(entry)
     if not candidate.is_absolute():
         candidate = Path(path).parent / candidate

@@ -577,6 +577,7 @@ class FakeWindow:
         self.source_generation = 0
         self.speech_engine_available = speech
         self.playlist_unavailable = None if speech else "No speech engine installed"
+        self.youtube_unavailable = None
         self.view = "playlists"
         self.local_playlists = []
         self.playlists = []
@@ -701,6 +702,7 @@ class FakeWindow:
     _remove_track_from_playlist = gui.IpodWindow._remove_track_from_playlist
     _move_track_between = gui.IpodWindow._move_track_between
     _add_result_to_playlist = gui.IpodWindow._add_result_to_playlist
+    _can_fetch = gui.IpodWindow._can_fetch
     _after_playlist_change = gui.IpodWindow._after_playlist_change
     _refresh_playlist_membership_views = (
         gui.IpodWindow._refresh_playlist_membership_views
@@ -822,9 +824,24 @@ relative_window._load_local_playlists()
 relative_window._remove_track_from_playlist("File URI", track_for(first))
 assert gui.read_playlist_entries(uri_file) == []
 
+colon_track = song("Artist: Song")
+colon_file = PLAYLISTS / "Colon.m3u"
+colon_entry = os.path.relpath(colon_track, PLAYLISTS)
+gui.write_playlist_entries(colon_file, [colon_entry])
+relative_window._load_local_playlists()
+assert "Colon" in relative_window._playlists_listing(track_for(colon_track))
+relative_window._add_tracks_to_playlist("Colon", [track_for(colon_track)])
+assert gui.read_playlist_entries(colon_file) == [colon_entry]
+
+malformed_file = PLAYLISTS / "Malformed.m3u"
+gui.write_playlist_entries(malformed_file, ["file://["])
+relative_window._load_local_playlists()
+
 gui.delete_local_playlist(relative_file)
 gui.delete_local_playlist(PLAYLISTS / "Relative Target.m3u")
 gui.delete_local_playlist(uri_file)
+gui.delete_local_playlist(colon_file)
+gui.delete_local_playlist(malformed_file)
 relative_window._load_local_playlists()
 
 # A previewed file lives in a cache that gets pruned, so it is kept first and
@@ -2082,6 +2099,12 @@ assert asked["video_id"] == "fJ9rUzIMcZQ", asked
 asked["on_failure"]()
 assert download_window.toasts[-1] == "Could not finish downloading Bohemian Rhapsody", (
     download_window.toasts
+)
+download_window.discovering_sources = True
+download_window._add_result_to_playlist("Fresh", result)
+download_window.discovering_sources = False
+assert len(download_window.downloads) == 1, (
+    "a playlist download started while source discovery was active"
 )
 # A playlist deleted since the menu was painted says so, rather than closing
 # the menu on nothing: a press that starts no download and shows no message is

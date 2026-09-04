@@ -48,24 +48,22 @@ if "--dump-json" in args:
     # a query, or the link itself when one was pasted.
     target = args[-1]
     query = target.split(":", 1)[1] if target.startswith("ytsearch") else target
-    print(
-        json.dumps(
+    result = {
+        "id": "testvideo",
+        "title": f"Test Track ({query})",
+        "uploader": "Test Artist",
+        "duration": 180,
+        "webpage_url": "https://www.youtube.com/watch?v=testvideo",
+    }
+    if os.environ.get("SHUFFLE_DETERMINISTIC_SCREENSHOT") != "1":
+        result["thumbnails"] = [
             {
-                "id": "testvideo",
-                "title": f"Test Track ({query})",
-                "uploader": "Test Artist",
-                "duration": 180,
-                "webpage_url": "https://www.youtube.com/watch?v=testvideo",
-                "thumbnails": [
-                    {
-                        "url": "https://i.ytimg.com/vi/testvideo/hqdefault.jpg",
-                        "width": 480,
-                        "height": 360,
-                    }
-                ],
+                "url": "https://i.ytimg.com/vi/testvideo/hqdefault.jpg",
+                "width": 480,
+                "height": 360,
             }
-        )
-    )
+        ]
+    print(json.dumps(result))
     raise SystemExit(0)
 
 
